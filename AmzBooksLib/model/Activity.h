@@ -1,11 +1,13 @@
 #ifndef ACTIVITY_H
 #define ACTIVITY_H
 
-// Can reprente an order shipment / return / refund and also inventory country re-location
+// Activity = one immutable-ish normalized accounting posting line (net + VAT) for a single event and single VAT bucket, with tax provenance (marketplace/self/manual) and VAT-territory context.
+
 
 #include <QString>
 #include <QDateTime>
 
+#include "Amount.h"
 #include "TaxJurisdictionLevel.h"
 #include "TaxScheme.h"
 #include "TaxSource.h"
@@ -14,12 +16,12 @@ class Activity final
 {
 public:
     Activity(QString eventId,                 // Order/shipment/refund/stock-move external ID (scoped by the owner entity)
+             QString activityId,              // Normalized immutable ID for this activity line
              QDateTime dateTime,              // Bookkeeping datetime (recognition time)
              QString currency,                // ISO 4217 (e.g., "EUR")
              QString countryCodeFrom,         // ISO 3166-1 alpha-2
              QString countryCodeTo,           // ISO 3166-1 alpha-2
-             double amountTaxed,              // Taxable base (net) in currency unit (see note in cpp)
-             double amountTaxes,              // VAT amount in currency unit (see note in cpp)
+             Amount amountSource,             // Net + Tax (Source)
              TaxSource taxSource,             // Marketplace/Self/Manual/Unknown
              QString taxDeclaringCountryCode, // ISO 3166-1 alpha-2 where VAT is declared
              TaxScheme taxScheme,             // e.g., EuOssUnion
@@ -30,10 +32,12 @@ public:
     void setTaxes(double taxes);
 
     const QString& getEventId() const noexcept;
+    const QString& getActivityId() const noexcept;
     const QDateTime& getDateTime() const noexcept;
     const QString& getCurrency() const noexcept;
     const QString& getCountryCodeFrom() const noexcept;
     const QString& getCountryCodeTo() const noexcept;
+
     double getAmountUntaxed() const noexcept;
     double getAmountTaxed() const noexcept;
     double getAmountTaxes() const noexcept;
@@ -46,15 +50,19 @@ public:
     const QString& getVatTerritoryFrom() const noexcept;
     const QString& getVatTerritoryTo() const noexcept;
 
+    QString getVatRate_4digits() const noexcept;
+    QString getVatRate_2digits() const noexcept;
+    double getVatRate() const noexcept;
+
 private:
     QString m_eventId;
+    QString m_activityId;
     QDateTime m_dateTime;
     QString m_currency;
     QString m_countryCodeFrom;
     QString m_countryCodeTo;
 
-    double m_amountTaxed = 0.0;
-    double m_AmountTaxesSource = 0.0;
+    Amount m_amountSource;
     double m_AmountTaxesComputed = 0.0;
 
     TaxSource m_taxSource = TaxSource::Unknown;

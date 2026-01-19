@@ -1,12 +1,12 @@
 #include "Activity.h"
 
 Activity::Activity(QString eventId,
+                   QString activityId,
                    QDateTime dateTime,
                    QString currency,
                    QString countryCodeFrom,
                    QString countryCodeTo,
-                   double amountTaxed,
-                   double amountTaxes,
+                   Amount amountSource,
                    TaxSource taxSource,
                    QString taxDeclaringCountryCode,
                    TaxScheme taxScheme,
@@ -14,12 +14,12 @@ Activity::Activity(QString eventId,
                    QString vatTerritoryFrom,
                    QString vatTerritoryTo)
     : m_eventId(std::move(eventId))
+    , m_activityId(std::move(activityId))
     , m_dateTime(std::move(dateTime))
     , m_currency(std::move(currency))
     , m_countryCodeFrom(std::move(countryCodeFrom))
     , m_countryCodeTo(std::move(countryCodeTo))
-    , m_amountTaxed(amountTaxed)
-    , m_AmountTaxesSource(amountTaxes)
+    , m_amountSource(std::move(amountSource))
     , m_taxSource(taxSource)
     , m_taxDeclaringCountryCode(std::move(taxDeclaringCountryCode))
     , m_taxScheme(taxScheme)
@@ -41,12 +41,18 @@ void Activity::setTaxes(double taxes)
     {
         m_taxSource = TaxSource::SelfComputed;
     }
+
     m_AmountTaxesComputed = taxes;
 }
 
 const QString& Activity::getEventId() const noexcept
 {
     return m_eventId;
+}
+
+const QString& Activity::getActivityId() const noexcept
+{
+    return m_activityId;
 }
 
 const QDateTime& Activity::getDateTime() const noexcept
@@ -76,7 +82,7 @@ double Activity::getAmountUntaxed() const noexcept
 
 double Activity::getAmountTaxed() const noexcept
 {
-    return m_amountTaxed;
+    return m_amountSource.getAmountTaxed();
 }
 
 double Activity::getAmountTaxes() const noexcept
@@ -86,12 +92,13 @@ double Activity::getAmountTaxes() const noexcept
     {
         return m_AmountTaxesComputed;
     }
-    return m_AmountTaxesSource;
+
+    return m_amountSource.getTaxes();
 }
 
 double Activity::getAmountTaxesSource() const noexcept
 {
-    return m_AmountTaxesSource;
+    return m_amountSource.getTaxes();
 }
 
 double Activity::getAmountTaxesComputed() const noexcept
@@ -127,4 +134,25 @@ const QString& Activity::getVatTerritoryFrom() const noexcept
 const QString& Activity::getVatTerritoryTo() const noexcept
 {
     return m_vatTerritoryTo;
+}
+
+double Activity::getVatRate() const noexcept
+{
+    double net = getAmountTaxed();
+    if (qFuzzyIsNull(net)) {
+        return 0.0;
+    }
+    return getAmountTaxes() / net;
+}
+
+QString Activity::getVatRate_4digits() const noexcept
+{
+    // Return e.g. "0.2000" for 20%
+    return QString::number(getVatRate(), 'f', 4);
+}
+
+QString Activity::getVatRate_2digits() const noexcept
+{
+    // Return e.g. "0.20" for 20%
+    return QString::number(getVatRate(), 'f', 2);
 }

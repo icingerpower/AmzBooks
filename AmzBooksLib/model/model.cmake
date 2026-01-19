@@ -4,4 +4,10 @@ SET(MODEL_FILES
     ${CMAKE_CURRENT_LIST_DIR}/TaxScheme.h
     ${CMAKE_CURRENT_LIST_DIR}/TaxJurisdictionLevel.h
     ${CMAKE_CURRENT_LIST_DIR}/TaxSource.h
+    ${CMAKE_CURRENT_LIST_DIR}/Amount.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/Amount.h
+    ${CMAKE_CURRENT_LIST_DIR}/Shipment.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/Shipment.h
+    ${CMAKE_CURRENT_LIST_DIR}/LineItem.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/LineItem.h
 )
