@@ -19,6 +19,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(TestOrders tst_testorders.cpp)
 add_test(NAME TestOrders COMMAND TestOrders)
 
-target_link_libraries(TestOrders PRIVATE Qt${QT_VERSION_MAJOR}::Test)
-target_include_directories(TestOrders PRIVATE ../TestOrdersLib)
+target_link_libraries(TestOrders PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestOrders PRIVATE ../AmzBooksLib)
 

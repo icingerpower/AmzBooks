@@ -2,6 +2,8 @@ cmake_minimum_required(VERSION 3.5)
 
 project(AmzBooks)
 
+enable_testing()
+
 add_subdirectory(AmzBooksLib)
 add_subdirectory(AmzBooks)
 add_subdirectory(AmzBooksAutoTests)

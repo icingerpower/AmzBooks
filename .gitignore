@@ -1,3 +1,4 @@
 tests
 *.user
 *.code-workspace
+*build*
