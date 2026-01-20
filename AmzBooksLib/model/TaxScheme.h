@@ -2,6 +2,8 @@
 #define TAXSCHEME_H
 
 #include <QtGlobal>
+#include <QHash>
+#include <QDebug>
 
 enum class TaxScheme : quint8 {
     Unknown,
@@ -19,5 +21,14 @@ enum class TaxScheme : quint8 {
     Exempt,                   // Exempt supply (no VAT)
     OutOfScope                // Outside scope of VAT (territories excluded, etc.)
 };
+
+inline uint qHash(TaxScheme key, uint seed = 0)
+{
+    return ::qHash(static_cast<int>(key), seed);
+}
+
+QString taxSchemeToString(TaxScheme type);
+TaxScheme toTaxScheme(const QString &str);
+QDebug operator<<(QDebug dbg, TaxScheme type);
 
 #endif // TAXSCHEME_H

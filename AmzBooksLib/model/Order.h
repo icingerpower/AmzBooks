@@ -1,12 +1,12 @@
 #ifndef ORDER_H
 #define ORDER_H
 
-#include "Address.h"
-
 #include <optional>
 #include <QString>
 #include <QMap>
 #include <QDateTime>
+
+#include "Address.h"
 
 class Shipment;
 class Refund;

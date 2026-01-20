@@ -6,7 +6,6 @@
 class Refund : public Shipment
 {
 public:
-    Refund(Activity activity, QList<LineItem> items);
     Refund(Activity activity);
 };
 

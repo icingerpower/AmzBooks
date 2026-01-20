@@ -1,8 +1,16 @@
 SET(MODEL_FILES
     ${CMAKE_CURRENT_LIST_DIR}/Activity.cpp
     ${CMAKE_CURRENT_LIST_DIR}/Activity.h
+    ${CMAKE_CURRENT_LIST_DIR}/ActivitySource.h
+    ${CMAKE_CURRENT_LIST_DIR}/ActivitySourceType.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ActivitySourceType.h
+    ${CMAKE_CURRENT_LIST_DIR}/SaleType.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/SaleType.h
+    ${CMAKE_CURRENT_LIST_DIR}/TaxScheme.cpp
     ${CMAKE_CURRENT_LIST_DIR}/TaxScheme.h
+    ${CMAKE_CURRENT_LIST_DIR}/TaxJurisdictionLevel.cpp
     ${CMAKE_CURRENT_LIST_DIR}/TaxJurisdictionLevel.h
+    ${CMAKE_CURRENT_LIST_DIR}/TaxSource.cpp
     ${CMAKE_CURRENT_LIST_DIR}/TaxSource.h
     ${CMAKE_CURRENT_LIST_DIR}/Amount.cpp
     ${CMAKE_CURRENT_LIST_DIR}/Amount.h
@@ -16,6 +24,15 @@ SET(MODEL_FILES
     ${CMAKE_CURRENT_LIST_DIR}/Order.h
     ${CMAKE_CURRENT_LIST_DIR}/Address.cpp
     ${CMAKE_CURRENT_LIST_DIR}/Address.h
-    ${CMAKE_CURRENT_LIST_DIR}/Result.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/InvoicingInfo.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/InvoicingInfo.h
     ${CMAKE_CURRENT_LIST_DIR}/Result.h
+    ${CMAKE_CURRENT_LIST_DIR}/TaxResolver.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/TaxResolver.h
+    ${CMAKE_CURRENT_LIST_DIR}/VatResolver.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/VatResolver.h
+    ${CMAKE_CURRENT_LIST_DIR}/OrderManager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/OrderManager.h
+    ${CMAKE_CURRENT_LIST_DIR}/VatTerritoryResolver.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/VatTerritoryResolver.h
 )

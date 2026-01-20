@@ -1,5 +1,34 @@
 #include "LineItem.h"
 
+Result<LineItem> LineItem::create(QString sku,
+                                  QString name,
+                                  double taxedAmount,
+                                  double vatRate,
+                                  int quantity)
+{
+    Result<LineItem> result;
+
+    if (name.isEmpty()) {
+        result.errors.append(ValidationError{"name", "Name must not be empty"});
+    }
+    if (taxedAmount == 0.0) {
+        result.errors.append(ValidationError{"taxedAmount", "Taxed amount must not be 0"});
+    }
+    if (quantity <= 0) {
+        result.errors.append(ValidationError{"quantity", "Quantity must be greater than 0"});
+    }
+
+    if (result.errors.isEmpty()) {
+        result.value.emplace(LineItem(std::move(sku),
+                                      std::move(name),
+                                      taxedAmount,
+                                      vatRate,
+                                      quantity));
+    }
+
+    return result;
+}
+
 LineItem::LineItem(
         QString sku,
         QString name,

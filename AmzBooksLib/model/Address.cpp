@@ -27,6 +27,11 @@ Address::Address(const QString &fullName,
 {
 }
 
+bool Address::isCompleteCompany() const noexcept
+{
+    return !m_taxId.isEmpty() && !m_companyName.isEmpty();
+}
+
 const QString& Address::getFullName() const noexcept
 {
     return m_fullName;

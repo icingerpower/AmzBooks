@@ -2,6 +2,8 @@
 #define TAXJURISDICTIONLEVEL_H
 
 #include <QtGlobal>
+#include <QHash>
+#include <QDebug>
 
 enum class TaxJurisdictionLevel : quint8 {
     Unknown,
@@ -14,5 +16,14 @@ enum class TaxJurisdictionLevel : quint8 {
     Territory,       // Special VAT territory override (e.g., IT-LIVIGNO)
     Zone             // Custom zones (e.g., customs zones, tax-free zones)
 };
+
+inline uint qHash(TaxJurisdictionLevel key, uint seed = 0)
+{
+    return ::qHash(static_cast<int>(key), seed);
+}
+
+QString taxJurisdictionLevelToString(TaxJurisdictionLevel type);
+TaxJurisdictionLevel toTaxJurisdictionLevel(const QString &str);
+QDebug operator<<(QDebug dbg, TaxJurisdictionLevel type);
 
 #endif // TAXJURISDICTIONLEVEL_H

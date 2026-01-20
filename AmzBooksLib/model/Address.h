@@ -19,6 +19,7 @@ public:
             const QString &companyName,
             const QString &taxId);
 
+    bool isCompleteCompany() const noexcept;
     const QString& getFullName() const noexcept;
     const QString& getAddressLine1() const noexcept;
     const QString& getAddressLine2() const noexcept;

@@ -12,13 +12,18 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Gui)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Gui)
 
+include(../../common/utils/utils.cmake)
 include(model/model.cmake)
 
 add_library(AmzBooksLib STATIC
   AmzBooksLib.cpp
   AmzBooksLib.h
+  ${COUNTRY_FILES}
+  ${UTILS_FILES}
   ${MODEL_FILES}
 )
+
+
 
 target_link_libraries(AmzBooksLib PRIVATE Qt${QT_VERSION_MAJOR}::Gui)
 

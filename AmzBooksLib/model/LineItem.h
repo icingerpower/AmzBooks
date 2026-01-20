@@ -6,6 +6,7 @@
 #include <optional>
 
 #include "Amount.h"
+#include "Result.h"
 
 // LineItem = one priced component of a shipment/order (product, shipping, fee, or discount)
 // with quantity and VAT rate, able to compute totals and accept a small VAT adjustment for reconciliation.
@@ -13,11 +14,11 @@
 class LineItem
 {
 public:
-    LineItem(QString sku,
-             QString name,
-             double taxedAmount,
-             double vatRate,
-             int quantity);
+    static Result<LineItem> create(QString sku,
+                                   QString name,
+                                   double taxedAmount,
+                                   double vatRate,
+                                   int quantity);
 
     const QString& getSku() const noexcept;
     const QString& getName() const noexcept;
@@ -30,6 +31,12 @@ public:
     void adjustTaxes(double delta);
 
 protected:
+    LineItem(QString sku,
+             QString name,
+             double taxedAmount,
+             double vatRate,
+             int quantity);
+
     QString m_sku;
     QString m_name;
     int m_quantity;
