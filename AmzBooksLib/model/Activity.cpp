@@ -27,8 +27,7 @@ Activity::Activity(QString eventId,
     , m_vatTerritoryFrom(std::move(vatTerritoryFrom))
     , m_vatTerritoryTo(std::move(vatTerritoryTo))
 {
-    // NOTE: using double for money is risky (rounding/reconciliation).
-    // Consider switching to minor units (qint64 cents) as soon as possible.
+    Q_ASSERT(m_dateTime.isValid());
 }
 
 void Activity::setTaxes(double taxes)

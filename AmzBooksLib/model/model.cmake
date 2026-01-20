@@ -10,4 +10,12 @@ SET(MODEL_FILES
     ${CMAKE_CURRENT_LIST_DIR}/Shipment.h
     ${CMAKE_CURRENT_LIST_DIR}/LineItem.cpp
     ${CMAKE_CURRENT_LIST_DIR}/LineItem.h
+    ${CMAKE_CURRENT_LIST_DIR}/Refund.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/Refund.h
+    ${CMAKE_CURRENT_LIST_DIR}/Order.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/Order.h
+    ${CMAKE_CURRENT_LIST_DIR}/Address.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/Address.h
+    ${CMAKE_CURRENT_LIST_DIR}/Result.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/Result.h
 )

@@ -7,6 +7,8 @@
 #include "model/TaxSource.h"
 #include "model/TaxScheme.h"
 #include "model/TaxJurisdictionLevel.h"
+#include "model/Order.h"
+#include "model/Refund.h"
 
 class TestOrders : public QObject
 {
@@ -20,8 +22,9 @@ private slots:
     void initTestCase();
     void cleanupTestCase();
     void test_Activity_getters();
-
     void test_shipments();
+    void test_refunds();
+    void test_orders();
 };
 
 TestOrders::TestOrders()
@@ -213,6 +216,82 @@ void TestOrders::test_shipments()
     // Each item should increase by 0.10. Original 10.0 --> 10.10.
     QCOMPARE(shipmentLargeDelta.getItems()[0].getTotalTaxes(), 10.10);
     QCOMPARE(shipmentLargeDelta.getItems()[1].getTotalTaxes(), 10.10);
+}
+
+// test_refunds implementation
+void TestOrders::test_refunds()
+{
+    // Activity for refund
+    Activity activity(
+        "evt-refund-001", "act-refund-001", QDateTime::currentDateTime(), "EUR", "FR", "DE",
+        Amount(50.0, 10.0), 
+        TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country
+    );
+
+    QList<LineItem> items;
+    items << LineItem("SKU1", "Item 1", 50.0, 0.20, 1);
+
+    Refund refund(activity, items);
+
+    QCOMPARE(refund.getActivity().getEventId(), "evt-refund-001");
+    // Verify it behaves like a shipment (inherits)
+    QCOMPARE(refund.getItems().size(), 1);
+}
+
+void TestOrders::test_orders()
+{
+    // 1. Create Order
+    QString orderId = "ORDER-001";
+    Order order(orderId);
+    QCOMPARE(order.id(), orderId);
+
+    // 2. Set Address
+    Address addr(
+        "John Doe", "123 Main St", "Apt 4", "Building B", "Paris", "75001", "FR", "Ile-de-France",
+        "john@example.com", "+33123456789", "Doe Corp", "FR12345678901"
+    );
+    order.setAddressTo(addr);
+
+    QVERIFY(order.addressTo().has_value());
+    QCOMPARE(order.addressTo()->getFullName(), QString("John Doe"));
+    QCOMPARE(order.addressTo()->getAddressLine3(), QString("Building B"));
+
+    // 3. Add Activity (Shipment)
+    Activity actShip(
+        "evt-ship-001", "act-ship-001", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE",
+        Amount(100.0, 20.0), 
+        TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country
+    );
+    QList<LineItem> shipItems;
+    shipItems << LineItem("SKU1", "Item 1", 100.0, 0.20, 1);
+    Shipment shipment(actShip, shipItems);
+
+    order.addShipment(&shipment);
+
+    // 4. Add Activity (Refund)
+    Activity actRefund(
+        "evt-ref-001", "act-ref-001", QDateTime(QDate(2023, 1, 2), QTime(15, 0)), "EUR", "FR", "DE",
+        Amount(50.0, 10.0), 
+        TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country
+    );
+    QList<LineItem> refItems;
+    refItems << LineItem("SKU1", "Item 1", 50.0, 0.20, 1);
+    Refund refund(actRefund, refItems);
+
+    order.addRefund(&refund);
+
+    // 5. Verify Activities
+    const auto &activities = order.activities();
+    QCOMPARE(activities.size(), 2);
+
+    // Check mapping by date order
+    auto it = activities.begin();
+    QCOMPARE(it.key(), QDateTime(QDate(2023, 1, 1), QTime(10, 0)));
+    QCOMPARE(it.value()->getId(), QString("act-ship-001"));
+
+    ++it;
+    QCOMPARE(it.key(), QDateTime(QDate(2023, 1, 2), QTime(15, 0)));
+    QCOMPARE(it.value()->getId(), QString("act-ref-001"));
 }
 
 
