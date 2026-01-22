@@ -9,8 +9,8 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Gui)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Gui)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Gui Sql)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Gui Sql)
 
 include(../../common/utils/utils.cmake)
 include(model/model.cmake)
@@ -25,6 +25,6 @@ add_library(AmzBooksLib STATIC
 
 
 
-target_link_libraries(AmzBooksLib PRIVATE Qt${QT_VERSION_MAJOR}::Gui)
+target_link_libraries(AmzBooksLib PUBLIC Qt${QT_VERSION_MAJOR}::Gui Qt${QT_VERSION_MAJOR}::Sql)
 
 target_compile_definitions(AmzBooksLib PRIVATE AMZBOOKSLIB_LIBRARY)

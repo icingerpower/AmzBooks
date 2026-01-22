@@ -1,8 +1,8 @@
 #include "Refund.h"
 
 
-Refund::Refund(Activity activity)
-    : Shipment(activity)
+Refund::Refund(QList<Activity> activities)
+    : Shipment(activities)
 {
 
 }

@@ -10,17 +10,25 @@
 
 #include <QString>
 #include <QDate>
+#include <QDir>
+#include <QMultiMap>
+#include <QSharedPointer>
+#include <functional>
 
-#include "Address.h"
+#include <QSqlDatabase>
+#include <QJsonObject>
 
+class Address;
 class ActivitySource;
 class Shipment;
 class InvoicingInfo;
+class ActivityUpdate;
 
 class OrderManager
 {
+    friend class TestOrderManager;
 public:
-    OrderManager(const QString &workingDirectory);
+    OrderManager(const QDir &workingDirectory);
     ~OrderManager();
     // TODO add source (SourceType such as report or API, main channel / subchannel, reportOrMethodType
     QDateTime getLastDateTime(ActivitySource *activitySource) const;
@@ -35,20 +43,28 @@ public:
                                , const QDate &newDateIfConflict); // Will record without erasing the original shipment (exception if shipment doesn't exist). // Save if new. Replace if not published OR not Activity::isDifferentTaxese. Otherwise create double entry (refund / re-invoicing).
     void recordAddressTo(const QString &orderId,
                          const Address &addressTo); // Replace if exists
+    // Records invoicing information (number, link, items) for a given shipment (or its root).
+    // The info is stored by shipment root ID, ensuring access across all revisions/conflicts.
     void recordInvoicingInfo(const QString &shipmentOrRefundId,
                              const InvoicingInfo *invoicingInfo);
+
+    // Retrieves the invoicing info associated with a shipment's root ID.
+    QSharedPointer<InvoicingInfo> getInvoicingInfo(const QString &shipmentId) const;
     void publish(QDate &dateUntil); //Shipment updated are published and the original from source are ignored (when replaced) except if they were published already
     void clearUnpublished(); // Usefull if data were loaded with a bug. It will clear all unpublished
     void deleteDatabase(); // Usefull to reset + also for unit tests
-    // QMultiMap<QDateTime, QSharedPointer<Shipment>> getShipmentAndRefunds(const QDate &dateFrom, const QDate &dateTo) const; // Here updated shipment replace original shipment
-    // void publish(const QDate &dateUntil);
-    // TODO invoices / orders / linkage to accounting generation
-    // Link shipment by ActivitySource
+    QMultiMap<QDateTime, QSharedPointer<Shipment>> getShipmentAndRefunds(const QDate &dateFrom, const QDate &dateTo, std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const;
     void copyDatabase(const QString &filePath, int yearUntil); // To archive all orders
     void removeInDatabase(int yearUntil); // To remove old data
+    
+    // Returns a new model for specific view usage
+    ActivityUpdate *createActivityUpdateModel(const QString &shipmentId, QObject* parent = nullptr); 
 
 private:
+    void initDb();
+    
     QString m_filePathDb;
+    QSqlDatabase m_db;
 };
 
 #endif // ORDERMANAGER_H

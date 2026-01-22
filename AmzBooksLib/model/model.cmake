@@ -35,4 +35,6 @@ SET(MODEL_FILES
     ${CMAKE_CURRENT_LIST_DIR}/OrderManager.h
     ${CMAKE_CURRENT_LIST_DIR}/VatTerritoryResolver.cpp
     ${CMAKE_CURRENT_LIST_DIR}/VatTerritoryResolver.h
+    ${CMAKE_CURRENT_LIST_DIR}/ActivityUpdate.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ActivityUpdate.h
 )

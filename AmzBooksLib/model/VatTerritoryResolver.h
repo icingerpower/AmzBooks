@@ -2,6 +2,7 @@
 #define VATTERRITORYRESOLVER_H
 
 #include <QAbstractTableModel>
+#include <QDir>
 #include <QHash>
 #include <QSet>
 
@@ -15,7 +16,8 @@ class VatTerritoryResolver : public QAbstractTableModel
     Q_OBJECT
 
 public:
-    explicit VatTerritoryResolver(const QString &workingDir, QObject *parent = nullptr);
+    explicit VatTerritoryResolver(const QDir &workingDir, QObject *parent = nullptr);
+
 
     QString getTerritoryId(const QString &countryCode, const QString &postalCode, const QString &city) const noexcept;
     void addTerritory(const QString &countryCode, const QString &postalCode, const QString &city, const QString &territoryId);

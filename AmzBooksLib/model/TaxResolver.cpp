@@ -1,8 +1,10 @@
 #include "TaxResolver.h"
+#include "CountriesEu.h"
 #include <QDate>
 #include <QDateTime>
 
-TaxResolver::TaxResolver(const QString &workingDir)
+#include <QDir>
+TaxResolver::TaxResolver(const QDir &workingDir)
     : m_vatTerritoryResolver{workingDir}
 {
 
@@ -18,18 +20,7 @@ bool TaxResolver::isVatTerritory(
 
 }
 
-bool TaxResolver::isEuMember(const QString &countryCode, const QDate &date)
-{
-    if (countryCode == "GB") {
-        // Brexit: GB is EU member until 2020-12-31 inclusive.
-        return date < QDate(2021, 1, 1);
-    }
 
-    static const QSet<QString> euCountries = {
-        "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK", "MC", "XI"
-    };
-    return euCountries.contains(countryCode);
-}
 
 
     TaxResolver::TaxContext TaxResolver::getTaxContext(
@@ -55,8 +46,8 @@ bool TaxResolver::isEuMember(const QString &countryCode, const QDate &date)
     // Check effective territory for EU membership.
     // This allows identifying XI (Northern Ireland) or MC (Monaco) as EU, 
     // while excluding others like Canary Islands (ES-CANARY) which are not in the EU list.
-    bool isOriginEu = isEuMember(effectiveOrigin, dateTime.date());
-    bool isDestEu = isEuMember(effectiveDestination, dateTime.date());
+    bool isOriginEu = CountriesEu::isEuMember(effectiveOrigin, dateTime.date());
+    bool isDestEu = CountriesEu::isEuMember(effectiveDestination, dateTime.date());
 
     TaxContext context;
     context.taxDeclaringCountryCode = "";

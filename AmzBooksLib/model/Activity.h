@@ -7,7 +7,9 @@
 #include <QString>
 #include <QDateTime>
 
+#include <QJsonObject>
 #include "Amount.h"
+
 #include "TaxJurisdictionLevel.h"
 #include "TaxScheme.h"
 #include "TaxSource.h"
@@ -19,6 +21,7 @@ class Activity final
 public:
     static Result<Activity> create(QString eventId,                 // Order/shipment/refund/stock-move external ID (scoped by the owner entity)
                                    QString activityId,              // Normalized immutable ID for this activity line
+                                   QString subActivityId,           // Optional sub-ID (e.g. for split lines)
                                    QDateTime dateTime,              // Bookkeeping datetime (recognition time)
                                    QString currency,                // ISO 4217 (e.g., "EUR")
                                    QString countryCodeFrom,         // ISO 3166-1 alpha-2
@@ -33,12 +36,16 @@ public:
                                    QString vatTerritoryFrom = QString{},
                                    QString vatTerritoryTo   = QString{});
 
+    static Activity fromJson(const QJsonObject &json);
+    QJsonObject toJson() const;
+
     bool isDifferentTaxes(const Activity &other) const;
 
     void setTaxes(double taxes);
 
     const QString& getEventId() const noexcept;
     const QString& getActivityId() const noexcept;
+    const QString& getSubActivityId() const noexcept;
     const QDateTime& getDateTime() const noexcept;
     const QString& getCurrency() const noexcept;
     const QString& getCountryCodeFrom() const noexcept;
@@ -65,6 +72,7 @@ public:
 private:
     Activity(QString eventId,
              QString activityId,
+             QString subActivityId,
              QDateTime dateTime,
              QString currency,
              QString countryCodeFrom,
@@ -77,10 +85,12 @@ private:
              TaxJurisdictionLevel taxJurisdictionLevel,
              SaleType saleType,
              QString vatTerritoryFrom,
-             QString vatTerritoryTo);
+             QString vatTerritoryTo,
+             double taxesComputed);
 
     QString m_eventId;
     QString m_activityId;
+    QString m_subActivityId;
     QDateTime m_dateTime;
     QString m_currency;
     QString m_countryCodeFrom;

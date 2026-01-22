@@ -7,6 +7,7 @@
 
 #include "Amount.h"
 #include "Result.h"
+#include <QJsonObject>
 
 // LineItem = one priced component of a shipment/order (product, shipping, fee, or discount)
 // with quantity and VAT rate, able to compute totals and accept a small VAT adjustment for reconciliation.
@@ -30,7 +31,15 @@ public:
 
     void adjustTaxes(double delta);
 
+    static LineItem fromJson(const QJsonObject &json);
+    QJsonObject toJson() const;
+
 protected:
+    LineItem(QString sku,
+             QString name,
+             int quantity,
+             Amount amount);
+
     LineItem(QString sku,
              QString name,
              double taxedAmount,

@@ -1,4 +1,40 @@
 #include "Address.h"
+#include <QJsonObject>
+
+Address Address::fromJson(const QJsonObject &json) {
+    return Address(
+        json["fullName"].toString(),
+        json["addressLine1"].toString(),
+        json["addressLine2"].toString(),
+        json["addressLine3"].toString(),
+        json["city"].toString(),
+        json["postalCode"].toString(),
+        json["countryCode"].toString(),
+        json["stateOrRegion"].toString(),
+        json["email"].toString(),
+        json["phone"].toString(),
+        json["companyName"].toString(),
+        json["taxId"].toString()
+    );
+}
+
+QJsonObject Address::toJson() const {
+    return QJsonObject{
+        {"fullName", m_fullName},
+        {"addressLine1", m_addressLine1},
+        {"addressLine2", m_addressLine2},
+        {"addressLine3", m_addressLine3},
+        {"city", m_city},
+        {"postalCode", m_postalCode},
+        {"countryCode", m_countryCode},
+        {"stateOrRegion", m_stateOrRegion},
+        {"email", m_email},
+        {"phone", m_phone},
+        {"companyName", m_companyName},
+        {"taxId", m_taxId}
+    };
+}
+
 
 Address::Address(const QString &fullName,
                  const QString &addressLine1,

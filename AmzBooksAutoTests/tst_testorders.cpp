@@ -13,6 +13,7 @@
 #include "model/TaxResolver.h"
 #include "model/SaleType.h"
 #include "model/InvoicingInfo.h"
+#include "CountriesEu.h"
 
 class TestOrders : public QObject
 {
@@ -69,7 +70,7 @@ void TestOrders::test_Activity_getters()
     // Case 1: MarketplaceProvided
     {
         auto result = Activity::create(
-            eventId, activityId, dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
+            eventId, activityId, "", dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
             TaxSource::MarketplaceProvided, taxDeclaring,
             TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
         );
@@ -115,7 +116,7 @@ void TestOrders::test_Activity_getters()
     // Case 2: SelfComputed
     {
         auto result = Activity::create(
-            eventId, activityId, dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
+            eventId, activityId, "", dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
             TaxSource::SelfComputed, taxDeclaring,
             TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
         );
@@ -137,7 +138,7 @@ void TestOrders::test_Activity_getters()
     // Case 3: ManualOverride
     {
         auto result = Activity::create(
-            eventId, activityId, dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
+            eventId, activityId, "", dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
             TaxSource::ManualOverride, taxDeclaring,
             TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
         );
@@ -160,7 +161,7 @@ void TestOrders::test_Activity_getters()
     // Case 4: Unknown -> SelfComputed
     {
         auto result = Activity::create(
-            eventId, activityId, dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
+            eventId, activityId, "", dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
             TaxSource::Unknown, taxDeclaring,
             TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
         );
@@ -177,7 +178,7 @@ void TestOrders::test_shipments()
 {
     // Create Activity
     auto result = Activity::create(
-        "evt-ship-001", "act-ship-001", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+        "evt-ship-001", "act-ship-001", "", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
         Amount(100.0, 20.0), // Taxed: 100, Taxes: 20
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
@@ -201,9 +202,9 @@ void TestOrders::test_shipments()
 
     // Shipment with matching taxes (20.0 total vs 10+10)
     // Shipment no longer holds items.
-    Shipment shipment(activity);
+    Shipment shipment({activity});
 
-    QCOMPARE(shipment.getActivity().getEventId(), "evt-ship-001");
+    QCOMPARE(shipment.getActivities().first().getEventId(), "evt-ship-001");
     
     // Verify InvoicingInfo handles items
     InvoicingInfo invInfo(&shipment, items);
@@ -217,14 +218,14 @@ void TestOrders::test_shipments()
     // 0.01 / 1 (first item qty) = 0.01 <= 0.015.
     // Should dump 0.01 on the first item.
     auto resultDelta = Activity::create(
-        "evt-ship-002", "act-ship-002", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+        "evt-ship-002", "act-ship-002", "", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
         Amount(100.0, 20.01), 
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
     QVERIFY(resultDelta.ok());
     Activity activityDelta = *resultDelta.value;
 
-    Shipment shipmentDelta(activityDelta);
+    Shipment shipmentDelta({activityDelta});
     
     // Create InvoicingInfo to trigger tax adjustment, passing items explicitly
     InvoicingInfo invInfoDelta(&shipmentDelta, items);
@@ -238,14 +239,14 @@ void TestOrders::test_shipments()
     // Activity says 20.20 (+0.20 delta). 0.20 / 1 (first item qty) = 0.20 > 0.015.
     // Should spread 0.20 across 2 items (total qty 2). 0.10 per item.
     auto resultLargeDelta = Activity::create(
-        "evt-ship-003", "act-ship-003", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+        "evt-ship-003", "act-ship-003", "", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
         Amount(100.0, 20.20),
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
     QVERIFY(resultLargeDelta.ok());
     Activity activityLargeDelta = *resultLargeDelta.value;
 
-    Shipment shipmentLargeDelta(activityLargeDelta);
+    Shipment shipmentLargeDelta({activityLargeDelta});
     InvoicingInfo invInfoLargeDelta(&shipmentLargeDelta, items);
     
     // Each item should increase by 0.10. Original 10.0 --> 10.10.
@@ -258,7 +259,7 @@ void TestOrders::test_refunds()
 {
     // Activity for refund
     auto result = Activity::create(
-        "evt-refund-001", "act-refund-001", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+        "evt-refund-001", "act-refund-001", "", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
         Amount(50.0, 10.0), 
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
@@ -272,9 +273,9 @@ void TestOrders::test_refunds()
     QVERIFY(resItem.ok());
     items << *resItem.value;
 
-    Refund refund(activity); // Refund no longer takes items
+    Refund refund({activity}); // Refund no longer takes items
 
-    QCOMPARE(refund.getActivity().getEventId(), "evt-refund-001");
+    QCOMPARE(refund.getActivities().first().getEventId(), "evt-refund-001");
     // Verify InvoicingInfo with Refund
     InvoicingInfo invInfo(&refund, items);
     QCOMPARE(invInfo.getItems().size(), 1);
@@ -300,7 +301,7 @@ void TestOrders::test_orders()
 
     // 3. Add Activity (Shipment)
     auto resultShip = Activity::create(
-        "evt-ship-001", "act-ship-001", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        "evt-ship-001", "act-ship-001", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
         Amount(100.0, 20.0), 
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
@@ -309,13 +310,13 @@ void TestOrders::test_orders()
 
 
     // Shipment no longer takes items
-    Shipment shipment(actShip);
+    Shipment shipment({actShip});
 
     order.addShipment(&shipment);
 
     // 4. Add Activity (Refund)
     auto resultRef = Activity::create(
-        "evt-ref-001", "act-ref-001", QDateTime(QDate(2023, 1, 2), QTime(15, 0)), "EUR", "FR", "DE", "DE",
+        "evt-ref-001", "act-ref-001", "", QDateTime(QDate(2023, 1, 2), QTime(15, 0)), "EUR", "FR", "DE", "DE",
         Amount(50.0, 10.0), 
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
@@ -323,7 +324,7 @@ void TestOrders::test_orders()
     Activity actRefund = *resultRef.value;
     
     // Refund no longer takes items
-    Refund refund(actRefund);
+    Refund refund({actRefund});
 
     order.addRefund(&refund);
 
@@ -347,7 +348,7 @@ void TestOrders::test_vatTerritoryResolver()
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
     
-    VatTerritoryResolver resolver(tempDir.path());
+    VatTerritoryResolver resolver(QDir{tempDir.path()});
     
     // Check initial content (should be populated by _fillIfEmpty)
     QVERIFY(resolver.rowCount() > 0);
@@ -416,7 +417,7 @@ void TestOrders::test_vatTerritoryResolver()
     QVERIFY(!resolver.getTerritoryId("YY", "88888", "AnyCity").isEmpty()); // 22
 
     // Check persistence by reloading in a new resolver
-    VatTerritoryResolver resolver2(tempDir.path());
+    VatTerritoryResolver resolver2(QDir{tempDir.path()});
     QVERIFY(!resolver2.getTerritoryId("XX", "99999", "Wonderland").isEmpty()); // 23
     QVERIFY(!resolver2.getTerritoryId("YY", "88888", "OtherCity").isEmpty()); // 24
     
@@ -458,7 +459,7 @@ void TestOrders::test_getTaxContext()
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
 
-    TaxResolver resolver(tempDir.path());
+    TaxResolver resolver(QDir{tempDir.path()});
     QDateTime now = QDateTime::currentDateTime();
 
     // --- B2C Cases (isToBusiness = false) ---
@@ -551,18 +552,18 @@ void TestOrders::test_getTaxContext()
 void TestOrders::test_isEuMember()
 {
     // Standard EU
-    QVERIFY(TaxResolver::isEuMember("FR", QDate(2020, 1, 1)));
-    QVERIFY(TaxResolver::isEuMember("DE", QDate(2025, 1, 1)));
+    QVERIFY(CountriesEu::isEuMember("FR", QDate(2020, 1, 1)));
+    QVERIFY(CountriesEu::isEuMember("DE", QDate(2025, 1, 1)));
     
     // Non-EU
-    QVERIFY(!TaxResolver::isEuMember("US", QDate(2020, 1, 1)));
-    QVERIFY(!TaxResolver::isEuMember("CH", QDate(2025, 1, 1)));
+    QVERIFY(!CountriesEu::isEuMember("US", QDate(2020, 1, 1)));
+    QVERIFY(!CountriesEu::isEuMember("CH", QDate(2025, 1, 1)));
 
     // Brexit GB
     // Member before 2021
-    QVERIFY(TaxResolver::isEuMember("GB", QDate(2020, 12, 31)));
+    QVERIFY(CountriesEu::isEuMember("GB", QDate(2020, 12, 31)));
     // Non-member from 2021
-    QVERIFY(!TaxResolver::isEuMember("GB", QDate(2021, 1, 1)));
+    QVERIFY(!CountriesEu::isEuMember("GB", QDate(2021, 1, 1)));
 }
 
 

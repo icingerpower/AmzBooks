@@ -9,6 +9,7 @@
 #include "model/VatResolver.h"
 #include "model/VatTerritoryResolver.h"
 #include "model/TaxResolver.h"
+#include "CountriesEu.h"
 #include "ValidationBlacklist.h"
 
 class TestVatRateResolver : public QObject
@@ -175,7 +176,7 @@ void TestVatRateResolver::test_AmazonReportsRates()
                  QString destinationForCheck = arrival;
                  if (destinationForCheck.isEmpty()) destinationForCheck = taxCountry;
                  
-                 bool isTargetDest = TaxResolver::isEuMember(destinationForCheck, QDate::currentDate())
+                 bool isTargetDest = CountriesEu::isEuMember(destinationForCheck, QDate::currentDate())
                                      || destinationForCheck == "GB"
                                      || destinationForCheck == "XI"
                                      || destinationForCheck == "IE"; 

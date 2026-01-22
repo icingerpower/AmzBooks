@@ -6,7 +6,7 @@
 class Refund : public Shipment
 {
 public:
-    Refund(Activity activity);
+    Refund(QList<Activity> activities);
 };
 
 #endif // REFUND_H

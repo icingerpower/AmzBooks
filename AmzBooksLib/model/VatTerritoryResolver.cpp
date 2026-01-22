@@ -14,10 +14,10 @@ const QStringList VatTerritoryResolver::HEADER{
     , QObject::tr("Territory ID")
 };
 
-VatTerritoryResolver::VatTerritoryResolver(const QString &workingDir, QObject *parent)
+VatTerritoryResolver::VatTerritoryResolver(const QDir &workingDir, QObject *parent)
     : QAbstractTableModel(parent)
 {
-    m_filePath = QDir{workingDir}.absoluteFilePath("vatTerritories.csv");
+    m_filePath = workingDir.absoluteFilePath("vatTerritories.csv");
     _load();
     _fillIfEmpty();
 }

@@ -15,11 +15,16 @@ public:
                   , std::optional<QString> invoiceNumber = std::nullopt
                   , std::optional<QString> invoiceLink = std::nullopt);
 
-    void setItems(const Activity *activity,const QList<LineItem> &items);
+    void setItems(const QList<Activity> &activities, const QList<LineItem> &items);
     const QList<LineItem> &getItems() const;
+    std::optional<QString> getInvoiceNumber() const;
+    std::optional<QString> getInvoiceLink() const;
+
+    QJsonObject toJson() const;
+    static InvoicingInfo fromJson(const QJsonObject &json);
 
 private:
-    void adjustItemTaxes(const Activity *activity);
+    void adjustItemTaxes(const QList<Activity> &activities);
     QList<LineItem> m_items;
     std::optional<QString> m_invoiceNumber;
     std::optional<QString> m_invoiceLink;

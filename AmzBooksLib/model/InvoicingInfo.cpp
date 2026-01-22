@@ -1,5 +1,7 @@
 #include "InvoicingInfo.h"
 #include "Shipment.h"
+#include <QJsonArray>
+#include <QJsonObject>
 
 InvoicingInfo::InvoicingInfo(
         const Shipment *shipmentOrRefund
@@ -10,20 +12,13 @@ InvoicingInfo::InvoicingInfo(
     , m_invoiceNumber(invoiceNumber)
     , m_invoiceLink(invoiceLink)
 {
-    // If invoice items are empty, take from shipment? 
-    // Usually InvoicingInfo might start with items from shipment if empty passed.
-    // But the prompt implied moving logic.
-    // If items passed are meant to be the ones on invoice, we adjust them to match Shipment Activity taxes potentially?
-    // Wait, Shipment::adjustItemTaxes matched Items to Activity.
-    // Now InvoicingInfo::adjustItemTaxes should likely match InvoicingInfo::m_items to shipmentOrRefund->getActivity().
-    
     // Perform adjustment
     if (shipmentOrRefund) {
-        adjustItemTaxes(&shipmentOrRefund->getActivity());
+        adjustItemTaxes(shipmentOrRefund->getActivities());
     }
 }
 
-void InvoicingInfo::adjustItemTaxes(const Activity *activity)
+void InvoicingInfo::adjustItemTaxes(const QList<Activity> &activities)
 {
     if (!m_items.isEmpty()) {
         double totalItemTaxes = 0.0;
@@ -31,7 +26,11 @@ void InvoicingInfo::adjustItemTaxes(const Activity *activity)
             totalItemTaxes += item.getTotalTaxes();
         }
 
-        double activityTaxes = activity->getAmountTaxes();
+        double activityTaxes = 0.0;
+        for (const auto &act : activities) {
+            activityTaxes += act.getAmountTaxes();
+        }
+        
         double delta = activityTaxes - totalItemTaxes;
 
         if (qAbs(delta) > 0.0001) {// Using a small epsilon
@@ -68,13 +67,57 @@ void InvoicingInfo::adjustItemTaxes(const Activity *activity)
     }
 }
 
-void InvoicingInfo::setItems(const Activity *activity, const QList<LineItem> &items)
+void InvoicingInfo::setItems(const QList<Activity> &activities, const QList<LineItem> &items)
 {
     m_items = items;
-    adjustItemTaxes(activity);
+    adjustItemTaxes(activities);
 }
 
 const QList<LineItem> &InvoicingInfo::getItems() const
 {
     return m_items;
+}
+
+std::optional<QString> InvoicingInfo::getInvoiceNumber() const
+{
+    return m_invoiceNumber;
+}
+
+std::optional<QString> InvoicingInfo::getInvoiceLink() const
+{
+    return m_invoiceLink;
+}
+
+QJsonObject InvoicingInfo::toJson() const
+{
+    QJsonObject json;
+    if (m_invoiceNumber) json["invoiceNumber"] = *m_invoiceNumber;
+    if (m_invoiceLink) json["invoiceLink"] = *m_invoiceLink;
+    
+    QJsonArray itemsArr;
+    for (const auto &item : m_items) {
+        itemsArr.append(item.toJson());
+    }
+    json["items"] = itemsArr;
+    return json;
+}
+
+InvoicingInfo InvoicingInfo::fromJson(const QJsonObject &json)
+{
+    QList<LineItem> items;
+    if (json.contains("items")) {
+        QJsonArray arr = json["items"].toArray();
+        for (const auto &val : arr) {
+            items.append(LineItem::fromJson(val.toObject()));
+        }
+    }
+    
+    std::optional<QString> number;
+    if (json.contains("invoiceNumber")) number = json["invoiceNumber"].toString();
+    
+    std::optional<QString> link;
+    if (json.contains("invoiceLink")) link = json["invoiceLink"].toString();
+    
+    // Create with null shipment, we just hold data
+    return InvoicingInfo(nullptr, items, number, link);
 }

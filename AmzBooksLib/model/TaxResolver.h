@@ -2,6 +2,7 @@
 #define TAXRESOLVER_H
 
 #include <QString>
+#include <QDir>
 
 #include "TaxScheme.h"
 #include "TaxJurisdictionLevel.h"
@@ -16,14 +17,14 @@
 class TaxResolver
 {
 public:
-    TaxResolver(const QString &workingDir);
+    TaxResolver(const QDir &workingDir);
     struct TaxContext{
         QString taxDeclaringCountryCode;
         TaxScheme taxScheme;
         TaxJurisdictionLevel taxJurisdictionLevel;
         QString countryCodeVatPaidTo;
     };
-    static bool isEuMember(const QString &countryCode, const QDate &date);
+
 
     bool isVatTerritory(
             const QString &countryCode

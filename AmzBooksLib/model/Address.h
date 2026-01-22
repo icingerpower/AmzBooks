@@ -2,6 +2,8 @@
 #define ADDRESS_H
 
 #include <QString>
+#include <QJsonObject>
+
 
 class Address final
 {
@@ -18,6 +20,9 @@ public:
             const QString &phone,
             const QString &companyName,
             const QString &taxId);
+
+    static Address fromJson(const QJsonObject &json);
+    QJsonObject toJson() const;
 
     bool isCompleteCompany() const noexcept;
     const QString& getFullName() const noexcept;

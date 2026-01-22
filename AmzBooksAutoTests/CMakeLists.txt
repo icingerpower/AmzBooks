@@ -56,3 +56,14 @@ add_custom_command(TARGET TestVatRateResolver POST_BUILD
 )
 
 
+add_executable(TestOrderManager tst_testordermanager.cpp)
+add_test(NAME TestOrderManager COMMAND TestOrderManager)
+target_link_libraries(TestOrderManager PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestOrderManager PRIVATE ../AmzBooksLib)
+
+add_custom_command(TARGET TestOrderManager POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
+    $<TARGET_FILE_DIR:TestOrderManager>/data/eu-vat-reports
+)
+

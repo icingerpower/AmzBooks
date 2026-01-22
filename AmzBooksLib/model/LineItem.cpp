@@ -82,3 +82,35 @@ void LineItem::adjustTaxes(double delta)
     double newTax = m_amount.getTaxes() + delta;
     m_amount = Amount(m_amount.getAmountTaxed(), newTax);
 }
+
+LineItem::LineItem(QString sku,
+                   QString name,
+                   int quantity,
+                   Amount amount)
+    : m_sku(std::move(sku))
+    , m_name(std::move(name))
+    , m_quantity(quantity)
+    , m_amount(std::move(amount))
+{
+}
+
+QJsonObject LineItem::toJson() const
+{
+    return QJsonObject{
+        {"sku", m_sku},
+        {"name", m_name},
+        {"quantity", m_quantity},
+        {"amountTaxed", m_amount.getAmountTaxed()},
+        {"amountTaxes", m_amount.getTaxes()}
+    };
+}
+
+LineItem LineItem::fromJson(const QJsonObject &json)
+{
+    return LineItem(
+        json["sku"].toString(),
+        json["name"].toString(),
+        json["quantity"].toInt(),
+        Amount(json["amountTaxed"].toDouble(), json["amountTaxes"].toDouble())
+    );
+}

@@ -15,15 +15,15 @@ const QString &Order::id() const noexcept
 
 void Order::addShipment(const Shipment *shipment)
 {
-    if (shipment) {
-        m_activities.insert(shipment->getActivity().getDateTime(), shipment);
+    if (shipment && !shipment->getActivities().isEmpty()) {
+        m_activities.insert(shipment->getActivities().first().getDateTime(), shipment);
     }
 }
 
 void Order::addRefund(const Refund *refund)
 {
-    if (refund) {
-        m_activities.insert(refund->getActivity().getDateTime(), refund);
+    if (refund && !refund->getActivities().isEmpty()) {
+        m_activities.insert(refund->getActivities().first().getDateTime(), refund);
     }
 }
 

@@ -7,6 +7,7 @@
 #include "utils/CsvReader.h"
 #include "ValidationBlacklist.h"
 #include "model/VatTerritoryResolver.h"
+#include "CountriesEu.h"
 
 // MOCK OR HELPER CLASS FOR TESTS
 class TestTaxResolver : public QObject
@@ -299,7 +300,7 @@ void TestTaxResolver::test_AmazonReports()
             if (mismatchScheme) {
                 // Tolerance 1: Export treated as Domestic (DDP/Amazon handled Dest Tax)
                 if (ctx.taxScheme == TaxScheme::Exempt && expectedScheme == TaxScheme::DomesticVat) {
-                    bool isDestEu = TaxResolver::isEuMember(toCountry, dt.date()) && territoryTo.isEmpty();
+                    bool isDestEu = CountriesEu::isEuMember(toCountry, dt.date()) && territoryTo.isEmpty();
                     if (!isDestEu) mismatchScheme = false; 
                 }
                 
@@ -397,7 +398,7 @@ void TestTaxResolver::test_AmazonReports()
                      // If Scheme is Exempt (Export), TaxCountry is usually Origin (where Exempt is reported).
                      // But Amazon reports Destination Country for Non-EU imports/marketplace tax.
                      if (ctx.taxScheme == TaxScheme::Exempt && territoryParent.value(ctx.countryCodeVatPaidTo) != amazonTaxCountry) {
-                        if (amazonTaxCountry == toCountry && !TaxResolver::isEuMember(toCountry, dt.date())) {
+                        if (amazonTaxCountry == toCountry && !CountriesEu::isEuMember(toCountry, dt.date())) {
                             mismatchCountry = false;
                         }
                      }
