@@ -18,6 +18,17 @@ include(model/model.cmake)
 add_library(AmzBooksLib STATIC
   AmzBooksLib.cpp
   AmzBooksLib.h
+  books/VatCountries.h
+  books/SaleBookAccountsTable.h
+  books/SaleBookAccountsTable.cpp
+  books/PurchaseBookAccountsTable.h
+  books/PurchaseBookAccountsTable.cpp
+  books/TaxSchemeInvalidException.h
+  books/TaxSchemeInvalidException.cpp
+  books/VatAccountExistingException.h
+  books/VatAccountExistingException.cpp
+  CountriesEu.h
+  CountriesEu.cpp
   ${COUNTRY_FILES}
   ${UTILS_FILES}
   ${MODEL_FILES}

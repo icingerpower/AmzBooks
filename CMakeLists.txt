@@ -15,4 +15,7 @@ AmzBooksLib
 add_dependencies(TestOrders
 AmzBooksLib
 )
+add_dependencies(TestBookAccounts
+AmzBooksLib
+)
 

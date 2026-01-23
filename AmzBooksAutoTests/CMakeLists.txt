@@ -67,3 +67,13 @@ add_custom_command(TARGET TestOrderManager POST_BUILD
     $<TARGET_FILE_DIR:TestOrderManager>/data/eu-vat-reports
 )
 
+add_executable(TestBookAccounts tst_testBookAccounts.cpp)
+add_test(NAME TestBookAccounts COMMAND TestBookAccounts)
+target_link_libraries(TestBookAccounts PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestBookAccounts PRIVATE ../AmzBooksLib)
+
+add_custom_command(TARGET TestBookAccounts POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
+    $<TARGET_FILE_DIR:TestBookAccounts>/data/eu-vat-reports
+)
