@@ -23,6 +23,12 @@ To run the tests:
 ## Project Structure & Learnings
 
 ### Core Models
+- **Exception Handling**:
+    - Exceptions should ideally inherit from `QException`.
+    - They must implement `raise()` and `clone()` methods to be compatible with Qt's cross-thread exception transport.
+    - Example: `TaxSchemeInvalidException` or `CompanyInfoException`.
+    - Always provide a title and detailed error text.
+
 - **Activity**: Represents a normalized accounting posting line. Key fields include:
     - `m_saleType`: Enum `SaleType::Products` or `SaleType::Service` (Added Jan 2026).
     - `m_countryCodeVatPaidTo`: ISO 3166-1 alpha-2 code indicating where VAT is paid (Added Jan 2026).

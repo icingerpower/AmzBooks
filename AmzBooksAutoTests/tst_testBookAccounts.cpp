@@ -7,6 +7,10 @@
 #include "books/PurchaseBookAccountsTable.h"
 #include "books/VatAccountExistingException.h"
 #include "books/TaxSchemeInvalidException.h"
+#include "books/CompanyAddressTable.h"
+#include "books/CompanyInfosTable.h"
+#include "books/CompanyInfoException.h"
+#include "books/VatNumbersTable.h"
 
 class TestBookAccounts : public QObject
 {
@@ -237,6 +241,146 @@ private slots:
           
           // Case 2: Unknown country
           QVERIFY(table.getAccountsDebit6("ES").isEmpty());
+    }
+
+    void test_CompanyAddressTable() {
+        QTemporaryDir tempDir;
+        QString iniFiles = tempDir.filePath("company.ini");
+
+        // 1. Init & Add Data
+        {
+            CompanyAddressTable table(iniFiles);
+            
+            // Add Row 1
+            table.insertRows(0, 1);
+            QDate d1(2023, 1, 1);
+            table.setData(table.index(0, 0), d1); // Date
+            table.setData(table.index(0, 1), "MyCo 2023"); // Name
+            table.setData(table.index(0, 2), "Street A"); // Street 1
+            table.setData(table.index(0, 4), "75000"); // Postal
+            table.setData(table.index(0, 5), "Paris"); // City
+            
+            // Add Row 2 (Newer)
+            table.insertRows(0, 1);
+            QDate d2(2024, 1, 1);
+            table.setData(table.index(0, 0), d2);
+            table.setData(table.index(0, 1), "MyCo 2024");
+            table.setData(table.index(0, 2), "Street B");
+            table.setData(table.index(0, 5), "Lyon");
+            
+            // Verify Get
+            QString addr23 = table.getCompanyAddress(QDate(2023, 6, 1));
+            // Expect joined: Name \n Street1 \n Postal City
+            QVERIFY(addr23.contains("MyCo 2023"));
+            QVERIFY(addr23.contains("Street A"));
+            QVERIFY(addr23.contains("75000 Paris"));
+            
+            QCOMPARE(table.getCompanyName(QDate(2023, 6, 1)), "MyCo 2023");
+            QCOMPARE(table.getCity(QDate(2023, 6, 1)), "Paris");
+
+            // Verify Exception for old date
+            QVERIFY_EXCEPTION_THROWN(table.getCompanyAddress(QDate(2022, 1, 1)), CompanyInfoException);
+        }
+        
+        // 2. Persistence (New Instance)
+        {
+            CompanyAddressTable table(iniFiles);
+            QCOMPARE(table.rowCount(), 2);
+            
+            // Verify Data loaded sorted
+            QCOMPARE(table.getCompanyName(QDate(2023, 1, 1)), "MyCo 2023");
+            QCOMPARE(table.getCompanyName(QDate(2024, 1, 1)), "MyCo 2024");
+            
+            // Modify
+            table.setData(table.index(0, 1), "MyCo 2024 Mod");
+        }
+        
+        // 3. Verify Modification Persisted
+        {
+            CompanyAddressTable table(iniFiles);
+            QCOMPARE(table.getCompanyName(QDate(2024, 1, 1)), "MyCo 2024 Mod");
+        }
+    }
+
+    void test_CompanyInfosTable() {
+        QTemporaryDir tempDir;
+        QString iniFiles = tempDir.filePath("infos.ini");
+        
+        // 1. Init & Modify
+        {
+            CompanyInfosTable table(iniFiles);
+            QCOMPARE(table.rowCount(), 2);
+            
+            // Modify Country (Row 0, Col 1)
+            table.setData(table.index(0, 1), "US");
+            
+            // Modify Currency (Row 1, Col 1)
+            table.setData(table.index(1, 1), "USD");
+        }
+        
+        // 2. Persistence (New Instance)
+        {
+            CompanyInfosTable table(iniFiles);
+            QCOMPARE(table.rowCount(), 2);
+            
+            // Check Values
+            QCOMPARE(table.data(table.index(0, 1)).toString(), "US");
+            QCOMPARE(table.data(table.index(1, 1)).toString(), "USD");
+        }
+    }
+
+    void test_VatNumbersTable() {
+        QTemporaryDir tempDir;
+        QString iniFile = tempDir.filePath("vat.ini");
+        
+        // 1. Add and Save
+        {
+            VatNumbersTable table(iniFile);
+            table.addVatNumber("FR", "FR123");
+            table.addVatNumber("DE", "DE456");
+            
+            QCOMPARE(table.getVatNumber("FR"), "FR123");
+            QVERIFY(table.hasVatNumber("FR"));
+            QVERIFY(!table.hasVatNumber("ES"));
+            
+            // Duplicate strict check
+            QVERIFY_EXCEPTION_THROWN(table.addVatNumber("FR", "FR999"), CompanyInfoException);
+            
+            // Validate Columns (0=Country, 1=Vat, 2=Id)
+            QCOMPARE(table.data(table.index(0, 0)).toString(), "FR");
+            QCOMPARE(table.data(table.index(0, 1)).toString(), "FR123");
+            QCOMPARE(table.data(table.index(0, 2)).toString(), "FR");
+        }
+        
+        // 2. Persistence
+        {
+             VatNumbersTable table(iniFile);
+             QCOMPARE(table.rowCount(), 2);
+             QCOMPARE(table.getVatNumber("DE"), "DE456");
+        }
+        
+        // 3. Hidden Column / Robustness Test
+        // Manually write a FULL INI with extra keys to simulate a new column added in future
+        {
+             QSettings s(iniFile, QSettings::IniFormat);
+             s.beginWriteArray("VatNumbers", 1);
+             s.setArrayIndex(0);
+             s.setValue("Country", "ES");
+             s.setValue("VatNumber", "ES111");
+             s.setValue("Id", "ES");
+             s.setValue("NewFutureColumn", "HiddenData"); // This is the 'added' column simulation
+             s.endArray();
+        }
+        
+        {
+             VatNumbersTable table(iniFile);
+             // Should load correctly despite extra data
+             QCOMPARE(table.rowCount(), 1);
+             QCOMPARE(table.getVatNumber("ES"), "ES111");
+             
+             // Check ID is still valid
+             QCOMPARE(table.data(table.index(0, 2)).toString(), "ES");
+        }
     }
 
 };

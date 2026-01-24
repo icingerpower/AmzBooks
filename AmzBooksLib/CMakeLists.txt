@@ -14,6 +14,7 @@ find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Gui Sql)
 
 include(../../common/utils/utils.cmake)
 include(model/model.cmake)
+include(books/books.cmake)
 
 add_library(AmzBooksLib STATIC
   AmzBooksLib.cpp
@@ -32,6 +33,7 @@ add_library(AmzBooksLib STATIC
   ${COUNTRY_FILES}
   ${UTILS_FILES}
   ${MODEL_FILES}
+  ${BOOKS_FILES}
 )
 
 
