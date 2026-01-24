@@ -578,9 +578,8 @@ void TestOrderManager::test_getActivitySource_ShipmentAndRefunds()
     // Source C: 3 entries
     QCOMPARE(results.value(sourceC).size(), 3);
     
-    // Verify Totals of keys
     QCOMPARE(results.keys().size(), 3);
 }
 
 QTEST_MAIN(TestOrderManager)
-#include "tst_testordermanager.moc"
+#include "test_order_manager.moc"

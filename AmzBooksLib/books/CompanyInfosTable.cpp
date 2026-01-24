@@ -30,6 +30,28 @@ CompanyInfosTable::CompanyInfosTable(const QString &filePath, QObject *parent)
     }
 }
 
+const QString &CompanyInfosTable::getCompanyCountryCode() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == KEY_COUNTRY) {
+            return item.value;
+        }
+    }
+    static QString empty;
+    return empty;
+}
+
+const QString &CompanyInfosTable::getCurrency() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == KEY_CURRENCY) {
+            return item.value;
+        }
+    }
+    static QString empty;
+    return empty;
+}
+
 int CompanyInfosTable::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid()) return 0;

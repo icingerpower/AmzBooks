@@ -443,4 +443,4 @@ void TestTaxResolver::test_AmazonReports()
 
 QTEST_MAIN(TestTaxResolver)
 
-#include "tst_test_tax_resolver.moc"
+#include "test_tax_resolver.moc"

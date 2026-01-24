@@ -11,6 +11,8 @@ class CompanyInfosTable : public QAbstractTableModel
 
 public:
     explicit CompanyInfosTable(const QString &filePath, QObject *parent = nullptr);
+    const QString &getCompanyCountryCode() const;
+    const QString &getCurrency() const;
 
     // QAbstractItemModel interface
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;

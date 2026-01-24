@@ -571,4 +571,4 @@ void TestOrders::test_isEuMember()
 
 QTEST_MAIN(TestOrders)
 
-#include "tst_testorders.moc"
+#include "test_orders.moc"

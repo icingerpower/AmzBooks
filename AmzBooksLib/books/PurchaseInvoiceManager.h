@@ -7,7 +7,6 @@
 #include <QStringList>
 #include <QDate>
 #include <QList>
-#include "ExceptionFileError.h"
 
 struct PurchaseInformation {
     QDate date;
@@ -15,11 +14,16 @@ struct PurchaseInformation {
     QString label;
     QString supplier;
     QStringList vatTokens;
+    QHash<QString, QHash<QString, double>> country_vatRate_vat;
     double totalAmount = 0.0;
     QString rawTotalAmount; // To preserve formatting (e.g. "10.0")
     QString currency;
     QString originalExtension; // e.g. "pdf"
     QString filePath; // Absolute path to the file
+    bool isInventory = false; // If stock in filename
+    bool isDDP = false; // if DDP in file name
+    QString countryCodeFrom; // If ends with 2 country code we fill countryCodeFrom and countryCodeTo
+    QString countryCodeTo;
 };
 
 class PurchaseInvoiceManager : public QAbstractTableModel
@@ -35,6 +39,8 @@ public:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 
     void add(const QString &sourceFilePath, PurchaseInformation &info);
+
+    QList<PurchaseInformation> getInvoices(const QDate &from, const QDate &to) const;
 
     static QString encode(const PurchaseInformation &info);
     static PurchaseInformation decode(const QString &fileName);

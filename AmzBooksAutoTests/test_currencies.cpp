@@ -65,4 +65,4 @@ private:
 
 QTEST_MAIN(TestCurrencies)
 
-#include "tst_currencies.moc"
+#include "test_currencies.moc"

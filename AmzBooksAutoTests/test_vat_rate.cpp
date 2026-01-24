@@ -417,4 +417,4 @@ bool TestVatRateResolver::isKnownAnomaly(const QString &taxCountry, const QDate 
 
 
 QTEST_MAIN(TestVatRateResolver)
-#include "tst_test_vat_rate.moc"
+#include "test_vat_rate.moc"

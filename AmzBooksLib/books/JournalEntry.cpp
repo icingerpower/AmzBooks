@@ -6,57 +6,91 @@ JournalEntry::JournalEntry(const QDate &date, const QString &targetCurrency)
 {
 }
 
-void JournalEntry::addDebitLeft(const JournalEntry::EntryLine &entryLine, const QString &currency)
+void JournalEntry::addDebitLeft(const JournalEntry::EntryLine &entryLine, const QString &currency, double rate)
 {
-    m_entriesDebit.append(entryLine);
-    m_origAmountsDebit.append(entryLine.amount); // Initial amount is what's passed
-    m_origCurrenciesDebit.append(currency);
+    EntryLine newLine = entryLine;
+    
+    // Store the original amount in the source currency
+    double originalAmount = entryLine.currency_amount.value(currency, 0.0);
+    newLine.currency_amount[currency] = originalAmount;
+    
+    // Convert to target currency if needed
+    if (currency != m_targetCurrency) {
+        double converted = originalAmount * rate;
+        newLine.currency_amount[m_targetCurrency] = std::round(converted * 100.0) / 100.0;
+        newLine.title = entryLine.title + QString(" (Conv: %1 %2 @ %3)")
+                .arg(originalAmount)
+                .arg(currency)
+                .arg(rate);
+    }
+    
+    m_entriesDebit.append(newLine);
 }
 
-void JournalEntry::addCreditRight(const JournalEntry::EntryLine &entryLine, const QString &currency)
+void JournalEntry::addCreditRight(const JournalEntry::EntryLine &entryLine, const QString &currency, double rate)
 {
-    m_entriesCredit.append(entryLine);
-    m_origAmountsCredit.append(entryLine.amount);
-    m_origCurrenciesCredit.append(currency);
+    EntryLine newLine = entryLine;
+    
+    // Store the original amount in the source currency
+    double originalAmount = entryLine.currency_amount.value(currency, 0.0);
+    newLine.currency_amount[currency] = originalAmount;
+    
+    // Convert to target currency if needed
+    if (currency != m_targetCurrency) {
+        double converted = originalAmount * rate;
+        newLine.currency_amount[m_targetCurrency] = std::round(converted * 100.0) / 100.0;
+        newLine.title = entryLine.title + QString(" (Conv: %1 %2 @ %3)")
+                .arg(originalAmount)
+                .arg(currency)
+                .arg(rate);
+    }
+    
+    m_entriesCredit.append(newLine);
+}
+
+double JournalEntry::getDebitSum() const
+{
+    double sum = 0.0;
+    for (const auto &entry : m_entriesDebit) {
+        sum += entry.currency_amount.value(m_targetCurrency, 0.0);
+    }
+    return sum;
+}
+
+double JournalEntry::getCreditSum() const
+{
+    double sum = 0.0;
+    for (const auto &entry : m_entriesCredit) {
+        sum += entry.currency_amount.value(m_targetCurrency, 0.0);
+    }
+    return sum;
+}
+
+void JournalEntry::raiseExceptionIfDebitDifferentCredit()
+{
+    double debitSum = getDebitSum();
+    double creditSum = getCreditSum();
+    double diff = std::abs(debitSum - creditSum);
+    
+    // Round to 2 decimals to avoid floating point noise
+    diff = std::round(diff * 100.0) / 100.0;
+    
+    if (diff >= 0.01) { // More than 1 cent difference
+        throw ExceptionBookEquality(
+            QString("Debit (%1) does not equal Credit (%2), difference: %3")
+                .arg(debitSum)
+                .arg(creditSum)
+                .arg(debitSum - creditSum)
+        );
+    }
 }
 
 void JournalEntry::convertRoundingIfNeeded(double currencyRate, double maxRoundingDelta)
 {
-    double totalDebit = 0.0;
-    double totalCredit = 0.0;
+    // Since conversion is now done in add methods, this method mainly handles rounding differences
+    double totalDebit = getDebitSum();
+    double totalCredit = getCreditSum();
     
-    // Process Debits
-    for (int i = 0; i < m_entriesDebit.size(); ++i) {
-        EntryLine &line = m_entriesDebit[i];
-        QString origCurrency = m_origCurrenciesDebit[i];
-        double origAmount = m_origAmountsDebit[i];
-
-        if (origCurrency != m_targetCurrency) {
-            double converted = origAmount * currencyRate;
-            line.amount = std::round(converted * 100.0) / 100.0;
-            line.title += QString(" (Conv: %1 %2 @ %3)").arg(origAmount).arg(origCurrency).arg(currencyRate);
-        } else {
-             line.amount = std::round(origAmount * 100.0) / 100.0;
-        }
-        totalDebit += line.amount;
-    }
-
-    // Process Credits
-    for (int i = 0; i < m_entriesCredit.size(); ++i) {
-        EntryLine &line = m_entriesCredit[i];
-        QString origCurrency = m_origCurrenciesCredit[i];
-        double origAmount = m_origAmountsCredit[i];
-
-        if (origCurrency != m_targetCurrency) {
-            double converted = origAmount * currencyRate;
-            line.amount = std::round(converted * 100.0) / 100.0;
-            line.title += QString(" (Conv: %1 %2 @ %3)").arg(origAmount).arg(origCurrency).arg(currencyRate);
-        } else {
-             line.amount = std::round(origAmount * 100.0) / 100.0;
-        }
-        totalCredit += line.amount;
-    }
-
     double diff = totalDebit - totalCredit;
     double diffAbs = std::abs(diff);
 
@@ -81,18 +115,13 @@ void JournalEntry::convertRoundingIfNeeded(double currencyRate, double maxRoundi
     EntryLine roundingLine;
     roundingLine.title = "Rounding difference";
     roundingLine.account = "ROUNDING"; // Or some default account? Using generic placeholder.
-    roundingLine.amount = diffAbs;
+    roundingLine.currency_amount[m_targetCurrency] = diffAbs;
 
     if (diff > 0) {
         // Add to Credit
         m_entriesCredit.append(roundingLine);
-        // Trackers for symmetry, though not strictly used for further conversions
-        m_origAmountsCredit.append(diffAbs);
-        m_origCurrenciesCredit.append(m_targetCurrency);
     } else {
         // Add to Debit
         m_entriesDebit.append(roundingLine);
-        m_origAmountsDebit.append(diffAbs);
-        m_origCurrenciesDebit.append(m_targetCurrency);
     }
 }

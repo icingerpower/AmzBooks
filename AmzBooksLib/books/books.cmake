@@ -25,6 +25,8 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PurchaseInvoiceManager.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionFileError.h
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionFileError.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/JournalTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/JournalTable.cpp
 )
 
 

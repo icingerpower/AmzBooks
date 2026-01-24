@@ -495,4 +495,4 @@ private slots:
 };
 
 QTEST_MAIN(TestBookAccounts)
-#include "tst_testBookAccounts.moc"
+#include "test_book_accounts.moc"

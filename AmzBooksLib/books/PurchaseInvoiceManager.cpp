@@ -140,15 +140,34 @@ void PurchaseInvoiceManager::scanDirectory(const QDir &dir)
     }
 }
 
+QList<PurchaseInformation> PurchaseInvoiceManager::getInvoices(const QDate &from, const QDate &to) const
+{
+    QList<PurchaseInformation> result;
+    for (const auto &info : m_data) {
+        if (info.date >= from && info.date <= to) {
+            result.append(info);
+        }
+    }
+    return result;
+}
+
 PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
 {
     PurchaseInformation info;
     QFileInfo fileInfo(fileName);
     info.originalExtension = fileInfo.suffix();
     
-    // Remove extension for parsing
+    // Global checks on the full filename (or base name)
     QString baseName = fileInfo.completeBaseName();
     
+    if (baseName.contains("stock", Qt::CaseInsensitive)) {
+        info.isInventory = true;
+    }
+    
+    if (baseName.contains("ddp", Qt::CaseInsensitive)) {
+        info.isDDP = true;
+    }
+
     // Split by "__"
     QStringList parts = baseName.split("__");
     
@@ -166,6 +185,14 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
     info.account = parts[1];
     info.label = parts[2];
     info.supplier = parts[3];
+    
+    // Check for Route in Supplier (Ends with 4 caps, e.g. CNFR)
+    static QRegularExpression regexRoute("([A-Z]{2})([A-Z]{2})$");
+    QRegularExpressionMatch matchRoute = regexRoute.match(info.supplier);
+    if (matchRoute.hasMatch()) {
+        info.countryCodeFrom = matchRoute.captured(1);
+        info.countryCodeTo = matchRoute.captured(2);
+    }
     
     // The last part is Total
     QString totalPart = parts.last();
@@ -186,7 +213,39 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
     
     // Middle parts are VATs
     for (int i = 4; i < parts.size() - 1; ++i) {
-        info.vatTokens.append(parts[i]);
+        QString token = parts[i];
+        info.vatTokens.append(token);
+        
+        // Parse Token: COUNTRY-LABEL-AMOUNT (e.g. FR-TVA5.5-13.6EUR or FR-TVA-13.6EUR)
+        // Split by '-'
+        QStringList tokenParts = token.split('-');
+        if (tokenParts.size() >= 3) {
+            QString country = tokenParts[0];
+            QString label = tokenParts[1];
+            QString amountStrWithCurr = tokenParts.last(); // Last part is amount
+            
+            // Extract numeric amount from amountStrWithCurr (e.g. 13.6EUR -> 13.6)
+            double vatAmount = 0.0;
+            QRegularExpressionMatch matchAmt = regexTotal.match(amountStrWithCurr);
+            if (matchAmt.hasMatch()) {
+                vatAmount = matchAmt.captured(1).toDouble();
+            } else {
+                 vatAmount = amountStrWithCurr.toDouble();
+            }
+            
+            // Extract Rate from Label (e.g. "TVA5.5" -> "5.50", "TVA" -> "")
+            // Look for digits in label
+            static QRegularExpression regexRate("[0-9.]+");
+            QRegularExpressionMatch matchRate = regexRate.match(label);
+            QString rateKey = ""; // Default empty
+            if (matchRate.hasMatch()) {
+                double rateVal = matchRate.captured(0).toDouble();
+                // Format with 2 decimal places
+                rateKey = QString::number(rateVal, 'f', 2);
+            }
+            
+            info.country_vatRate_vat[country][rateKey] += vatAmount;
+        }
     }
     
     return info;

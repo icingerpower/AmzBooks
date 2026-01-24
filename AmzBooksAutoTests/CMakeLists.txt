@@ -16,10 +16,10 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-add_executable(TestOrders tst_testorders.cpp)
+add_executable(TestOrders test_orders.cpp)
 add_test(NAME TestOrders COMMAND TestOrders)
 
-add_executable(TestTaxResolver tst_test_tax_resolver.cpp)
+add_executable(TestTaxResolver test_tax_resolver.cpp)
 add_test(NAME TestTaxResolver COMMAND TestTaxResolver)
 
 target_link_libraries(TestOrders PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
@@ -43,7 +43,7 @@ add_custom_command(TARGET TestOrders POST_BUILD
     $<TARGET_FILE_DIR:TestOrders>/data/eu-vat-reports
 )
 
-add_executable(TestVatRateResolver tst_test_vat_rate.cpp)
+add_executable(TestVatRateResolver test_vat_rate.cpp)
 add_test(NAME TestVatRateResolver COMMAND TestVatRateResolver)
 
 target_link_libraries(TestVatRateResolver PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
@@ -56,7 +56,7 @@ add_custom_command(TARGET TestVatRateResolver POST_BUILD
 )
 
 
-add_executable(TestOrderManager tst_testordermanager.cpp)
+add_executable(TestOrderManager test_order_manager.cpp)
 add_test(NAME TestOrderManager COMMAND TestOrderManager)
 target_link_libraries(TestOrderManager PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(TestOrderManager PRIVATE ../AmzBooksLib)
@@ -67,7 +67,7 @@ add_custom_command(TARGET TestOrderManager POST_BUILD
     $<TARGET_FILE_DIR:TestOrderManager>/data/eu-vat-reports
 )
 
-add_executable(TestBookAccounts tst_testBookAccounts.cpp)
+add_executable(TestBookAccounts test_book_accounts.cpp)
 add_test(NAME TestBookAccounts COMMAND TestBookAccounts)
 target_link_libraries(TestBookAccounts PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(TestBookAccounts PRIVATE ../AmzBooksLib)
@@ -78,12 +78,12 @@ add_custom_command(TARGET TestBookAccounts POST_BUILD
     $<TARGET_FILE_DIR:TestBookAccounts>/data/eu-vat-reports
 )
 
-add_executable(TestCurrencies tst_currencies.cpp)
+add_executable(TestCurrencies test_currencies.cpp)
 add_test(NAME TestCurrencies COMMAND TestCurrencies)
 target_link_libraries(TestCurrencies PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(TestCurrencies PRIVATE ../AmzBooksLib)
 
-add_executable(TestBookEntries tst_book_entries.cpp)
+add_executable(TestBookEntries test_book_entries.cpp)
 add_test(NAME TestBookEntries COMMAND TestBookEntries)
 target_link_libraries(TestBookEntries PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(TestBookEntries PRIVATE ../AmzBooksLib)
@@ -93,4 +93,9 @@ add_custom_command(TARGET TestBookEntries POST_BUILD
     ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
     $<TARGET_FILE_DIR:TestBookEntries>/data/eu-vat-reports
 )
+
+add_executable(TestJournalTable tst_journal_table.cpp)
+add_test(NAME TestJournalTable COMMAND TestJournalTable)
+target_link_libraries(TestJournalTable PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestJournalTable PRIVATE ../AmzBooksLib)
 
