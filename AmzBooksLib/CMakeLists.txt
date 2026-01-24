@@ -42,21 +42,15 @@ include(books/books.cmake)
 add_library(AmzBooksLib STATIC
   AmzBooksLib.cpp
   AmzBooksLib.h
-  books/VatCountries.h
-  books/SaleBookAccountsTable.h
-  books/SaleBookAccountsTable.cpp
-  books/PurchaseBookAccountsTable.h
-  books/PurchaseBookAccountsTable.cpp
-  books/ExceptionTaxSchemeInvalid.h
-  books/ExceptionTaxSchemeInvalid.cpp
-  books/ExceptionVatAccountExisting.h
-  books/ExceptionVatAccountExisting.cpp
   CountriesEu.h
   CountriesEu.cpp
-  ${COUNTRY_FILES}
-  ${UTILS_FILES}
+  CurrencyRateManager.h
+  CurrencyRateManager.cpp
+  ExceptionRateCurrency.h
+  ExceptionRateCurrency.cpp
   ${MODEL_FILES}
   ${BOOKS_FILES}
+  ${UTILS_FILES}
 )
 
 
@@ -67,5 +61,7 @@ target_link_libraries(AmzBooksLib
     Qt${QT_VERSION_MAJOR}::Sql
     QCoro::Network
 )
+
+
 
 target_compile_definitions(AmzBooksLib PRIVATE AMZBOOKSLIB_LIBRARY)
