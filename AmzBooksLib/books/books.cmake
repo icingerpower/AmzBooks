@@ -16,7 +16,15 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionVatAccountExisting.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionTaxSchemeInvalid.h
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionTaxSchemeInvalid.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ExceptionBookEquality.h
+    ${CMAKE_CURRENT_LIST_DIR}/ExceptionBookEquality.cpp
     ${CMAKE_CURRENT_LIST_DIR}/VatCountries.h
+    ${CMAKE_CURRENT_LIST_DIR}/JournalEntry.h
+    ${CMAKE_CURRENT_LIST_DIR}/JournalEntry.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PurchaseInvoiceManager.h
+    ${CMAKE_CURRENT_LIST_DIR}/PurchaseInvoiceManager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ExceptionFileError.h
+    ${CMAKE_CURRENT_LIST_DIR}/ExceptionFileError.cpp
 )
 
 

@@ -77,3 +77,20 @@ add_custom_command(TARGET TestBookAccounts POST_BUILD
     ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
     $<TARGET_FILE_DIR:TestBookAccounts>/data/eu-vat-reports
 )
+
+add_executable(TestCurrencies tst_currencies.cpp)
+add_test(NAME TestCurrencies COMMAND TestCurrencies)
+target_link_libraries(TestCurrencies PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestCurrencies PRIVATE ../AmzBooksLib)
+
+add_executable(TestBookEntries tst_book_entries.cpp)
+add_test(NAME TestBookEntries COMMAND TestBookEntries)
+target_link_libraries(TestBookEntries PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestBookEntries PRIVATE ../AmzBooksLib)
+
+add_custom_command(TARGET TestBookEntries POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
+    $<TARGET_FILE_DIR:TestBookEntries>/data/eu-vat-reports
+)
+
