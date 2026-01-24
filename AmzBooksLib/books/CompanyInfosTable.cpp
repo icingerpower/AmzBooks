@@ -1,17 +1,33 @@
 #include "CompanyInfosTable.h"
 
-#include <QSettings>
+#include <QFile>
+#include <QTextStream>
 #include <QLocale>
-#include <QCoreApplication> 
+#include <QCoreApplication>
+#include <QFileInfo>
+#include <QDir>
+#include <QDebug>
 
 const char* KEY_COUNTRY = "Country";
 const char* KEY_CURRENCY = "Currency";
 
-CompanyInfosTable::CompanyInfosTable(const QString &iniFilePath, QObject *parent)
+const QStringList CompanyInfosTable::HEADER_IDS = { "Parameter", "Value", "Id" };
+
+CompanyInfosTable::CompanyInfosTable(const QString &filePath, QObject *parent)
     : QAbstractTableModel(parent)
-    , m_iniFilePath(iniFilePath)
 {
+    // Ensure .csv extension if possible or use as is
+    QFileInfo fi(filePath);
+    if (fi.suffix() != "csv") {
+        m_filePath = fi.path() + "/" + fi.completeBaseName() + ".csv";
+    } else {
+        m_filePath = filePath;
+    }
+
     _load();
+    if (m_data.isEmpty()) {
+        _ensureDefaults();
+    }
 }
 
 int CompanyInfosTable::rowCount(const QModelIndex &parent) const
@@ -23,7 +39,7 @@ int CompanyInfosTable::rowCount(const QModelIndex &parent) const
 int CompanyInfosTable::columnCount(const QModelIndex &parent) const
 {
     if (parent.isValid()) return 0;
-    return 3; // Parameter, Value, ID (Hidden)
+    return 2; // Parameter, Value (ID is Hidden)
 }
 
 QVariant CompanyInfosTable::data(const QModelIndex &index, int role) const
@@ -36,7 +52,6 @@ QVariant CompanyInfosTable::data(const QModelIndex &index, int role) const
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
         if (index.column() == 0) return item.parameter;
         if (index.column() == 1) return item.value;
-        if (index.column() == 2) return item.id;
     }
     return QVariant();
 }
@@ -46,7 +61,6 @@ QVariant CompanyInfosTable::headerData(int section, Qt::Orientation orientation,
     if (role == Qt::DisplayRole && orientation == Qt::Horizontal) {
         if (section == 0) return tr("Parameter");
         if (section == 1) return tr("Value");
-        if (section == 2) return tr("ID");
     }
     return QVariant();
 }
@@ -78,28 +92,16 @@ Qt::ItemFlags CompanyInfosTable::flags(const QModelIndex &index) const
     return flags;
 }
 
-void CompanyInfosTable::_load()
+void CompanyInfosTable::_ensureDefaults()
 {
-    beginResetModel();
     m_data.clear();
-    
-    QSettings settings(m_iniFilePath, QSettings::IniFormat);
-    
-    // We load by expected keys to ensure structure, but we also want to preserve what was saved.
-    // However, requirements say: "The rows are Company country code, Currency".
-    // And "Parameter id (hidden, so if the user change app language... you can still load correctly data)".
-    
-    // Strategy: m_data is fixed structure (2 rows). We read values from settings using the ID keys.
-    
-    QString countryVal = settings.value(KEY_COUNTRY, QLocale::system().name().split('_').last()).toString();
-    QString currencyVal = settings.value(KEY_CURRENCY, QLocale::system().currencySymbol(QLocale::CurrencyIsoCode)).toString();
     
     // Row 1: Country
     {
         InfoItem item;
         item.id = KEY_COUNTRY;
         item.parameter = tr("Company Country Code");
-        item.value = countryVal;
+        item.value = QLocale::system().name().split('_').last();
         m_data.append(item);
     }
     
@@ -108,17 +110,88 @@ void CompanyInfosTable::_load()
         InfoItem item;
         item.id = KEY_CURRENCY;
         item.parameter = tr("Currency");
-        item.value = currencyVal;
+        item.value = QLocale::system().currencySymbol(QLocale::CurrencyIsoCode);
         m_data.append(item);
     }
     
+    _save();
+}
+
+void CompanyInfosTable::_load()
+{
+    beginResetModel();
+    m_data.clear();
+    
+    QFile file(m_filePath);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        endResetModel();
+        return;
+    }
+
+    QTextStream in(&file);
+    QString headerLine = in.readLine();
+    QStringList headers = headerLine.split(";");
+    
+    QMap<QString, int> columnMap;
+    for (int i = 0; i < headers.size(); ++i) {
+        columnMap[headers[i].trimmed()] = i;
+    }
+
+    // Identify indices for our Technical IDs
+    int idxId = columnMap.value("Id", -1);
+    int idxParam = columnMap.value("Parameter", -1);
+    int idxValue = columnMap.value("Value", -1);
+
+    // If Id column is missing, we can't reliably map rows to our logic, maybe assume legacy order?
+    // But this is a new file format. If missing, we might fail or load partial.
+    
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        if (line.trimmed().isEmpty()) continue;
+        
+        QStringList parts = line.split(";");
+        
+        InfoItem item;
+        if (idxId != -1 && idxId < parts.size()) item.id = parts[idxId];
+        if (idxParam != -1 && idxParam < parts.size()) item.parameter = parts[idxParam];
+        if (idxValue != -1 && idxValue < parts.size()) item.value = parts[idxValue];
+        
+        // Fixup: parameter should be translated usually, but in CSV it might be static.
+        // If we load by ID, we can force the correct Parameter Name from code if we want "translation update".
+        if (item.id == KEY_COUNTRY) item.parameter = tr("Company Country Code");
+        else if (item.id == KEY_CURRENCY) item.parameter = tr("Currency");
+        
+        if (!item.id.isEmpty()) {
+            m_data.append(item);
+        }
+    }
+    
     endResetModel();
+    
+    // Check if we have required rows, if not add defaults?
+    // Current logic: _ensureDefaults calls clear(). Better only add missing if needed.
+    // For now, if empty, constructor calls _ensureDefaults.
 }
 
 void CompanyInfosTable::_save()
 {
-    QSettings settings(m_iniFilePath, QSettings::IniFormat);
+    QFile file(m_filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "Failed to save CompanyInfosTable:" << file.errorString();
+        return;
+    }
+    
+    QTextStream out(&file);
+    // Always write standard header: Parameter;Value;Id
+    out << HEADER_IDS.join(";") << "\n";
+    
     for (const auto &item : m_data) {
-        settings.setValue(item.id, item.value);
+        QStringList row;
+        // Map to HEADER_IDS order: Parameter, Value, Id
+        // But wait, "If CSV column order change it works".
+        // Loading is robust. Saving should be consistent (Standard order).
+        // Standard: Parameter;Value;Id
+        row << item.parameter << item.value << item.id;
+        out << row.join(";") << "\n";
     }
 }

@@ -10,7 +10,9 @@ class VatNumbersTable : public QAbstractTableModel
     Q_OBJECT
 
 public:
-    explicit VatNumbersTable(const QString &iniFilePath, QObject *parent = nullptr);
+
+    static const QStringList HEADER_IDS;
+    explicit VatNumbersTable(const QString &filePath, QObject *parent = nullptr);
 
     const QString &getVatNumber(const QString &countryCode) const;
     bool hasVatNumber(const QString &countryCode) const;
@@ -36,15 +38,9 @@ private:
     void _load();
     void _save();
 
-    QString m_iniFilePath;
-    QList<VatItem> m_data; // Sorted? Not strictly required by prompt, but usually good. Prompt "No method to add data is needed" in previous task, but here "We can add one vat number... method const QString & getVatNumber".
+    QString m_filePath;
+    QList<VatItem> m_data; 
     
-    // Cache for getVatNumber to return const reference
-    // Actually, can return reference to m_data item if stable? 
-    // QList reallocates. 
-    // "make sure data are saved to we can return a const QString &" - probably means m_data should persist.
-    // If I return reference to m_data member, it's unsafe if m_data changes.
-    // Use a static empty string for not found? Or member empty string.
     QString m_emptyString;
 };
 

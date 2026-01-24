@@ -12,7 +12,9 @@ class CompanyAddressTable : public QAbstractTableModel
     Q_OBJECT
 
 public:
-    explicit CompanyAddressTable(const QString &iniFilePath, QObject *parent = nullptr);
+
+    static const QStringList HEADER_IDS;
+    explicit CompanyAddressTable(const QString &filePath, QObject *parent = nullptr);
 
     QString getCompanyAddress(const QDate &date) const;
     QString getCompanyName(const QDate &date) const;
@@ -48,7 +50,7 @@ private:
     // Helper
     const AddressItem &_getItemForDate(const QDate &date) const;
 
-    QString m_iniFilePath;
+    QString m_filePath;
     QList<AddressItem> m_data; // Sorted by date descending
 };
 

@@ -1,13 +1,25 @@
 #include "VatNumbersTable.h"
 
-#include <QSettings>
+#include <QFile>
+#include <QTextStream>
 #include <QCoreApplication> 
+#include <QFileInfo>
+#include <QDir>
+#include <QDebug>
 #include "ExceptionCompanyInfo.h"
 
-VatNumbersTable::VatNumbersTable(const QString &iniFilePath, QObject *parent)
+const QStringList VatNumbersTable::HEADER_IDS = { "Country", "VatNumber", "Id" };
+
+VatNumbersTable::VatNumbersTable(const QString &filePath, QObject *parent)
     : QAbstractTableModel(parent)
-    , m_iniFilePath(iniFilePath)
 {
+     // Ensure .csv extension if possible or use as is
+    QFileInfo fi(filePath);
+    if (fi.suffix() != "csv") {
+        m_filePath = fi.path() + "/" + fi.completeBaseName() + ".csv";
+    } else {
+        m_filePath = filePath;
+    }
     _load();
 }
 
@@ -18,10 +30,6 @@ const QString &VatNumbersTable::getVatNumber(const QString &countryCode) const
             return item.vatNumber;
         }
     }
-    // Return empty if not found (or throw? Prompt says "valid return const QString &", doesn't specify throw on get. CompanyAddressTable did throw, but here returning valid reference suggests empty is possible or handled elsewhere. Prompt says "add one vat number... always check it doesn't exist and raise CompanyInfoException if needed". That's for ADD.
-    // I will return empty string reference.
-    // Cast constness away if needed or use mutable member? 
-    // m_emptyString is member.
     return m_emptyString; 
 }
 
@@ -64,7 +72,7 @@ int VatNumbersTable::rowCount(const QModelIndex &parent) const
 int VatNumbersTable::columnCount(const QModelIndex &parent) const
 {
     if (parent.isValid()) return 0;
-    return 3; // Country, Value, ID (Hidden)
+    return 2; // Country, Value (ID is Hidden)
 }
 
 QVariant VatNumbersTable::data(const QModelIndex &index, int role) const
@@ -77,7 +85,6 @@ QVariant VatNumbersTable::data(const QModelIndex &index, int role) const
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
         if (index.column() == 0) return item.country;
         if (index.column() == 1) return item.vatNumber;
-        if (index.column() == 2) return item.id;
     }
     return QVariant();
 }
@@ -87,8 +94,6 @@ QVariant VatNumbersTable::headerData(int section, Qt::Orientation orientation, i
     if (role == Qt::DisplayRole && orientation == Qt::Horizontal) {
         if (section == 0) return tr("Country");
         if (section == 1) return tr("VAT Number");
-        // Hidden column ID, no header needed or just ID
-        if (section == 2) return "ID"; // "Use tr except for hidden column ids"
     }
     return QVariant();
 }
@@ -101,27 +106,14 @@ bool VatNumbersTable::setData(const QModelIndex &index, const QVariant &value, i
             if (index.column() == 0) { // Country
                  QString newCountry = value.toString();
                  if (newCountry != m_data[index.row()].country) {
-                     // Check duplicate?
+                     // Check duplicate
                      for (int i=0; i<m_data.size(); ++i) {
                          if (i != index.row() && m_data[i].country == newCountry) {
                               throw ExceptionCompanyInfo(tr("Duplicate Country"), tr("VAT Number for country %1 already exists").arg(newCountry));
                          }
                      }
                      m_data[index.row()].country = newCountry;
-                     m_data[index.row()].id = newCountry; // Update ID too? Usually ID is stable. Prompt says "hidden column ids so if a column is added / removed we can still load data correctly". Wait, "rows are ... rows", check "if a column is added...". That usually refers to schema evolution.
-                     // But for rows: "add hidden column ids so if a column is added..." assumes mapping rows to properties? No, this is a table of rows.
-                     // Ah, maybe the user meant "hidden column ids" generally for schema, but here we have dynamic rows.
-                     // Re-reading: "Columns are Country / VAT number... Add hidden column ids".
-                     // Maybe it means "Column IDs" (Header IDs)?
-                     // "The rows are Company country code, Currency" was for CompanyInfosTable (Fixed rows).
-                     // Here "We can add one vat number / EU country". So dynamic rows.
-                     // "Add hidden column ids" usually implies saving by Key/Value pairs in INI array usage?
-                     // QSettings arrays usually use index.
-                     // If we use beginWriteArray, we iterate.
-                     // Maybe user means storing as `id=value` in INI instead of array?
-                     // "Data are saved in .ini file (QSettings::IniFormat)"
-                     // If we use beginWriteArray, ID isn't used for mapping unless manual management.
-                     // But let's assume standard behavior: Store ID in the row data.
+                     m_data[index.row()].id = newCountry; // Update ID as well for consistency?
                      changed = true;
                  }
             } else if (index.column() == 1) { // VAT Number
@@ -130,7 +122,7 @@ bool VatNumbersTable::setData(const QModelIndex &index, const QVariant &value, i
                     changed = true;
                 }
             }
-            // Col 2 is ID, usually read only or managed automatically.
+            // Col 2 is ID, not editable manually usually
             
             if (changed) {
                 _save();
@@ -174,33 +166,58 @@ void VatNumbersTable::_load()
 {
     beginResetModel();
     m_data.clear();
-    QSettings settings(m_iniFilePath, QSettings::IniFormat);
-    int size = settings.beginReadArray("VatNumbers");
-    for (int i = 0; i < size; ++i) {
-        settings.setArrayIndex(i);
-        VatItem item;
-        item.country = settings.value("Country").toString(); // Key "Country"
-        item.vatNumber = settings.value("VatNumber").toString(); // Key "VatNumber"
-        item.id = settings.value("Id").toString(); // Key "Id"
+    
+    QFile file(m_filePath);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        endResetModel();
+        return;
+    }
+
+    QTextStream in(&file);
+    QString headerLine = in.readLine();
+    QStringList headers = headerLine.split(";");
+    
+    QMap<QString, int> columnMap;
+    for (int i = 0; i < headers.size(); ++i) {
+        columnMap[headers[i].trimmed()] = i;
+    }
+
+    int idxCountry = columnMap.value("Country", -1);
+    int idxVat = columnMap.value("VatNumber", -1);
+    int idxId = columnMap.value("Id", -1);
+
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        if (line.trimmed().isEmpty()) continue;
         
-        // If ID missing, fallback to country?
-        if (item.id.isEmpty()) item.id = item.country;
+        QStringList parts = line.split(";");
+        
+        VatItem item;
+        if (idxCountry != -1 && idxCountry < parts.size()) item.country = parts[idxCountry];
+        if (idxVat != -1 && idxVat < parts.size()) item.vatNumber = parts[idxVat];
+        if (idxId != -1 && idxId < parts.size()) item.id = parts[idxId];
+        
+        if (item.id.isEmpty()) item.id = item.country; // Fallback
         
         m_data.append(item);
     }
-    settings.endArray();
+    
     endResetModel();
 }
 
 void VatNumbersTable::_save()
 {
-    QSettings settings(m_iniFilePath, QSettings::IniFormat);
-    settings.beginWriteArray("VatNumbers", m_data.size());
-    for (int i = 0; i < m_data.size(); ++i) {
-        settings.setArrayIndex(i);
-        settings.setValue("Country", m_data[i].country);
-        settings.setValue("VatNumber", m_data[i].vatNumber);
-        settings.setValue("Id", m_data[i].id);
+    QFile file(m_filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "Failed to save VatNumbersTable:" << file.errorString();
+        return;
     }
-    settings.endArray();
+    
+    QTextStream out(&file);
+    out << HEADER_IDS.join(";") << "\n";
+    for (const auto &item : m_data) {
+        QStringList row;
+        row << item.country << item.vatNumber << item.id;
+        out << row.join(";") << "\n";
+    }
 }

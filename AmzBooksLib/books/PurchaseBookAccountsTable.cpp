@@ -248,12 +248,20 @@ void PurchaseBookAccountsTable::_fillIfEmpty()
     }
 }
 
+// ... (Header definition)
+
+const QStringList HEADER_IDS = {
+    "Country", "VatRate", "VatDebit6", "VatCredit4"
+};
+
+// ...
+
 void PurchaseBookAccountsTable::_rebuildCache()
 {
     m_cache.clear();
     m_existenceCache.clear();
     
-    // Columns:
+    // Columns (Normalized to HEADER_IDS):
     // 0: Country
     // 1: Rate
     // 2: Debit6
@@ -272,12 +280,6 @@ void PurchaseBookAccountsTable::_rebuildCache()
         acc.credit4 = row[3];
         
         // Last one wins? or First? 
-        // If we have multiple rates for same country, this cache structure overwrites.
-        // Given the requirement "getAccounts... (const QString &countryCode)", 1-to-1 seems implied for the *accounts*.
-        // The rate might just be for info in the table? 
-        // Or maybe different rates share the same accounts for a country? 
-        // Usually accounts depend on type (Services vs Goods), but PurchaseType was removed.
-        // So we assume one set of accounts per Country.
         m_cache[country] = acc;
         
         // Populate existence cache
@@ -295,8 +297,13 @@ void PurchaseBookAccountsTable::_save()
     }
     
     QTextStream out(&file);
+    // Write Header
+    out << HEADER_IDS.join(";") << "\n";
+    
     for (const QStringList &row : m_listOfStringList) {
-        out << row.join(";") << "\n";
+        QStringList outputRow = row;
+        while(outputRow.size() < HEADER_IDS.size()) outputRow << "";
+        out << outputRow.join(";") << "\n";
     }
 }
 
@@ -309,10 +316,63 @@ void PurchaseBookAccountsTable::_load()
     }
     
     QTextStream in(&file);
-    while (!in.atEnd()) {
-        QString line = in.readLine();
-        if (line.trimmed().isEmpty()) continue;
-        m_listOfStringList.append(line.split(";"));
+    if (in.atEnd()) return;
+
+    QString headerLine = in.readLine();
+    QStringList headers = headerLine.split(";");
+    
+    // Legacy check:
+    // Legacy Header (Display Strings): "Country", "Vat rate", "VAT Debit (6)", "VAT Credit (4)" (or localized!)
+    // But in `SaleBookAccountsTable`, we assumed data only in legacy.
+    // In `PurchaseBookAccountsTable`, it might be data only too.
+    // First line data: Country Code (2 chars).
+    // New Header: "Country".
+    // Check if first token is "Country".
+    bool isLegacy = (headers.first().trimmed() != "Country");
+    
+    QMap<QString, int> columnMap;
+    if (!isLegacy) {
+        for (int i = 0; i < headers.size(); ++i) {
+            columnMap[headers[i].trimmed()] = i;
+        }
+    } else {
+        // Legacy Map: Fixed Order
+        columnMap["Country"] = 0;
+        columnMap["VatRate"] = 1;
+        columnMap["VatDebit6"] = 2;
+        columnMap["VatCredit4"] = 3;
     }
+    
+    // Canonical Indices
+    int idxCountry = columnMap.value("Country", -1);
+    int idxRate = columnMap.value("VatRate", -1);
+    int idxDebit = columnMap.value("VatDebit6", -1);
+    int idxCredit = columnMap.value("VatCredit4", -1);
+
+    auto processLine = [&](const QString &line) {
+        if (line.trimmed().isEmpty()) return;
+        QStringList parts = line.split(";");
+        
+        QStringList normalizedRow;
+        for(int k=0; k<4; ++k) normalizedRow << "";
+        
+        if (idxCountry != -1 && idxCountry < parts.size()) normalizedRow[0] = parts[idxCountry];
+        if (idxRate != -1 && idxRate < parts.size()) normalizedRow[1] = parts[idxRate];
+        if (idxDebit != -1 && idxDebit < parts.size()) normalizedRow[2] = parts[idxDebit];
+        if (idxCredit != -1 && idxCredit < parts.size()) normalizedRow[3] = parts[idxCredit];
+        
+        if (normalizedRow[0].isEmpty()) return;
+        
+        m_listOfStringList.append(normalizedRow);
+    };
+
+    if (isLegacy) {
+        processLine(headerLine);
+    }
+    
+    while (!in.atEnd()) {
+        processLine(in.readLine());
+    }
+    
     _rebuildCache();
 }

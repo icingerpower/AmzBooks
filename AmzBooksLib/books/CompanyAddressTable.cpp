@@ -1,16 +1,28 @@
 #include "CompanyAddressTable.h"
 
-#include <QSettings>
+#include <QFile>
+#include <QTextStream>
 #include <QDebug>
 #include <algorithm>
 #include <QException>
 #include <QCoreApplication> 
+#include <QFileInfo>
+#include <QDir>
 #include "ExceptionCompanyInfo.h"
 
-CompanyAddressTable::CompanyAddressTable(const QString &iniFilePath, QObject *parent)
+const QStringList CompanyAddressTable::HEADER_IDS = { "Date", "CompanyName", "Street1", "Street2", "PostalCode", "City" };
+
+CompanyAddressTable::CompanyAddressTable(const QString &filePath, QObject *parent)
     : QAbstractTableModel(parent)
-    , m_iniFilePath(iniFilePath)
 {
+    // Ensure .csv extension if possible or use as is
+    QFileInfo fi(filePath);
+    if (fi.suffix() != "csv") {
+        m_filePath = fi.path() + "/" + fi.completeBaseName() + ".csv";
+    } else {
+        m_filePath = filePath;
+    }
+
     _load();
     if (m_data.isEmpty()) {
         // Just empty, no defaults requested.
@@ -232,42 +244,73 @@ void CompanyAddressTable::_load()
 {
     beginResetModel();
     m_data.clear();
-    QSettings settings(m_iniFilePath, QSettings::IniFormat);
-    int size = settings.beginReadArray("Addresses");
-    for (int i = 0; i < size; ++i) {
-        settings.setArrayIndex(i);
+    
+    QFile file(m_filePath);
+    if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        endResetModel();
+        return;
+    }
+
+    QTextStream in(&file);
+    QString headerLine = in.readLine();
+    QStringList headers = headerLine.split(";");
+    
+    QMap<QString, int> columnMap;
+    for (int i = 0; i < headers.size(); ++i) {
+        // Handle "Date" specially? No, standard CSV logic.
+        columnMap[headers[i].trimmed()] = i;
+    }
+    
+    // Header IDs: Date, CompanyName, Street1, Street2, PostalCode, City
+    int idxDate = columnMap.value("Date", -1);
+    int idxName = columnMap.value("CompanyName", -1);
+    int idxSt1 = columnMap.value("Street1", -1);
+    int idxSt2 = columnMap.value("Street2", -1);
+    int idxZip = columnMap.value("PostalCode", -1);
+    int idxCity = columnMap.value("City", -1);
+
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        if (line.trimmed().isEmpty()) continue;
+        
+        QStringList parts = line.split(";");
+        
         AddressItem item;
-        item.date = settings.value("date").toDate();
-        // Support old format "address" (fallback) or new detailed keys
-        // If "address" exists and "street1" missing, maybe migrate? 
-        // User requested refactoring, assuming data migration or clean slate is fine or handled implicitly.
-        // I will focus on new keys.
-        item.companyName = settings.value("companyName").toString();
-        item.street1 = settings.value("street1").toString();
-        item.street2 = settings.value("street2").toString();
-        item.postalCode = settings.value("postalCode").toString();
-        item.city = settings.value("city").toString();
+        if (idxDate != -1 && idxDate < parts.size()) item.date = QDate::fromString(parts[idxDate], Qt::ISODate);
+        if (idxName != -1 && idxName < parts.size()) item.companyName = parts[idxName];
+        if (idxSt1 != -1 && idxSt1 < parts.size()) item.street1 = parts[idxSt1];
+        if (idxSt2 != -1 && idxSt2 < parts.size()) item.street2 = parts[idxSt2];
+        if (idxZip != -1 && idxZip < parts.size()) item.postalCode = parts[idxZip];
+        if (idxCity != -1 && idxCity < parts.size()) item.city = parts[idxCity];
+        
+        // Provide Default Date if missing?
+        if (!item.date.isValid()) item.date = QDate::currentDate(); // or skip? user code logic seems to rely on valid dates
         
         m_data.append(item);
     }
-    settings.endArray();
+    
     _sort();
     endResetModel();
 }
 
 void CompanyAddressTable::_save()
 {
-    QSettings settings(m_iniFilePath, QSettings::IniFormat);
-    settings.beginWriteArray("Addresses", m_data.size());
-    for (int i = 0; i < m_data.size(); ++i) {
-        settings.setArrayIndex(i);
-        const auto &item = m_data[i];
-        settings.setValue("date", item.date);
-        settings.setValue("companyName", item.companyName);
-        settings.setValue("street1", item.street1);
-        settings.setValue("street2", item.street2);
-        settings.setValue("postalCode", item.postalCode);
-        settings.setValue("city", item.city);
+    QFile file(m_filePath);
+    if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+        qWarning() << "Failed to save CompanyAddressTable:" << file.errorString();
+        return;
     }
-    settings.endArray();
+    
+    QTextStream out(&file);
+    out << HEADER_IDS.join(";") << "\n";
+    for (const auto &item : m_data) {
+        QStringList row;
+        row << item.date.toString(Qt::ISODate)
+            << item.companyName
+            << item.street1
+            << item.street2
+            << item.postalCode
+            << item.city;
+        out << row.join(";") << "\n";
+    }
 }

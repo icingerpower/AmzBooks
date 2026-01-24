@@ -330,6 +330,14 @@ void SaleBookAccountsTable::_fillIfEmpty()
     }
 }
 // ... (skip save/load)
+// ... (Header definition updates if needed, but I'll add HEADER_IDS locally or static)
+
+const QStringList HEADER_IDS = {
+    "TaxScheme", "CountryFrom", "CountryTo", "VatRate", "SaleAccount", "VatAccount"
+};
+
+// ...
+
 void SaleBookAccountsTable::_rebuildCache()
 {
     m_vatCountries_vatRate_accountsCache.clear();
@@ -341,6 +349,10 @@ void SaleBookAccountsTable::_rebuildCache()
     // 3: Rate
     // 4: SaleAccount
     // 5: VatAccount
+    
+    // m_listOfStringList now stores data in order of HEADER_IDS (Canonical Order) after load/save normalization?
+    // OR m_listOfStringList stores raw rows and we need to normalize?
+    // Best approach: Normalize on load. m_listOfStringList ALWAYS strictly follows 0..5 index of HEADER_IDS.
     
     for (const auto &row : m_listOfStringList) {
         if (row.size() < 6) {
@@ -369,8 +381,14 @@ void SaleBookAccountsTable::_save()
     }
     
     QTextStream out(&file);
+    // Write Header
+    out << HEADER_IDS.join(";") << "\n";
+    
     for (const QStringList &row : m_listOfStringList) {
-        out << row.join(";") << "\n";
+        // Ensure row has enough columns?
+        QStringList outputRow = row;
+        while(outputRow.size() < HEADER_IDS.size()) outputRow << "";
+        out << outputRow.join(";") << "\n";
     }
 }
 
@@ -383,12 +401,69 @@ void SaleBookAccountsTable::_load()
     }
     
     QTextStream in(&file);
-    while (!in.atEnd()) {
-        QString line = in.readLine();
-        if (line.trimmed().isEmpty()) {
-            continue;
+    if (in.atEnd()) return;
+
+    QString headerLine = in.readLine();
+    QStringList headers = headerLine.split(";");
+    
+    // Detect if this is a legacy file (No header, so first line is data)
+    // Legacy first column is Tax Scheme String (e.g. "DomesticVat", "EuOssUnion" etc.)
+    // New Header first col is "TaxScheme".
+    // Check if first token is "TaxScheme".
+    bool isLegacy = (headers.first().trimmed() != "TaxScheme");
+    
+    QMap<QString, int> columnMap;
+    if (!isLegacy) {
+        for (int i = 0; i < headers.size(); ++i) {
+            columnMap[headers[i].trimmed()] = i;
         }
-        m_listOfStringList.append(line.split(";"));
+    } else {
+        // Legacy Map: Fixed Order
+        columnMap["TaxScheme"] = 0;
+        columnMap["CountryFrom"] = 1;
+        columnMap["CountryTo"] = 2;
+        columnMap["VatRate"] = 3;
+        columnMap["SaleAccount"] = 4;
+        columnMap["VatAccount"] = 5;
     }
+    
+    // Canonical Indices
+    int idxScheme = columnMap.value("TaxScheme", -1);
+    int idxFrom = columnMap.value("CountryFrom", -1);
+    int idxTo = columnMap.value("CountryTo", -1);
+    int idxRate = columnMap.value("VatRate", -1);
+    int idxSale = columnMap.value("SaleAccount", -1);
+    int idxVat = columnMap.value("VatAccount", -1);
+
+    auto processLine = [&](const QString &line) {
+        if (line.trimmed().isEmpty()) return;
+        QStringList parts = line.split(";");
+        
+        QStringList normalizedRow;
+        // Init with empty
+        for(int k=0; k<6; ++k) normalizedRow << "";
+        
+        if (idxScheme != -1 && idxScheme < parts.size()) normalizedRow[0] = parts[idxScheme];
+        if (idxFrom != -1 && idxFrom < parts.size()) normalizedRow[1] = parts[idxFrom];
+        if (idxTo != -1 && idxTo < parts.size()) normalizedRow[2] = parts[idxTo];
+        if (idxRate != -1 && idxRate < parts.size()) normalizedRow[3] = parts[idxRate];
+        if (idxSale != -1 && idxSale < parts.size()) normalizedRow[4] = parts[idxSale];
+        if (idxVat != -1 && idxVat < parts.size()) normalizedRow[5] = parts[idxVat];
+        
+        // Skip if empty scheme (invalid row)?
+        if (normalizedRow[0].isEmpty()) return;
+        
+        m_listOfStringList.append(normalizedRow);
+    };
+
+    if (isLegacy) {
+        // Process the read headerLine as data
+        processLine(headerLine);
+    }
+    
+    while (!in.atEnd()) {
+        processLine(in.readLine());
+    }
+    
     _rebuildCache();
 }

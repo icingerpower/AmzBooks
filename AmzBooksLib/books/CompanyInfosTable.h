@@ -10,7 +10,7 @@ class CompanyInfosTable : public QAbstractTableModel
     Q_OBJECT
 
 public:
-    explicit CompanyInfosTable(const QString &iniFilePath, QObject *parent = nullptr);
+    explicit CompanyInfosTable(const QString &filePath, QObject *parent = nullptr);
 
     // QAbstractItemModel interface
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -31,8 +31,9 @@ private:
     void _save();
     void _ensureDefaults();
 
-    QString m_iniFilePath;
+    QString m_filePath;
     QList<InfoItem> m_data;
+    static const QStringList HEADER_IDS;
 };
 
 #endif // COMPANYINFOSTABLE_H

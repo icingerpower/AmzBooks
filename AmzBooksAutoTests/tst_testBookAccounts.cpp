@@ -16,16 +16,43 @@ class TestBookAccounts : public QObject
 {
     Q_OBJECT
 
+    // Helper to inject fake column
+    void injectFakeColumn(const QString &filePath) {
+        QFile file(filePath);
+        if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) QFAIL("Failed to open file for injection");
+        QString content = file.readAll();
+        file.close();
+
+        QStringList lines = content.split('\n');
+        if (lines.isEmpty()) QFAIL("Empty file");
+
+        // Headers are first line
+        QStringList headers = lines[0].split(';');
+        headers.insert(1, "FakeId");
+        lines[0] = headers.join(';');
+
+        for (int i = 1; i < lines.size(); ++i) {
+            if (lines[i].trimmed().isEmpty()) continue;
+            QStringList parts = lines[i].split(';');
+            parts.insert(1, "FakeValue");
+            lines[i] = parts.join(';');
+        }
+
+        if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) QFAIL("Failed to save injected file");
+        QTextStream out(&file);
+        out << lines.join('\n');
+    }
+
 private slots:
     void test_persistence() {
         QTemporaryDir tempDir;
         QVERIFY(tempDir.isValid());
+        QDir dir(tempDir.path());
 
         int initialCount = 0;
         // 1. Initialize - should default populate
         {
-            SaleBookAccountsTable table(QDir(tempDir.path()));
-             // Row count varies based on CountriesEu logic
+            SaleBookAccountsTable table(dir);
             initialCount = table.rowCount();
             QVERIFY(initialCount > 60);   
             
@@ -37,7 +64,7 @@ private slots:
 
         // 2. Add new account and save
         {
-            SaleBookAccountsTable table(QDir(tempDir.path()));
+            SaleBookAccountsTable table(dir);
             VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR");
             SaleBookAccountsTable::Accounts newAcc;
             newAcc.saleAccount = "7001";
@@ -53,7 +80,7 @@ private slots:
 
         // 3. Reload and verify persistence
         {
-            SaleBookAccountsTable table(QDir(tempDir.path()));
+            SaleBookAccountsTable table(dir);
             QCOMPARE(table.rowCount(), initialCount + 1);
             
             VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR");
@@ -61,8 +88,22 @@ private slots:
             QCOMPARE(retrieved.saleAccount, "7001");
             QCOMPARE(retrieved.vatAccount, "4401");
         }
+        
+        // 4. Robustness: Inject Fake Column
+        QString csvPath = dir.filePath("saleBookAccounts.csv");
+        injectFakeColumn(csvPath);
+        
+        {
+             SaleBookAccountsTable table(dir);
+             VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR");
+             SaleBookAccountsTable::Accounts retrieved = table.getAccounts(vc, 20.0);
+             // Should still find it
+             QCOMPARE(retrieved.saleAccount, "7001");
+        }
     }
     
+    // ... test_saleValidation ...
+
     void test_saleValidation() {
         QTemporaryDir tempDir;
         SaleBookAccountsTable table(QDir(tempDir.path()));
@@ -113,17 +154,6 @@ private slots:
         // Case 2: Retrieve second rate
         auto res3 = table.getAccounts(vc, 7.0);
         QCOMPARE(res3.saleAccount, "S3");
-        
-        /*
-        // Case 3: Overwrite first rate (Now disabled due to duplication check)
-        SaleBookAccountsTable::Accounts acc2;
-        acc2.saleAccount = "S2";
-        acc2.vatAccount = "V2";
-        table.addAccount(vc, 19.0, acc2);
-        
-        auto res2 = table.getAccounts(vc, 19.0);
-        QCOMPARE(res2.saleAccount, "S2");
-        */
 
         // Case 4: Unknown rate -> fallback
         auto res4 = table.getAccounts(vc, 5.0);
@@ -145,7 +175,6 @@ private slots:
             QCOMPARE(vc2.countryCodeFrom, ""); 
             QCOMPARE(vc2.countryCodeTo, "DE");
         }
-        // ... (Skipping full exhaust check for brevity if not changed, but keeping for verification)
     }
 
     // --- PURCHASE TESTS ---
@@ -166,10 +195,11 @@ private slots:
     void test_purchasePersistence() {
         QTemporaryDir tempDir;
         QVERIFY(tempDir.isValid());
+        QDir dir(tempDir.path());
         
         // 1. Init & Defaults
         {
-            PurchaseBookAccountsTable table(QDir(tempDir.path()), "FR");
+            PurchaseBookAccountsTable table(dir, "FR");
             QVERIFY(table.rowCount() == 1); // Should have 1 default row for FR
             
             QString debit = table.getAccountsDebit6("FR");
@@ -180,7 +210,7 @@ private slots:
         
         // 2. Add & Save
         {
-            PurchaseBookAccountsTable table(QDir(tempDir.path()), "FR");
+            PurchaseBookAccountsTable table(dir, "FR");
             // Add account for DE (Import/Intra)
             table.addAccount("DE", 19.0, "600DE", "400DE");
             
@@ -190,11 +220,22 @@ private slots:
         
         // 3. Reload
         {
-            PurchaseBookAccountsTable table(QDir(tempDir.path()), "FR");
+            PurchaseBookAccountsTable table(dir, "FR");
             QCOMPARE(table.rowCount(), 2); // FR + DE
             
             QCOMPARE(table.getAccountsDebit6("DE"), "600DE");
             QCOMPARE(table.getAccountsCredit4("DE"), "400DE");
+        }
+        
+        // 4. Robustness: Inject Fake Column
+        QString csvPath = dir.filePath("purchaseBookAccounts.csv");
+        injectFakeColumn(csvPath);
+        
+        {
+            PurchaseBookAccountsTable table(dir, "FR");
+            // Check Data valid
+            QString val = table.getAccountsDebit6("DE");
+            QCOMPARE(val, "600DE");
         }
     }
     
@@ -229,7 +270,6 @@ private slots:
         }
     }
 
-    // ... existing test_purchasePersistence ...
     void test_purchaseLookup() {
           QTemporaryDir tempDir;
           PurchaseBookAccountsTable table(QDir(tempDir.path()), "FR");
@@ -245,7 +285,7 @@ private slots:
 
     void test_CompanyAddressTable() {
         QTemporaryDir tempDir;
-        QString iniFiles = tempDir.filePath("company.ini");
+        QString iniFiles = tempDir.filePath("company.csv"); // Renamed to CSV (logic handles extension but let's be explicit test file)
 
         // 1. Init & Add Data
         {
@@ -300,11 +340,19 @@ private slots:
             CompanyAddressTable table(iniFiles);
             QCOMPARE(table.getCompanyName(QDate(2024, 1, 1)), "MyCo 2024 Mod");
         }
+        
+        // 4. Robustness
+        injectFakeColumn(iniFiles);
+        {
+            CompanyAddressTable table(iniFiles);
+            QCOMPARE(table.rowCount(), 2);
+            QCOMPARE(table.getCompanyName(QDate(2024, 1, 1)), "MyCo 2024 Mod");
+        }
     }
 
     void test_CompanyInfosTable() {
         QTemporaryDir tempDir;
-        QString iniFiles = tempDir.filePath("infos.ini");
+        QString iniFiles = tempDir.filePath("infos.csv");
         
         // 1. Init & Modify
         {
@@ -327,11 +375,18 @@ private slots:
             QCOMPARE(table.data(table.index(0, 1)).toString(), "US");
             QCOMPARE(table.data(table.index(1, 1)).toString(), "USD");
         }
+        
+        // 3. Robustness
+        injectFakeColumn(iniFiles);
+        {
+            CompanyInfosTable table(iniFiles);
+            QCOMPARE(table.data(table.index(0, 1)).toString(), "US");
+        }
     }
 
     void test_VatNumbersTable() {
         QTemporaryDir tempDir;
-        QString iniFile = tempDir.filePath("vat.ini");
+        QString iniFile = tempDir.filePath("vat.csv");
         
         // 1. Add and Save
         {
@@ -346,10 +401,9 @@ private slots:
             // Duplicate strict check
             QVERIFY_EXCEPTION_THROWN(table.addVatNumber("FR", "FR999"), ExceptionCompanyInfo);
             
-            // Validate Columns (0=Country, 1=Vat, 2=Id)
+            // Validate Columns (0=Country, 1=Vat, ID is hidden)
             QCOMPARE(table.data(table.index(0, 0)).toString(), "FR");
             QCOMPARE(table.data(table.index(0, 1)).toString(), "FR123");
-            QCOMPARE(table.data(table.index(0, 2)).toString(), "FR");
         }
         
         // 2. Persistence
@@ -359,27 +413,14 @@ private slots:
              QCOMPARE(table.getVatNumber("DE"), "DE456");
         }
         
-        // 3. Hidden Column / Robustness Test
-        // Manually write a FULL INI with extra keys to simulate a new column added in future
-        {
-             QSettings s(iniFile, QSettings::IniFormat);
-             s.beginWriteArray("VatNumbers", 1);
-             s.setArrayIndex(0);
-             s.setValue("Country", "ES");
-             s.setValue("VatNumber", "ES111");
-             s.setValue("Id", "ES");
-             s.setValue("NewFutureColumn", "HiddenData"); // This is the 'added' column simulation
-             s.endArray();
-        }
+        // 3. Robustness 
+        // Logic handled by injectFakeColumn matches generic requirements
+        injectFakeColumn(iniFile);
         
         {
              VatNumbersTable table(iniFile);
-             // Should load correctly despite extra data
-             QCOMPARE(table.rowCount(), 1);
-             QCOMPARE(table.getVatNumber("ES"), "ES111");
-             
-             // Check ID is still valid
-             QCOMPARE(table.data(table.index(0, 2)).toString(), "ES");
+             QCOMPARE(table.rowCount(), 2);
+             QCOMPARE(table.getVatNumber("DE"), "DE456");
         }
     }
 
