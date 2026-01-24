@@ -537,3 +537,79 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
     
     return results;
 }
+
+QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManager::getActivitySource_ShipmentAndRefunds(
+        const QDate &dateFrom,
+        const QDate &dateTo,
+        std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const
+{
+    QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> results;
+    
+    QString queryStr = "SELECT current_json, source_key, event_date, id FROM shipments WHERE 1=1";
+    if (dateFrom.isValid()) {
+        queryStr += QString(" AND event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
+    }
+    if (dateTo.isValid()) {
+        queryStr += QString(" AND event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
+    }
+    
+    QSqlQuery query(queryStr);
+    
+    while (query.next()) {
+        QString jsonStr = query.value(0).toString();
+        QString sourceKey = query.value(1).toString();
+        QString dateStr = query.value(2).toString();
+        QString id = query.value(3).toString();
+        QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
+        
+        // Parse Source
+        QStringList parts = sourceKey.split('|');
+        ActivitySource source;
+        if (parts.size() >= 4) {
+             source.type = static_cast<ActivitySourceType>(parts[0].toInt());
+             source.channel = parts[1];
+             source.subchannel = parts[2];
+             source.reportOrMethode = parts[3];
+        } else {
+            source.type = ActivitySourceType::API; // Default
+        }
+        
+        // Parse Shipment
+        QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
+        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        
+        // Check for Reversal
+        if (id.contains("-rev-")) {
+            QList<Activity> newActs;
+            for (const auto &act : shipment->getActivities()) {
+                Amount negatedAmount(-act.getAmountTaxed(), -act.getAmountTaxesSource());
+                auto res = Activity::create(act.getEventId(),
+                                            act.getActivityId(),
+                                            act.getSubActivityId(),
+                                            act.getDateTime(),
+                                            act.getCurrency(),
+                                            act.getCountryCodeFrom(),
+                                            act.getCountryCodeTo(),
+                                            act.getCountryCodeVatPaidTo(),
+                                            negatedAmount,
+                                            act.getTaxSource(),
+                                            act.getTaxDeclaringCountryCode(),
+                                            act.getTaxScheme(),
+                                            act.getTaxJurisdictionLevel(),
+                                            act.getSaleType(),
+                                            act.getVatTerritoryFrom(),
+                                            act.getVatTerritoryTo());
+               if (res.value) {
+                   newActs.append(*res.value);
+               }
+            }
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+        }
+
+        if (!acceptCallback || acceptCallback(&source, shipment.data())) {
+            results[source].insert(eventDate, shipment);
+        }
+    }
+    
+    return results;
+}

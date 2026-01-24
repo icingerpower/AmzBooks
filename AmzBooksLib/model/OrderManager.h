@@ -18,6 +18,8 @@
 #include <QSqlDatabase>
 #include <QJsonObject>
 
+#include "ActivitySource.h"
+
 class Address;
 class ActivitySource;
 class Shipment;
@@ -53,7 +55,14 @@ public:
     void publish(QDate &dateUntil); //Shipment updated are published and the original from source are ignored (when replaced) except if they were published already
     void clearUnpublished(); // Usefull if data were loaded with a bug. It will clear all unpublished
     void deleteDatabase(); // Usefull to reset + also for unit tests
-    QMultiMap<QDateTime, QSharedPointer<Shipment>> getShipmentAndRefunds(const QDate &dateFrom, const QDate &dateTo, std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const;
+    QMultiMap<QDateTime, QSharedPointer<Shipment>> getShipmentAndRefunds(
+            const QDate &dateFrom
+            , const QDate &dateTo
+            , std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const;
+    QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> getActivitySource_ShipmentAndRefunds(
+            const QDate &dateFrom
+            , const QDate &dateTo
+            , std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const;
     void copyDatabase(const QString &filePath, int yearUntil); // To archive all orders
     void removeInDatabase(int yearUntil); // To remove old data
     

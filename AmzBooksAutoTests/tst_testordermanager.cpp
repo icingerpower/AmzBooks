@@ -26,6 +26,7 @@ private slots:
     void test_activity_update_model();
     void test_record_with_refund();
     void test_getShipments();
+    void test_getActivitySource_ShipmentAndRefunds();
     void test_invoicingInfos();
 };
 
@@ -512,6 +513,73 @@ void TestOrderManager::test_invoicingInfos()
         QVERIFY2(info, qPrintable("Invoicing info missing for " + id));
         QCOMPARE(info->getInvoiceNumber().value(), QString("INV-001"));
     }
+}
+
+void TestOrderManager::test_getActivitySource_ShipmentAndRefunds()
+{
+    QTemporaryDir tempDir;
+    OrderManager manager(tempDir.path());
+    
+    // Sources
+    ActivitySource sourceA{ActivitySourceType::Report, "Amazon", "amazon.fr", "ReportA"};
+    ActivitySource sourceB{ActivitySourceType::API, "Amazon", "amazon.de", "ApiB"};
+    ActivitySource sourceC{ActivitySourceType::Report, "Other", "other.com", "ReportC"};
+    
+    // Create 10 shipments:
+    // 4 for Source A
+    // 3 for Source B
+    // 3 for Source C
+    
+    // Helper to create and record
+    auto createRecord = [&](const QString &id, ActivitySource *src, double amount) {
+        auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(amount, amount * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment shipment({*actRes.value});
+        manager.recordShipmentFromSource("ord_" + id, src, &shipment, QDate());
+    };
+    
+    for (int i=0; i<4; ++i) createRecord(QString("A%1").arg(i), &sourceA, 100 + i);
+    for (int i=0; i<3; ++i) createRecord(QString("B%1").arg(i), &sourceB, 200 + i);
+    for (int i=0; i<3; ++i) createRecord(QString("C%1").arg(i), &sourceC, 300 + i);
+    
+    // 2. Publish one shipment from Source A (A0)
+    // Actually publish marks ALL drafts up to date as Published.
+    // So all 10 will be published if we publish now.
+    // That's fine.
+    // That's fine.
+    QDate futureDate = QDate::currentDate().addDays(100);
+    manager.publish(futureDate); // Future
+    
+    // 3. Update A0 with conflict
+    // Change Amount to trigger conflict
+    QString idConf = "A0";
+    auto actResConf = Activity::create("evt_" + idConf, "act_" + idConf, "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(999.0, 999.0 * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment shipmentConf({*actResConf.value});
+    
+    // New Date next month (Feb)
+    QDate conflictDate(2023, 2, 1);
+    manager.recordShipmentFromSource("ord_" + idConf, &sourceA, &shipmentConf, conflictDate);
+    
+    // 4. Call getActivitySource_ShipmentAndRefunds
+    auto results = manager.getActivitySource_ShipmentAndRefunds(QDate(), QDate(), nullptr);
+    
+    // 5. Verify
+    // Source A:
+    //   Starts with 4. A0 gets updated with conflict.
+    //   A0 -> becomes 3 entries: Original (Published), Reversal (Draft), New (Draft).
+    //   A1, A2, A3 -> 1 entry each (Published).
+    //   Total for A: 3 + 3 = 6.
+    QCOMPARE(results.value(sourceA).size(), 6);
+    
+    // Source B: 3 entries
+    QCOMPARE(results.value(sourceB).size(), 3);
+    
+    // Source C: 3 entries
+    QCOMPARE(results.value(sourceC).size(), 3);
+    
+    // Verify Totals of keys
+    QCOMPARE(results.keys().size(), 3);
 }
 
 QTEST_MAIN(TestOrderManager)
