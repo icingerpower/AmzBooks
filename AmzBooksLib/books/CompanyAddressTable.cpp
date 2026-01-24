@@ -5,7 +5,7 @@
 #include <algorithm>
 #include <QException>
 #include <QCoreApplication> 
-#include "CompanyInfoException.h"
+#include "ExceptionCompanyInfo.h"
 
 CompanyAddressTable::CompanyAddressTable(const QString &iniFilePath, QObject *parent)
     : QAbstractTableModel(parent)
@@ -25,7 +25,7 @@ const CompanyAddressTable::AddressItem &CompanyAddressTable::_getItemForDate(con
             return entry;
         }
     }
-    throw CompanyInfoException(tr("Missing Address"), tr("No company address found for date %1").arg(date.toString(Qt::ISODate)));
+    throw ExceptionCompanyInfo(tr("Missing Address"), tr("No company address found for date %1").arg(date.toString(Qt::ISODate)));
 }
 
 QString CompanyAddressTable::getCompanyAddress(const QDate &date) const

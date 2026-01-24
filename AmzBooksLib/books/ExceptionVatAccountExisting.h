@@ -1,13 +1,13 @@
-#ifndef VATACCOUNTEXISTINGEXCEPTION_H
-#define VATACCOUNTEXISTINGEXCEPTION_H
+#ifndef BOOK_EXCEPTIONVATACCOUNTEXISTING_H
+#define BOOK_EXCEPTIONVATACCOUNTEXISTING_H
 
 #include <stdexcept>
 #include <QString>
 
-class VatAccountExistingException : public std::runtime_error
+class ExceptionVatAccountExisting : public std::runtime_error
 {
 public:
-    VatAccountExistingException(const QString &title, const QString &text)
+    ExceptionVatAccountExisting(const QString &title, const QString &text)
         : std::runtime_error((title + ": " + text).toStdString())
     {}
     
@@ -16,4 +16,4 @@ public:
     QString errorText() const { return what(); }
 };
 
-#endif // VATACCOUNTEXISTINGEXCEPTION_H
+#endif // BOOK_EXCEPTIONVATACCOUNTEXISTING_H

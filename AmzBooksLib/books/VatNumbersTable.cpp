@@ -2,7 +2,7 @@
 
 #include <QSettings>
 #include <QCoreApplication> 
-#include "CompanyInfoException.h"
+#include "ExceptionCompanyInfo.h"
 
 VatNumbersTable::VatNumbersTable(const QString &iniFilePath, QObject *parent)
     : QAbstractTableModel(parent)
@@ -40,7 +40,7 @@ void VatNumbersTable::addVatNumber(const QString &country, const QString &vatNum
     // Check exist
     for (const auto &item : m_data) {
         if (item.country == country) {
-            throw CompanyInfoException(tr("Duplicate Country"), tr("VAT Number for country %1 already exists").arg(country));
+            throw ExceptionCompanyInfo(tr("Duplicate Country"), tr("VAT Number for country %1 already exists").arg(country));
         }
     }
     
@@ -104,7 +104,7 @@ bool VatNumbersTable::setData(const QModelIndex &index, const QVariant &value, i
                      // Check duplicate?
                      for (int i=0; i<m_data.size(); ++i) {
                          if (i != index.row() && m_data[i].country == newCountry) {
-                              throw CompanyInfoException(tr("Duplicate Country"), tr("VAT Number for country %1 already exists").arg(newCountry));
+                              throw ExceptionCompanyInfo(tr("Duplicate Country"), tr("VAT Number for country %1 already exists").arg(newCountry));
                          }
                      }
                      m_data[index.row()].country = newCountry;

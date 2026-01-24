@@ -24,10 +24,10 @@ add_library(AmzBooksLib STATIC
   books/SaleBookAccountsTable.cpp
   books/PurchaseBookAccountsTable.h
   books/PurchaseBookAccountsTable.cpp
-  books/TaxSchemeInvalidException.h
-  books/TaxSchemeInvalidException.cpp
-  books/VatAccountExistingException.h
-  books/VatAccountExistingException.cpp
+  books/ExceptionTaxSchemeInvalid.h
+  books/ExceptionTaxSchemeInvalid.cpp
+  books/ExceptionVatAccountExisting.h
+  books/ExceptionVatAccountExisting.cpp
   CountriesEu.h
   CountriesEu.cpp
   ${COUNTRY_FILES}

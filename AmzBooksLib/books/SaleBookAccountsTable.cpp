@@ -51,7 +51,7 @@ VatCountries SaleBookAccountsTable::resolveVatCountries(
         return {TaxScheme::OutOfScope, "", ""};
 
     default:
-        throw TaxSchemeInvalidException("Invalid Tax Scheme", 
+        throw ExceptionTaxSchemeInvalid("Invalid Tax Scheme", 
                                         "The tax scheme " + taxSchemeToString(taxScheme) + " is not supported for account resolution.");
     }
 }
@@ -75,7 +75,7 @@ SaleBookAccountsTable::Accounts SaleBookAccountsTable::getAccounts(const VatCoun
     return Accounts();
 }
 
-#include "VatAccountExistingException.h"
+#include "ExceptionVatAccountExisting.h"
 
 // ... existing code ...
 
@@ -88,7 +88,7 @@ void SaleBookAccountsTable::addAccount(
     // Validation: Check for duplicates using cache
     if (m_vatCountries_vatRate_accountsCache.contains(vatCountries)) {
         if (m_vatCountries_vatRate_accountsCache[vatCountries].contains(rateStr)) {
-             throw VatAccountExistingException(tr("Account Exists"), 
+             throw ExceptionVatAccountExisting(tr("Account Exists"), 
                 QString(tr("An account for scheme %1, from %2, to %3, rate %4 already exists."))
                     .arg(schemeStr)
                     .arg(vatCountries.countryCodeFrom)

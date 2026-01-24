@@ -5,11 +5,11 @@
 #include "books/SaleBookAccountsTable.h"
 #include "model/TaxScheme.h"
 #include "books/PurchaseBookAccountsTable.h"
-#include "books/VatAccountExistingException.h"
-#include "books/TaxSchemeInvalidException.h"
+#include "books/ExceptionVatAccountExisting.h"
+#include "books/ExceptionTaxSchemeInvalid.h"
 #include "books/CompanyAddressTable.h"
 #include "books/CompanyInfosTable.h"
-#include "books/CompanyInfoException.h"
+#include "books/ExceptionCompanyInfo.h"
 #include "books/VatNumbersTable.h"
 
 class TestBookAccounts : public QObject
@@ -78,7 +78,7 @@ private slots:
         // 2. Duplicate -> Exception
         QVERIFY_EXCEPTION_THROWN(
             table.addAccount(vc, 10.0, acc),
-            VatAccountExistingException
+            ExceptionVatAccountExisting
         );
         
         // 3. Diff Rate -> OK
@@ -205,7 +205,7 @@ private slots:
         // 1. Invalid Country
         QVERIFY_EXCEPTION_THROWN(
             table.addAccount("US", 10.0, "6", "4"),
-            TaxSchemeInvalidException
+            ExceptionTaxSchemeInvalid
         );
         
         // 2. Valid Country, New Rate
@@ -214,7 +214,7 @@ private slots:
         // 3. Duplicate (DE, 19.0)
         QVERIFY_EXCEPTION_THROWN(
             table.addAccount("DE", 19.0, "6New", "4New"),
-            VatAccountExistingException
+            ExceptionVatAccountExisting
         );
         
         // 4. Same Country, Diff Rate -> OK
@@ -279,7 +279,7 @@ private slots:
             QCOMPARE(table.getCity(QDate(2023, 6, 1)), "Paris");
 
             // Verify Exception for old date
-            QVERIFY_EXCEPTION_THROWN(table.getCompanyAddress(QDate(2022, 1, 1)), CompanyInfoException);
+            QVERIFY_EXCEPTION_THROWN(table.getCompanyAddress(QDate(2022, 1, 1)), ExceptionCompanyInfo);
         }
         
         // 2. Persistence (New Instance)
@@ -344,7 +344,7 @@ private slots:
             QVERIFY(!table.hasVatNumber("ES"));
             
             // Duplicate strict check
-            QVERIFY_EXCEPTION_THROWN(table.addVatNumber("FR", "FR999"), CompanyInfoException);
+            QVERIFY_EXCEPTION_THROWN(table.addVatNumber("FR", "FR999"), ExceptionCompanyInfo);
             
             // Validate Columns (0=Country, 1=Vat, 2=Id)
             QCOMPARE(table.data(table.index(0, 0)).toString(), "FR");

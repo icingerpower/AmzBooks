@@ -26,7 +26,7 @@ To run the tests:
 - **Exception Handling**:
     - Exceptions should ideally inherit from `QException`.
     - They must implement `raise()` and `clone()` methods to be compatible with Qt's cross-thread exception transport.
-    - Example: `TaxSchemeInvalidException` or `CompanyInfoException`.
+    - Example: `ExceptionTaxSchemeInvalid` or `ExceptionCompanyInfo`.
     - Always provide a title and detailed error text.
 
 - **Activity**: Represents a normalized accounting posting line. Key fields include:

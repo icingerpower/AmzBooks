@@ -5,8 +5,8 @@
 
 #include "PurchaseBookAccountsTable.h"
 #include "CountriesEu.h"
-#include "VatAccountExistingException.h"
-#include "TaxSchemeInvalidException.h"
+#include "ExceptionVatAccountExisting.h"
+#include "ExceptionTaxSchemeInvalid.h"
 #include "model/VatResolver.h"
 
 const QStringList PurchaseBookAccountsTable::HEADER{
@@ -113,13 +113,13 @@ void PurchaseBookAccountsTable::addAccount(
     }
     
     if (!isEuOrUk) {
-         throw TaxSchemeInvalidException("Invalid Country", "The country " + countryCode + " is not UK or an EU member.");
+         throw ExceptionTaxSchemeInvalid("Invalid Country", "The country " + countryCode + " is not UK or an EU member.");
     }
 
     // Validation 2: Existence check
     QString key = countryCode + "|" + QString::number(vatRate);
     if (m_existenceCache.contains(key)) {
-         throw VatAccountExistingException(tr("Account Exists"),
+         throw ExceptionVatAccountExisting(tr("Account Exists"),
             QString(tr("An account for country %1 and rate %2 already exists.")).arg(countryCode).arg(vatRate));
     }
 
