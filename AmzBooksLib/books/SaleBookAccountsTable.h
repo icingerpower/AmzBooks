@@ -10,6 +10,8 @@
 #include <QException>
 
 #include "ExceptionTaxSchemeInvalid.h"
+#include <QCoroTask>
+#include <functional>
 
 
 //
@@ -41,7 +43,7 @@ public:
     explicit SaleBookAccountsTable(const QDir &workingDir, QObject *parent = nullptr);
     VatCountries resolveVatCountries(TaxScheme taxScheme, const QString &countryFrom, const QString &countryCodeTo) const;
 
-    SaleBookAccountsTable::Accounts getAccounts(const VatCountries &vatCountries, double vatRate) const; // TODO callBackCreateIfNotExist
+    QCoro::Task<SaleBookAccountsTable::Accounts> getAccounts(const VatCountries &vatCountries, double vatRate, std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
     void addAccount(const VatCountries &vatCountries, double vatRate, const SaleBookAccountsTable::Accounts &accounts);
     
     // Header:

@@ -5,6 +5,8 @@
 #include <QDebug>
 #include <QRegularExpression>
 #include <stdexcept>
+#include "ExceptionVatAccount.h"
+#include <optional>
 
 const QStringList SaleBookAccountsTable::HEADER{
     QObject::tr("Tax Scheme")
@@ -56,23 +58,67 @@ VatCountries SaleBookAccountsTable::resolveVatCountries(
     }
 }
 
-SaleBookAccountsTable::Accounts SaleBookAccountsTable::getAccounts(const VatCountries &vatCountries, double vatRate) const
+QCoro::Task<SaleBookAccountsTable::Accounts> SaleBookAccountsTable::getAccounts(
+        const VatCountries &vatCountries
+        , double vatRate
+        , std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing) const
 {
-    // Level 1: VatCountries
-    if (m_vatCountries_vatRate_accountsCache.contains(vatCountries)) {
-        const auto &rateMap = m_vatCountries_vatRate_accountsCache[vatCountries];
-        QString rateStr = QString::number(vatRate);
-        
-        // Level 2: VAT Rate
-        // Try exact match first
-        if (rateMap.contains(rateStr)) {
-            return rateMap[rateStr];
-        } else if (rateMap.contains("")) {
-             // Fallback: Default rate
-            return rateMap[""];
+    // Helper to look up in cache
+    auto lookup = [&](const VatCountries &vc, double rate) -> std::optional<Accounts> {
+        if (m_vatCountries_vatRate_accountsCache.contains(vc)) {
+            const auto &rateMap = m_vatCountries_vatRate_accountsCache[vc];
+            QString rateStr = QString::number(rate);
+            
+            // Level 2: VAT Rate
+            // Try exact match first
+            if (rateMap.contains(rateStr)) {
+                return rateMap[rateStr];
+            } else if (rateMap.contains("")) {
+                 // Fallback: Default rate
+                return rateMap[""];
+            }
         }
+        return std::nullopt;
+    };
+
+    while (true) {
+        if (auto acc = lookup(vatCountries, vatRate)) {
+            co_return *acc;
+        }
+        
+        if (!callbackAddIfMissing) {
+            break;
+        }
+
+        // Not found - Prepare error message for callback (or exception)
+        QString errorTitle = tr("Missing Account");
+        QString errorText = tr("No account found for TaxScheme %1, From %2, To %3, Rate %4")
+                                  .arg(taxSchemeToString(vatCountries.taxScheme), 
+                                       vatCountries.countryCodeFrom, 
+                                       vatCountries.countryCodeTo, 
+                                       QString::number(vatRate));
+
+        // Run callback (e.g. UI dialog to add account)
+        // Default callback usually returns false unless user implements one that adds it.
+        bool retry = co_await callbackAddIfMissing(errorTitle, errorText);
+        if (auto acc = lookup(vatCountries, vatRate)) {
+            co_return *acc;
+        }
+        if (!retry) {
+             throw ExceptionVatAccount(errorTitle, errorText);
+        }
+        // If true (retry/added), loop again to check cache
     }
-    return Accounts();
+    
+    // Should not reach here if loop breaks only on !callback or handled inside, 
+    // but if !callbackAddIfMissing break:
+    QString errorTitle = tr("Missing Account");
+    QString errorText = tr("No account found for TaxScheme %1, From %2, To %3, Rate %4")
+                              .arg(taxSchemeToString(vatCountries.taxScheme), 
+                                   vatCountries.countryCodeFrom, 
+                                   vatCountries.countryCodeTo, 
+                                   QString::number(vatRate));
+    throw ExceptionVatAccount(errorTitle, errorText);
 }
 
 #include "ExceptionVatAccountExisting.h"

@@ -11,6 +11,15 @@
 #include "books/CompanyInfosTable.h"
 #include "books/ExceptionCompanyInfo.h"
 #include "books/VatNumbersTable.h"
+#include <QCoroTask>
+#include <QCoroFuture>
+#include "books/ExceptionVatAccount.h"
+
+// Helper to synchronously wait for QCoro::Task
+template <typename T>
+T syncWait(QCoro::Task<T> &&task) {
+    return QCoro::waitFor<T>(std::move(task));
+}
 
 class TestBookAccounts : public QObject
 {
@@ -57,7 +66,7 @@ private slots:
             QVERIFY(initialCount > 60);   
             
             VatCountries vc = table.resolveVatCountries(TaxScheme::EuOssUnion, "IT", "DE");
-            SaleBookAccountsTable::Accounts acc = table.getAccounts(vc, 19.0);
+            SaleBookAccountsTable::Accounts acc = syncWait(table.getAccounts(vc, 19.0));
             QCOMPARE(acc.saleAccount, "7070OSSDE19");
             QCOMPARE(acc.vatAccount, "4457OSSDE19");
         }
@@ -73,7 +82,7 @@ private slots:
             table.addAccount(vc, 20.0, newAcc);
             
             // Verify immediate cache update
-            SaleBookAccountsTable::Accounts retrieved = table.getAccounts(vc, 20.0);
+            SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 20.0));
             QCOMPARE(retrieved.saleAccount, "7001");
             QCOMPARE(retrieved.vatAccount, "4401");
         }
@@ -84,7 +93,7 @@ private slots:
             QCOMPARE(table.rowCount(), initialCount + 1);
             
             VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR");
-            SaleBookAccountsTable::Accounts retrieved = table.getAccounts(vc, 20.0);
+            SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 20.0));
             QCOMPARE(retrieved.saleAccount, "7001");
             QCOMPARE(retrieved.vatAccount, "4401");
         }
@@ -96,7 +105,7 @@ private slots:
         {
              SaleBookAccountsTable table(dir);
              VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR");
-             SaleBookAccountsTable::Accounts retrieved = table.getAccounts(vc, 20.0);
+             SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 20.0));
              // Should still find it
              QCOMPARE(retrieved.saleAccount, "7001");
         }
@@ -148,15 +157,15 @@ private slots:
         table.addAccount(vc, 7.0, acc3); // Different rate
 
         // Case 1: Retrieve first rate
-        auto res1 = table.getAccounts(vc, 19.0);
+        auto res1 = syncWait(table.getAccounts(vc, 19.0));
         QCOMPARE(res1.saleAccount, "S1");
 
         // Case 2: Retrieve second rate
-        auto res3 = table.getAccounts(vc, 7.0);
+        auto res3 = syncWait(table.getAccounts(vc, 7.0));
         QCOMPARE(res3.saleAccount, "S3");
 
         // Case 4: Unknown rate -> fallback
-        auto res4 = table.getAccounts(vc, 5.0);
+        auto res4 = syncWait(table.getAccounts(vc, 5.0));
         QVERIFY(!res4.saleAccount.isEmpty());
         // For DE Domestic (default 19%): 7070DOMDE19 if generated
         QCOMPARE(res4.saleAccount, "7070DOMDE19");
@@ -175,6 +184,64 @@ private slots:
             QCOMPARE(vc2.countryCodeFrom, ""); 
             QCOMPARE(vc2.countryCodeTo, "DE");
         }
+    }
+
+    void test_getAccounts_missing_addCallback() {
+        QTemporaryDir tempDir;
+        SaleBookAccountsTable table(QDir(tempDir.path()));
+        VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "US", "US");
+
+        // 1. Missing without callback -> throws ExceptionVatAccount
+        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9)), ExceptionVatAccount);
+
+        // 2. Missing with callback returning false -> throws ExceptionVatAccount
+        auto cbReject = [](const QString&, const QString&) -> QCoro::Task<bool> {
+            co_return false;
+        };
+        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, cbReject)), ExceptionVatAccount);
+
+        // 3. Retry loop: Callback calls true (Retry) multiple times then false (Cancel) -> throws ExceptionVatAccount
+        int countRetry = 0;
+        auto cbRetryThenCancel = [&](const QString&, const QString&) -> QCoro::Task<bool> {
+            countRetry++;
+            if (countRetry < 5) co_return true; // Retry
+            co_return false; // Cancel
+        };
+        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, cbRetryThenCancel)), ExceptionVatAccount);
+        QCOMPARE(countRetry, 5);
+
+        // 4. Missing with callback that Adds -> Returns Account
+        auto cbAdd = [&](const QString& title, const QString& text) -> QCoro::Task<bool> {
+             SaleBookAccountsTable::Accounts acc;
+             acc.saleAccount = "DynamicSale";
+             acc.vatAccount = "DynamicVat";
+             
+             // We can check title/text if we want strictly, but purpose is just to add.
+             // Reconstruct logic from scope or use hardcoded invocation for this test context.
+             const_cast<SaleBookAccountsTable&>(table).addAccount(vc, 99.9, acc);
+             co_return true;
+        };
+        
+        auto res = syncWait(table.getAccounts(vc, 99.9, cbAdd));
+        QCOMPARE(res.saleAccount, "DynamicSale");
+        
+        // 5. Retry loop: Callback calls true (Retry) then Adds on second attempt
+        int countSuccess = 0;
+        auto cbRetryThenAdd = [&](const QString&, const QString&) -> QCoro::Task<bool> {
+            countSuccess++;
+            if (countSuccess == 1) co_return true; // Just retry, don't add yet
+            
+            // Add on 2nd attempt
+             SaleBookAccountsTable::Accounts acc;
+             acc.saleAccount = "RetrySale";
+             acc.vatAccount = "RetryVat";
+             const_cast<SaleBookAccountsTable&>(table).addAccount(vc, 88.8, acc);
+             co_return true;
+        };
+        
+        auto res2 = syncWait(table.getAccounts(vc, 88.8, cbRetryThenAdd));
+        QCOMPARE(res2.saleAccount, "RetrySale");
+        QCOMPARE(countSuccess, 2);
     }
 
     // --- PURCHASE TESTS ---
@@ -279,8 +346,9 @@ private slots:
           // Case 1: Known country
           QCOMPARE(table.getAccountsDebit6("IT"), "600IT");
           
-          // Case 2: Unknown country
-          QVERIFY(table.getAccountsDebit6("ES").isEmpty());
+          // Case 2: Unknown country -> Exception
+          QVERIFY_EXCEPTION_THROWN(table.getAccountsDebit6("ES"), ExceptionVatAccount);
+          QVERIFY_EXCEPTION_THROWN(table.getAccountsCredit4("ES"), ExceptionVatAccount);
     }
 
     void test_CompanyAddressTable() {

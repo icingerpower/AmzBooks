@@ -8,6 +8,7 @@
 #include "ExceptionVatAccountExisting.h"
 #include "ExceptionTaxSchemeInvalid.h"
 #include "model/VatResolver.h"
+#include "ExceptionVatAccount.h"
 
 const QStringList PurchaseBookAccountsTable::HEADER{
     QObject::tr("Country")
@@ -47,7 +48,8 @@ QString PurchaseBookAccountsTable::getAccountsDebit6(const QString &countryCode)
     if (m_cache.contains(countryCode)) {
         return m_cache[countryCode].debit6;
     }
-    return QString();
+    throw ExceptionVatAccount(tr("Account Missing"),
+                              tr("No VAT Debit (6) account found for country %1").arg(countryCode));
 }
 
 QString PurchaseBookAccountsTable::getAccountsCredit4(const QString &countryCode) const
@@ -55,7 +57,8 @@ QString PurchaseBookAccountsTable::getAccountsCredit4(const QString &countryCode
     if (m_cache.contains(countryCode)) {
         return m_cache[countryCode].credit4;
     }
-    return QString();
+    throw ExceptionVatAccount(tr("Account Missing"),
+                              tr("No VAT Credit (4) account found for country %1").arg(countryCode));
 }
 
 // ... (existing code)
