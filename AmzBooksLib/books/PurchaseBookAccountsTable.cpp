@@ -7,7 +7,7 @@
 #include "CountriesEu.h"
 #include "ExceptionVatAccountExisting.h"
 #include "ExceptionTaxSchemeInvalid.h"
-#include "model/VatResolver.h"
+#include "books/VatResolver.h"
 #include "ExceptionVatAccount.h"
 
 const QStringList PurchaseBookAccountsTable::HEADER{

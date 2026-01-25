@@ -5,7 +5,7 @@
 #include <QDir>
 
 #include "VatCountries.h"
-#include "model/TaxScheme.h"
+#include "books/TaxScheme.h"
 #include "CountriesEu.h"
 #include <QException>
 

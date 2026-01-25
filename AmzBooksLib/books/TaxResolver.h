@@ -6,7 +6,7 @@
 
 #include "TaxScheme.h"
 #include "TaxJurisdictionLevel.h"
-#include "SaleType.h"
+#include "orders/SaleType.h"
 #include "VatTerritoryResolver.h"
 
 // TaxResolver = deterministic VAT decision engine: given a tax context (from/to locations, buyer B2B/B2C, marketplace role, supply kind),

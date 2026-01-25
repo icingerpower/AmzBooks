@@ -6,9 +6,9 @@
 
 // Reuse CsvReader
 #include "utils/CsvReader.h"
-#include "model/VatResolver.h"
-#include "model/VatTerritoryResolver.h"
-#include "model/TaxResolver.h"
+#include "books/VatResolver.h"
+#include "books/VatTerritoryResolver.h"
+#include "books/TaxResolver.h"
 #include "CountriesEu.h"
 #include "ValidationBlacklist.h"
 

@@ -5,7 +5,7 @@
 #include <QDate>
 #include <QVariant>
 
-#include "SaleType.h"
+#include "orders/SaleType.h"
 
 // Contains all vat rates, sorted by country code, and then by date (most recent rate first), and then by sale type / special product type
 

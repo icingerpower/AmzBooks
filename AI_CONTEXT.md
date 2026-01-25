@@ -23,11 +23,6 @@ To run the tests:
 ## Project Structure & Learnings
 
 ### Core Models
-- **Exception Handling**:
-    - Exceptions should ideally inherit from `QException`.
-    - They must implement `raise()` and `clone()` methods to be compatible with Qt's cross-thread exception transport.
-    - Example: `ExceptionTaxSchemeInvalid` or `ExceptionCompanyInfo`.
-    - Always provide a title and detailed error text.
 
 - **Activity**: Represents a normalized accounting posting line. Key fields include:
     - `m_saleType`: Enum `SaleType::Products` or `SaleType::Service` (Added Jan 2026).
@@ -58,17 +53,4 @@ To run the tests:
     - **LU 2023**: Amazon sometimes applied 17% (2022 rate) in early 2023. This is resolved by preferring `TAX_CALCULATION_DATE` (if available) over Transaction Date in VAT reports. The system expects 16% for 2023 and 17% for 2024.
     - **IT Rate**: 22% rate logic in `VatResolver` was updated to cover pre-2021 dates (fallback).
 
-### Data Structures & Persistence
 
-- **QAbstractTableModel Implementations**:
-    - **Inheritance Pattern**: Tables usually inherit from `QAbstractTableModel` and follow patterns similar to `VatTerritoryResolver` (singleton/static data) or `CompanyInfosTable` (instance-based configuration).
-    - **Persistence Formats**:
-        - `QSettings` (INI)
-        - CSV (Preferred for tabular data)
-    - **Robust Loading**: 
-        - Loading logic **MUST** be robust to schema changes. It should handle added, deleted, or re-ordered columns gracefully.
-        - **Header Mapping**: Always read the header line to map column names to indices dynamically. Do not rely on fixed column indices.
-        - **Technical IDs**: Use hidden, stable technical IDs ("Hidden ID") for logic, which are stored in the file but not displayed in `columnCount`/`data`.
-    - **Localization**:
-        - Use `tr()` for all user-facing strings (headers, parameter names).
-        - **Exception**: Do **NOT** use `tr()` for hidden internal IDs or technical column headers in the saved file.

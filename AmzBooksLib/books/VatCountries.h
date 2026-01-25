@@ -3,7 +3,7 @@
 
 #include <QString>
 
-#include "model/TaxScheme.h"
+#include "books/TaxScheme.h"
 
 struct VatCountries{
     TaxScheme taxScheme;

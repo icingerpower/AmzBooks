@@ -36,7 +36,8 @@ find_package(QCoro6 REQUIRED COMPONENTS Network
 )
 
 include(../../common/utils/utils.cmake)
-include(model/model.cmake)
+
+include(orders/orders.cmake)
 include(books/books.cmake)
 
 add_library(AmzBooksLib STATIC
@@ -48,7 +49,7 @@ add_library(AmzBooksLib STATIC
   CurrencyRateManager.cpp
   ExceptionRateCurrency.h
   ExceptionRateCurrency.cpp
-  ${MODEL_FILES}
+  ${ORDERS_FILES}
   ${BOOKS_FILES}
   ${UTILS_FILES}
 )

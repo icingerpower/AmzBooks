@@ -249,7 +249,7 @@ Qt::ItemFlags SaleBookAccountsTable::flags(const QModelIndex &index) const
     return QAbstractItemModel::flags(index) | Qt::ItemIsEditable;
 }
 
-#include "model/VatResolver.h"
+#include "books/VatResolver.h"
 
 void SaleBookAccountsTable::_fillIfEmpty()
 {

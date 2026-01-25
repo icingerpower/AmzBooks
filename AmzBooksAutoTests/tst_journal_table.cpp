@@ -1,7 +1,7 @@
 #include <QtTest>
 #include <QTemporaryDir>
 #include "books/JournalTable.h"
-#include "model/ActivitySource.h"
+#include "orders/ActivitySource.h"
 
 class TestJournalTable : public QObject
 {

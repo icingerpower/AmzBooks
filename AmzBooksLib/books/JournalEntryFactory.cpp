@@ -4,9 +4,9 @@
 #include "SaleBookAccountsTable.h"
 #include "PurchaseBookAccountsTable.h"
 #include "JournalTable.h"
-#include "model/ActivitySource.h"
-#include "model/Shipment.h"
-#include "model/Activity.h"
+#include "orders/ActivitySource.h"
+#include "orders/Shipment.h"
+#include "books/Activity.h"
 
 JournalEntryFactory::JournalEntryFactory(
     const CurrencyRateManager *currencyRateManager,

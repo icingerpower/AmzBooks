@@ -1,12 +1,12 @@
 #include <QtTest>
 #include <QCoreApplication>
-#include "model/TaxResolver.h"
-#include "model/TaxScheme.h"
-#include "model/TaxJurisdictionLevel.h"
-#include "model/SaleType.h"
+#include "books/TaxResolver.h"
+#include "books/TaxScheme.h"
+#include "books/TaxJurisdictionLevel.h"
+#include "orders/SaleType.h"
 #include "utils/CsvReader.h"
 #include "ValidationBlacklist.h"
-#include "model/VatTerritoryResolver.h"
+#include "books/VatTerritoryResolver.h"
 #include "CountriesEu.h"
 
 // MOCK OR HELPER CLASS FOR TESTS

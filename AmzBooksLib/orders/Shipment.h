@@ -1,7 +1,7 @@
 #ifndef SHIPMENT_H
 #define SHIPMENT_H
 
-#include "Activity.h"
+#include "books/Activity.h"
 #include "LineItem.h"
 #include <QJsonObject>
 #include <QList>

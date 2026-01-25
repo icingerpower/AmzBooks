@@ -9,9 +9,9 @@
 #include "books/PurchaseBookAccountsTable.h"
 #include "books/JournalTable.h"
 #include "CurrencyRateManager.h"
-#include "model/ActivitySource.h"
-#include "model/Shipment.h"
-#include "model/Activity.h"
+#include "orders/ActivitySource.h"
+#include "orders/Shipment.h"
+#include "books/Activity.h"
 #include <QTemporaryDir>
 #include <QCoroTask>
 #include <QCoroFuture>

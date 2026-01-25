@@ -2,7 +2,7 @@
 #define INVOICINGINFO_H
 
 #include "LineItem.h"
-#include "Activity.h"
+#include "books/Activity.h"
 
 class Shipment;
 class Activity;

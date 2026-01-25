@@ -8,13 +8,13 @@
 #include <QDateTime>
 
 #include <QJsonObject>
-#include "Amount.h"
+#include "orders/Amount.h"
 
 #include "TaxJurisdictionLevel.h"
 #include "TaxScheme.h"
-#include "TaxSource.h"
-#include "Result.h"
-#include "SaleType.h"
+#include "orders/TaxSource.h"
+#include "orders/Result.h"
+#include "orders/SaleType.h"
 
 class Activity final
 {

@@ -2,15 +2,15 @@
 #include <QCoreApplication>
 #include <QTemporaryDir>
 #include <QSqlQuery>
-#include "model/OrderManager.h"
-#include "model/Shipment.h"
-#include "model/Refund.h"
-#include "model/Activity.h"
-#include "model/ActivitySource.h"
-#include "model/LineItem.h"
-#include "model/ActivityUpdate.h"
-#include "model/Address.h"
-#include "model/InvoicingInfo.h"
+#include "orders/OrderManager.h"
+#include "orders/Shipment.h"
+#include "orders/Refund.h"
+#include "books/Activity.h"
+#include "orders/ActivitySource.h"
+#include "orders/LineItem.h"
+#include "orders/ActivityUpdate.h"
+#include "orders/Address.h"
+#include "orders/InvoicingInfo.h"
 
 class TestOrderManager : public QObject
 {

@@ -1,5 +1,17 @@
 
 set(BOOKS_FILES
+    ${CMAKE_CURRENT_LIST_DIR}/Activity.h
+    ${CMAKE_CURRENT_LIST_DIR}/Activity.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/TaxScheme.h
+    ${CMAKE_CURRENT_LIST_DIR}/TaxScheme.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/TaxJurisdictionLevel.h
+    ${CMAKE_CURRENT_LIST_DIR}/TaxJurisdictionLevel.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/TaxResolver.h
+    ${CMAKE_CURRENT_LIST_DIR}/TaxResolver.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/VatResolver.h
+    ${CMAKE_CURRENT_LIST_DIR}/VatResolver.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/VatTerritoryResolver.h
+    ${CMAKE_CURRENT_LIST_DIR}/VatTerritoryResolver.cpp
     ${CMAKE_CURRENT_LIST_DIR}/SaleBookAccountsTable.h
     ${CMAKE_CURRENT_LIST_DIR}/SaleBookAccountsTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PurchaseBookAccountsTable.h

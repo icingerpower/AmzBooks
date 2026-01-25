@@ -3,7 +3,7 @@
 #include <QTemporaryDir>
 
 #include "books/SaleBookAccountsTable.h"
-#include "model/TaxScheme.h"
+#include "books/TaxScheme.h"
 #include "books/PurchaseBookAccountsTable.h"
 #include "books/ExceptionVatAccountExisting.h"
 #include "books/ExceptionTaxSchemeInvalid.h"
