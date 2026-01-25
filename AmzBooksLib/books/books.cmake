@@ -39,7 +39,8 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionFileError.cpp
     ${CMAKE_CURRENT_LIST_DIR}/JournalTable.h
     ${CMAKE_CURRENT_LIST_DIR}/JournalTable.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/JournalEntryFactory.h
+    ${CMAKE_CURRENT_LIST_DIR}/ExceptionVatAccount.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ExceptionVatAccount.h
     ${CMAKE_CURRENT_LIST_DIR}/JournalEntryFactory.cpp
 )
 

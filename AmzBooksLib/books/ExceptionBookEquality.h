@@ -8,10 +8,8 @@
 class ExceptionBookEquality : public std::exception
 {
 public:
-    ExceptionBookEquality(const QString &message) : m_message(message.toStdString()) {}
-    virtual const char* what() const noexcept override {
-        return m_message.c_str();
-    }
+    ExceptionBookEquality(const QString &message);
+    virtual const char* what() const noexcept override;
 
 private:
     std::string m_message;

@@ -7,13 +7,11 @@
 class ExceptionVatAccountExisting : public std::runtime_error
 {
 public:
-    ExceptionVatAccountExisting(const QString &title, const QString &text)
-        : std::runtime_error((title + ": " + text).toStdString())
-    {}
+    ExceptionVatAccountExisting(const QString &title, const QString &text);
     
     // Minimal API to satisfy existing calls if any
-    QString errorTitle() const { return "Account Exists"; } 
-    QString errorText() const { return what(); }
+    QString errorTitle() const;
+    QString errorText() const;
 };
 
 #endif // BOOK_EXCEPTIONVATACCOUNTEXISTING_H

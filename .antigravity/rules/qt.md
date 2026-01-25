@@ -15,3 +15,8 @@
 - **Localization**:
     - Use `tr()` for all user-facing strings (headers, parameter names).
     - **Exception**: Do **NOT** use `tr()` for hidden internal IDs or technical column headers in the saved file.
+
+## C++ Header/Source Separation
+- **Implementation**: Header files (`.h`) should contain only declarations. Implementations must be in source files (`.cpp`).
+    - **Exceptions**: Even simple Exception classes must follow this (constructors, verify/clone methods, etc.).
+    - **Exception**: Template classes or inline performance-critical methods (use judgment) may remain in headers.
