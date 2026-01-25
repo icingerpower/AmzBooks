@@ -41,7 +41,7 @@ public:
         QString vatAccountToPay;
     };
     explicit SaleBookAccountsTable(const QDir &workingDir, QObject *parent = nullptr);
-    VatCountries resolveVatCountries(TaxScheme taxScheme, const QString &countryFrom, const QString &countryCodeTo) const;
+    VatCountries resolveVatCountries(TaxScheme taxScheme, const QString &companyCountryFrom, const QString &countryFrom, const QString &countryCodeTo) const;
 
     QCoro::Task<SaleBookAccountsTable::Accounts> getAccounts(const VatCountries &vatCountries, double vatRate, std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
     void addAccount(const VatCountries &vatCountries, double vatRate, const SaleBookAccountsTable::Accounts &accounts);

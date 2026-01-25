@@ -28,6 +28,7 @@ private slots:
     void test_getShipments();
     void test_getActivitySource_ShipmentAndRefunds();
     void test_invoicingInfos();
+    void test_getShipmentOrRefundIfDifferent();
 };
 
 void TestOrderManager::initTestCase()
@@ -579,6 +580,65 @@ void TestOrderManager::test_getActivitySource_ShipmentAndRefunds()
     QCOMPARE(results.value(sourceC).size(), 3);
     
     QCOMPARE(results.keys().size(), 3);
+}
+
+
+void TestOrderManager::test_getShipmentOrRefundIfDifferent()
+{
+    QTemporaryDir tempDir;
+    OrderManager manager(tempDir.path());
+    
+    QString orderId = "ord_diff";
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+    
+    // 1. Create a shipment
+    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment shipment({*actRes.value});
+    
+    // 2. Test Non-Existent
+    auto res = manager.getShipmentOrRefundIfDifferent(orderId, &source, &shipment);
+    QVERIFY(res == nullptr);
+    
+    // 3. Record it
+    manager.recordShipmentFromSource(orderId, &source, &shipment, QDate());
+    
+    // 4. Test Same (No Change)
+    res = manager.getShipmentOrRefundIfDifferent(orderId, &source, &shipment);
+    QVERIFY(res == nullptr);
+    
+    // 5. Test Different Content (But same ID)
+    auto actResDiff = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE",
+         Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment shipmentDiff({*actResDiff.value});
+    
+    res = manager.getShipmentOrRefundIfDifferent(orderId, &source, &shipmentDiff);
+    QVERIFY(res != nullptr); // Should return existing
+    
+    // Check if returned matches existing (which is the original shipment)
+    QCOMPARE(res->getActivities().size(), 1);
+    QCOMPARE(res->getActivities().first().getDateTime(), QDateTime(QDate(2023, 1, 1), QTime(10, 0)));
+    
+    // 6. Test Refund Scenario
+    auto actResRef = Activity::create("evt_ref", "act_ref", "", QDateTime(QDate(2023, 2, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(-50.0, -10.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Refund refund({*actResRef.value});
+    
+    // Record Refund
+    manager.recordShipmentFromSource(orderId, &source, &refund, QDate());
+    
+    // Test Same Refund
+    res = manager.getShipmentOrRefundIfDifferent(orderId, &source, &refund);
+    QVERIFY(res == nullptr);
+    
+    // Test Different Refund
+     auto actResRefDiff = Activity::create("evt_ref", "act_ref", "", QDateTime(QDate(2023, 2, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(-60.0, -12.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Refund refundDiff({*actResRefDiff.value});
+    
+    res = manager.getShipmentOrRefundIfDifferent(orderId, &source, &refundDiff);
+    QVERIFY(res != nullptr);
+    QCOMPARE(res->getActivities().first().getAmountTaxed(), -50.0); // The existing one
 }
 
 QTEST_MAIN(TestOrderManager)

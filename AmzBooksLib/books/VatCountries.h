@@ -7,11 +7,13 @@
 
 struct VatCountries{
     TaxScheme taxScheme;
+    QString countryCodeDeclaring;
     QString countryCodeFrom;
-    QString countryCodeTo;
+    QString countryCodeTo; // Also paid country to
 
     bool operator==(const VatCountries &other) const {
         return taxScheme == other.taxScheme &&
+               countryCodeDeclaring == other.countryCodeDeclaring &&
                countryCodeFrom == other.countryCodeFrom &&
                countryCodeTo == other.countryCodeTo;
     }

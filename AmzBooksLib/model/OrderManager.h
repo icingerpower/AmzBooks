@@ -69,11 +69,33 @@ public:
     // Returns a new model for specific view usage
     ActivityUpdate *createActivityUpdateModel(const QString &shipmentId, QObject* parent = nullptr); 
 
+    // Returns a valid pointer if a shipment (or refund) exists for this orderId and IS DIFFERENT from the provided one.
+    // If no shipment exists, or if the existing one is identical to the provided one, returns nullptr.
+    // This allows the caller to decide whether to record a new/updated shipment.
+    // The returned pointer is a COPY of the existing shipment.
+    QSharedPointer<Shipment> getShipmentOrRefundIfDifferent(const QString &orderId,
+                                                            const ActivitySource *activitySource
+                                                            , const Shipment *shipmentOrRefund) const;
+
 private:
     void initDb();
     
     QString m_filePathDb;
     QSqlDatabase m_db;
+
+    enum class ConflictStatus {
+        NoChange,     // Content is identical
+        ContentDiffers, // Content differs but no financial impact (e.g. internal date) or not requiring reversal
+        Conflict      // Financial or significant conflict requiring Reversal + New Version
+    };
+
+    // Helper to check conflict between an existing shipment (from DB) and an incoming one.
+    ConflictStatus checkConflict(const Shipment &existing, const Shipment &incoming) const;
+
+    // Helper to retrieve the "current effective" shipment/refund for a given ID.
+    // Priority: 1. Latest Draft (if any), 2. Latest Published.
+    // Returns nullptr if not found.
+    QSharedPointer<Shipment> getHeadShipment(const QString &id, QString *outStatus = nullptr, QString *outJson = nullptr) const;
 };
 
 #endif // ORDERMANAGER_H

@@ -32,6 +32,7 @@ public:
     bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
 
     // Specific methods
+    QString getCustomerAccount(const ActivitySource *activitySource) const;
     QString getJournal(const ActivitySource *activitySource) const;
     JournalItem getJournalPurchaseInvoice() const;
 

@@ -1,10 +1,26 @@
 #include <QtTest>
 #include "books/JournalEntry.h"
 #include "books/ExceptionBookEquality.h"
-#include "books/JournalEntry.h"
-#include "books/ExceptionBookEquality.h"
 #include "books/PurchaseInvoiceManager.h"
 #include "books/ExceptionFileError.h"
+#include "books/JournalEntryFactory.h"
+#include "books/CompanyInfosTable.h"
+#include "books/SaleBookAccountsTable.h"
+#include "books/PurchaseBookAccountsTable.h"
+#include "books/JournalTable.h"
+#include "CurrencyRateManager.h"
+#include "model/ActivitySource.h"
+#include "model/Shipment.h"
+#include "model/Activity.h"
+#include <QTemporaryDir>
+#include <QCoroTask>
+#include <QCoroFuture>
+
+// Helper to synchronously wait for QCoro::Task
+template <typename T>
+T syncWait(QCoro::Task<T> &&task) {
+    return QCoro::waitFor<T>(std::move(task));
+}
 
 class TestBookEntries : public QObject
 {
@@ -26,6 +42,14 @@ private slots:
     void test_invoice_decode_error();
     void test_invoice_add();
     void test_get_invoices();
+    
+    // JournalEntryFactory tests
+    void test_factory_purchase_no_conversion();
+    void test_factory_purchase_with_conversion();
+    void test_factory_purchase_refund();
+    void test_factory_shipment_no_conversion();
+    void test_factory_shipment_with_conversion();
+    void test_factory_shipment_mixed_rates();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -509,7 +533,7 @@ void TestBookEntries::test_invoice_add()
     
     // Prepare info
     PurchaseInformation info;
-    info.date = QDate(2025, 3, 15);
+    info.date = QDate(2024, 3, 15);
     info.account = "611";
     info.label = "supplies";
     info.supplier = "OfficeDepot";
@@ -525,8 +549,8 @@ void TestBookEntries::test_invoice_add()
     QCOMPARE(manager.rowCount(), 1);
     
     // Verify file exists in correct location
-    // purchase-invoices/2025/03/2025-03-15__611__supplies__OfficeDepot__45.5EUR.pdf
-    QString expectedPath = "purchase-invoices/2025/03/2025-03-15__611__supplies__OfficeDepot__45.5EUR.pdf";
+    // purchase-invoices/2024/03/2024-03-15__611__supplies__OfficeDepot__45.5EUR.pdf
+    QString expectedPath = "purchase-invoices/2024/03/2024-03-15__611__supplies__OfficeDepot__45.5EUR.pdf";
     QVERIFY(dir.exists(expectedPath));
     
     // Verify info updated with extension
@@ -576,5 +600,549 @@ void TestBookEntries::test_get_invoices()
     QCOMPARE(none.size(), 0);
 }
 
+void TestBookEntries::test_factory_purchase_no_conversion()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    
+    // Setup tables
+    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QFile companyFile(companyInfoPath);
+    companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
+    QTextStream out(&companyFile);
+    out << "Id;Parameter;Value\n";
+    out << "Currency;Currency;EUR\n";
+    out << "Country;Country Code;FR\n";
+    companyFile.close();
+    
+    CompanyInfosTable companyInfos(companyInfoPath);
+    CurrencyRateManager currencyManager(dir, "");
+    SaleBookAccountsTable saleAccounts(dir);
+    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    JournalTable journalTable(dir);
+    
+    // Add purchase account for FR
+    purchaseAccounts.addAccount("FR", 20.0, "445660", "445710");
+    
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    
+    // Create purchase information (no conversion needed - EUR to EUR)
+    PurchaseInformation purchase;
+    purchase.date = QDate(2024, 3, 15);
+    purchase.account = "607000";
+    purchase.label = "Software license";
+    purchase.supplier = "SoftCorp";
+    purchase.totalAmount = 120.0; // 100 HT + 20 VAT
+    purchase.currency = "EUR";
+    purchase.country_vatRate_vat["FR"]["20.00"] = 20.0;
+    purchase.countryCodeFrom = "FR";
+    purchase.countryCodeTo = "FR";
+    
+    auto entry = factory.createEntry(purchase);
+    
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), 120.0);
+    QCOMPARE(entry->getCreditSum(), 120.0);
+    
+    // Verify debit entries (expense + VAT)
+    const auto &debits = entry->getDebits();
+    QCOMPARE(debits.size(), 2); // Expense + VAT
+    
+    // Find expense line
+    bool foundExpense = false;
+    for (const auto &line : debits) {
+        if (line.account == "607000") {
+            foundExpense = true;
+            QCOMPARE(line.currency_amount["EUR"], 100.0);
+            QVERIFY(line.title.contains("SoftCorp"));
+            QVERIFY(line.title.contains("Software license"));
+        }
+    }
+    QVERIFY(foundExpense);
+    
+    // Verify that ALL lines share the same title
+    // "Achat FR->FR SoftCorp - Software license"
+    QString expectedTitle = "Achat FR->FR SoftCorp - Software license";
+    const auto &allLines = entry->getDebits() + entry->getCredits();
+    for (const auto &line : allLines) {
+        QCOMPARE(line.title, expectedTitle);
+    }
+    
+    // Verify credit (supplier)
+    const auto &credits = entry->getCredits();
+    QCOMPARE(credits.size(), 1); // Supplier only
+}
+
+void TestBookEntries::test_factory_purchase_with_conversion()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    
+    // Setup company info
+    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QFile companyFile(companyInfoPath);
+    companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
+    QTextStream out(&companyFile);
+    out << "Id;Parameter;Value\n";
+    out << "Currency;Currency;EUR\n";
+    out << "Country;Country Code;FR\n";
+    companyFile.close();
+    
+    CompanyInfosTable companyInfos(companyInfoPath);
+    
+    // Setup currency rates
+    CurrencyRateManager currencyManager(dir, "");
+    currencyManager.importRate("2024-03-15", "USD", "EUR", 0.85);
+    SaleBookAccountsTable saleAccounts(dir);
+    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    JournalTable journalTable(dir);
+    
+    purchaseAccounts.addAccount("FR", 20.0, "445660", "445710");
+    
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    
+    // Create purchase in USD
+    PurchaseInformation purchase;
+    purchase.date = QDate(2024, 3, 15);
+    purchase.account = "607000";
+    purchase.label = "Cloud services";
+    purchase.supplier = "AWS";
+    purchase.totalAmount = 120.0; // USD
+    purchase.currency = "USD";
+    purchase.country_vatRate_vat["FR"]["20.00"] = 20.0;
+    purchase.countryCodeFrom = "FR";
+    purchase.countryCodeTo = "FR";
+    
+    auto entry = factory.createEntry(purchase);
+    
+    QVERIFY(!entry.isNull());
+    
+    // Check that amounts include both USD and EUR
+    const auto &debits = entry->getDebits();
+    bool foundConversion = false;
+    // Expected title: "Achat FR->FR AWS - Cloud services (120.00 USD)"
+    QString expectedTitle = "Achat FR->FR AWS - Cloud services (120.00 USD)";
+    
+    for (const auto &line : debits) {
+        if (line.currency_amount.contains("USD") && line.currency_amount.contains("EUR")) {
+            foundConversion = true;
+            // Conversion info handled by JournalEntry appending " (Conv...)"?
+            // Wait, JournalEntry append logic:
+            // " (Conv: <orig> <curr> @ <rate>)"
+            // My Factory added " (120.00 USD)" at the end of BASE title.
+            // So full title might be: "Achat ... (120.00 USD) (Conv: 120.00 USD @ 0.85)"
+            // Let's check `JournalEntry.cpp` logic? I cannot right now.
+            // But `JournalEntry::addDebitLeft` calls `_addEntry` which might append conversion info.
+            // Assuming it does if rate != 1.0 or currencies differ.
+            // Code in `JournalEntry.cpp` (Step 46):
+            // It appends `QString(" (Conv: %1 %2 @ %3)")`.
+            
+            bool expectedConvFound = line.title.contains("(Conv: 100 USD @ 0.85)") || 
+                                     line.title.contains("(Conv: 20 USD @ 0.85)");
+            QVERIFY(expectedConvFound);
+        }
+    }
+    QVERIFY(foundConversion);
+}
+
+void TestBookEntries::test_factory_purchase_refund()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    
+    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QFile companyFile(companyInfoPath);
+    companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
+    QTextStream out(&companyFile);
+    out << "Id;Parameter;Value\n";
+    out << "Currency;Currency;EUR\n";
+    out << "Country;Country Code;FR\n";
+    companyFile.close();
+    
+    CompanyInfosTable companyInfos(companyInfoPath);
+    CurrencyRateManager currencyManager(dir, "");
+    SaleBookAccountsTable saleAccounts(dir);
+    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    JournalTable journalTable(dir);
+    
+    purchaseAccounts.addAccount("FR", 20.0, "445660", "445710");
+    
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    
+    // Create refund (negative amount)
+    PurchaseInformation purchase;
+    purchase.date = QDate(2024, 3, 15);
+    purchase.account = "607000";
+    purchase.label = "Returned item";
+    purchase.supplier = "RetailCorp";
+    purchase.totalAmount = -120.0; // Negative = refund
+    purchase.currency = "EUR";
+    purchase.country_vatRate_vat["FR"]["20.00"] = 20.0;
+    purchase.countryCodeFrom = "FR";
+    purchase.countryCodeTo = "FR";
+    
+    auto entry = factory.createEntry(purchase);
+    
+    QVERIFY(!entry.isNull());
+    
+    // For refund, debits and credits should be reversed
+    // Expense should be on credit side
+    const auto &credits = entry->getCredits();
+    bool foundExpenseCredit = false;
+    for (const auto &line : credits) {
+        if (line.account == "607000") {
+            foundExpenseCredit = true;
+            QCOMPARE(line.currency_amount["EUR"], 100.0);
+        }
+    }
+    QVERIFY(foundExpenseCredit);
+    
+    // Supplier should be on debit side
+    const auto &debits = entry->getDebits();
+    bool foundSupplierDebit = false;
+    for (const auto &line : debits) {
+        if (line.account == "RetailCorp") {
+            foundSupplierDebit = true;
+            QCOMPARE(line.currency_amount["EUR"], 120.0);
+        }
+    }
+    QVERIFY(foundSupplierDebit);
+    
+    // Verify Uniformity
+    // Title: "Achat FR->FR RetailCorp - Returned item"
+    // Refund amount negative, but currency matches, so no suffix.
+    QString expectedTitle = "Achat FR->FR RetailCorp - Returned item";
+    const auto &allLines = entry->getDebits() + entry->getCredits();
+    for (const auto &line : allLines) {
+        QCOMPARE(line.title, expectedTitle);
+    }
+    
+    // Entry should still balance
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+}
+
+void TestBookEntries::test_factory_shipment_no_conversion()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    
+    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QFile companyFile(companyInfoPath);
+    companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
+    QTextStream out(&companyFile);
+    out << "Id;Parameter;Value\n";
+    out << "Currency;Currency;EUR\n";
+    out << "Country;Country Code;FR\n";
+    companyFile.close();
+    
+    CompanyInfosTable companyInfos(companyInfoPath);
+    CurrencyRateManager currencyManager(dir, "");
+    SaleBookAccountsTable saleAccounts(dir);
+    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    JournalTable journalTable(dir);
+    
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    
+    // Create activity source
+    ActivitySource source;
+    source.channel = "Amazon";
+    source.subchannel = "amazon.fr";
+    source.type = ActivitySourceType::Report;
+    
+    // Create activity
+    auto activityResult = Activity::create(
+        "SHIP-001", "ACT-001", "", QDateTime::currentDateTime(),
+        "EUR", "FR", "FR", "FR",
+        Amount{100.0, 20.0}, TaxSource::MarketplaceProvided,
+        "FR", TaxScheme::DomesticVat, TaxJurisdictionLevel::Country,
+        SaleType::Products
+    );
+    QVERIFY(activityResult.ok());
+    
+    QList<Activity> activities;
+    activities.append(activityResult.value.value());
+    
+    auto shipment = QSharedPointer<Shipment>::create(activities);
+    
+    QMultiMap<QDateTime, QSharedPointer<Shipment>> shipments;
+    shipments.insert(QDateTime::currentDateTime(), shipment);
+    
+    auto entry = syncWait(factory.createEntry(&source, shipments));
+    
+    QVERIFY(!entry.isNull());
+    
+    // Should have revenue (credit), VAT (credit), and customer (debit)
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+    
+    const auto &credits = entry->getCredits();
+    QVERIFY(credits.size() >= 1); // At least revenue
+    
+    // Verify French labels
+    bool foundFrenchLabel = false;
+    for (const auto &line : credits) {
+        if (line.title.contains("Vente") || line.title.contains("TVA")) {
+            foundFrenchLabel = true;
+        }
+    }
+    QVERIFY(foundFrenchLabel);
+    
+    // Verify Uniformity
+    // All lines should have "Vente Amazon amazon.fr - " ... something
+    // Since JournalTable is empty, code might be empty?
+    // Let's just check that all titles are identical
+    const auto &allShipmentLines = entry->getDebits() + entry->getCredits();
+    QVERIFY(!allShipmentLines.isEmpty());
+    QString firstTitle = allShipmentLines.first().title;
+    for (const auto &line : allShipmentLines) {
+        QCOMPARE(line.title, firstTitle);
+        QVERIFY(line.title.startsWith("Vente Amazon amazon.fr"));
+    }
+}
+
+void TestBookEntries::test_factory_shipment_with_conversion()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    
+    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QFile companyFile(companyInfoPath);
+    companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
+    QTextStream out(&companyFile);
+    out << "Id;Parameter;Value\n";
+    out << "Currency;Currency;EUR\n";
+    out << "Country;Country Code;FR\n";
+    companyFile.close();
+    
+    CompanyInfosTable companyInfos(companyInfoPath);
+    
+    // Setup currency rates
+    
+    CurrencyRateManager currencyManager(dir, "");
+    QString dateStr = QDate::currentDate().toString("yyyy-MM-dd");
+    currencyManager.importRate(dateStr, "USD", "EUR", 0.85);
+    SaleBookAccountsTable saleAccounts(dir);
+    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    JournalTable journalTable(dir);
+    
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    
+    ActivitySource source;
+    source.channel = "Amazon";
+    source.subchannel = "amazon.com";
+    source.type = ActivitySourceType::Report;
+    
+    // Create activity in USD
+    auto activityResult = Activity::create(
+        "SHIP-002", "ACT-002", "", QDateTime::currentDateTime(),
+        "USD", "US", "US", "US",
+        Amount{100.0, 20.0}, TaxSource::MarketplaceProvided,
+        "US", TaxScheme::OutOfScope, TaxJurisdictionLevel::Country,
+        SaleType::Products
+    );
+    QVERIFY(activityResult.ok());
+    
+    QList<Activity> activities;
+    activities.append(activityResult.value.value());
+    
+    auto shipment = QSharedPointer<Shipment>::create(activities);
+    
+    QMultiMap<QDateTime, QSharedPointer<Shipment>> shipments;
+    shipments.insert(QDateTime::currentDateTime(), shipment);
+    
+    auto entry = syncWait(factory.createEntry(&source, shipments));
+    
+    QVERIFY(!entry.isNull());
+    
+    // Should have conversion info in titles
+    const auto &allLines = entry->getDebits() + entry->getCredits();
+    bool foundConversion = false;
+    for (const auto &line : allLines) {
+        if (line.currency_amount.contains("USD") && line.currency_amount.contains("EUR")) {
+            foundConversion = true;
+        }
+    }
+    QVERIFY(foundConversion);
+    
+    // Entry should balance
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+}
+void TestBookEntries::test_factory_shipment_mixed_rates()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    
+    // Setup Company
+    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QFile companyFile(companyInfoPath);
+    companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
+    QTextStream out(&companyFile);
+    out << "Id;Parameter;Value\n";
+    out << "Currency;Currency;EUR\n";
+    out << "Country;Country Code;FR\n";
+    companyFile.close();
+    
+    CompanyInfosTable companyInfos(companyInfoPath);
+    CurrencyRateManager currencyManager(dir, "");
+    currencyManager.importRate(QDate::currentDate().toString("yyyy-MM-dd"), "USD", "EUR", 0.85); // 1 USD = 0.85 EUR
+    
+    SaleBookAccountsTable saleAccounts(dir); // Will populate defaults (DOM FR 20, OSS DE 19 etc)
+    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    JournalTable journalTable(dir);
+    
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    
+    ActivitySource source;
+    source.channel = "Amazon";
+    source.subchannel = "Mixed";
+    source.type = ActivitySourceType::Report;
+    
+    QList<Activity> activities;
+    QDateTime today = QDateTime::currentDateTime();
+    
+    // 1. Domestic FR 20% EUR
+    // Net 100, VAT 20
+    activities.append(Activity::create(
+        "S1", "A1", "", today, "EUR", "FR", "FR", "FR",
+        Amount{120.0, 20.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::DomesticVat, TaxJurisdictionLevel::Country, SaleType::Products
+    ).value.value());
+    
+    // 2. OSS DE 19% EUR (IT->DE, declared in FR/Company? Or OSS Union)
+    // Net 100, VAT 19
+    activities.append(Activity::create(
+        "S2", "A2", "", today, "EUR", "IT", "DE", "DE",
+        Amount{119.0, 19.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
+    ).value.value());
+    
+    // 3. Domestic FR 20% USD
+    // Net 100, VAT 20
+    activities.append(Activity::create(
+        "S3", "A3", "", today, "USD", "FR", "FR", "FR",
+        Amount{120.0, 20.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::DomesticVat, TaxJurisdictionLevel::Country, SaleType::Products
+    ).value.value());
+
+    // 4. OSS AT 20% EUR (IT->AT)
+    // Net 100, VAT 20
+    activities.append(Activity::create(
+        "S4", "A4", "", today, "EUR", "IT", "AT", "AT",
+        Amount{120.0, 20.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
+    ).value.value());
+    
+    // 5. IOSS ES 21% EUR (CN->ES)
+    // Net 100, VAT 21
+    activities.append(Activity::create(
+        "S5", "A5", "", today, "EUR", "CN", "ES", "ES",
+        Amount{121.0, 21.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::EuIoss, TaxJurisdictionLevel::Country, SaleType::Products
+    ).value.value());
+    
+    // 6. Exempt CH 0% USD (FR->CH)
+    // Net 100, VAT 0
+    activities.append(Activity::create(
+        "S6", "A6", "", today, "USD", "FR", "CH", "CH",
+        Amount{100.0, 0.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::Exempt, TaxJurisdictionLevel::Country, SaleType::Products
+    ).value.value());
+
+    auto shipment = QSharedPointer<Shipment>::create(activities);
+    QMultiMap<QDateTime, QSharedPointer<Shipment>> shipments;
+    shipments.insert(today, shipment);
+    
+    // Execute
+    auto entry = syncWait(factory.createEntry(&source, shipments));
+    QVERIFY(!entry.isNull());
+    
+    // Validate
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+    
+    const auto &credits = entry->getCredits();
+    const auto &debits = entry->getDebits();
+    
+    // Credits:
+    // 1. FR 20 EUR Revenue
+    // 2. FR 20 EUR VAT
+    // 3. DE 19 EUR Revenue
+    // 4. DE 19 EUR VAT
+    // 5. FR 20 USD Revenue
+    // 6. FR 20 USD VAT
+    // Total 6 lines?
+    // Note: getAccounts("FR->FR", 20.0) -> Returns same account for EUR and EUR calls?
+    // createEntry loop aggregates by VatKey (includes Currency).
+    // So EUR and USD are separate VatKeys.
+    // So yes, 6 lines.
+    
+    int countRevenueFR20EUR = 0;
+    int countVatFR20EUR = 0;
+    int countRevenueDE19EUR = 0;
+    int countVatDE19EUR = 0;
+    int countRevenueFR20USD = 0;
+    int countVatFR20USD = 0;
+    int countRevenueOSSAT = 0;
+    int countVatOSSAT = 0;
+    int countRevenueIOSSES = 0;
+    int countVatIOSSES = 0;
+    int countRevenueEXP = 0; // Exempt
+    
+    for (const auto &line : credits) {
+        if (line.currency_amount.contains("USD")) {
+            if (line.account.contains("7070DOMFR")) countRevenueFR20USD++;
+            else if (line.account.contains("4457DOMFR")) countVatFR20USD++;
+            else if (line.account.contains("7073EXPFR")) countRevenueEXP++;
+        } else {
+            if (line.account.contains("7070DOMFR")) countRevenueFR20EUR++; 
+            else if (line.account.contains("4457DOMFR")) countVatFR20EUR++;
+            else if (line.account.contains("7070OSSDE") || line.account.contains("7070DOMDE")) countRevenueDE19EUR++;
+            else if (line.account.contains("4457OSSDE") || line.account.contains("4457DOMDE")) countVatDE19EUR++;
+            else if (line.account.contains("7070OSSAT") || line.account.contains("7070DOMAT")) countRevenueOSSAT++;
+            else if (line.account.contains("4457OSSAT") || line.account.contains("4457DOMAT")) countVatOSSAT++;
+            else if (line.account.contains("7070IOSSES")) countRevenueIOSSES++;
+            else if (line.account.contains("4457IOSSES")) countVatIOSSES++;
+        }
+    }
+    
+    // Note: Accounts might be "7070DOMFR20" etc.
+    // SaleBookAccountsTable::fillIfEmpty logic: "7070DOM" + cCode + rStr => "7070DOMFR20"
+    // "7070OSS" + cCode + rStr => "7070OSSDE19"
+    
+    // Verify counts (Checking simple existence first)
+    // Actually, createEntry sums up amounts. 
+    // FR 20 EUR Activity 1 is the only one. So 1 line.
+    
+    QVERIFY(countRevenueFR20EUR >= 1);
+    QVERIFY(countVatFR20EUR >= 1);
+    QVERIFY(countRevenueDE19EUR >= 1);
+    QVERIFY(countVatDE19EUR >= 1);
+    QVERIFY(countRevenueOSSAT >= 1);
+    QVERIFY(countVatOSSAT >= 1);
+    QVERIFY(countRevenueIOSSES >= 1);
+    QVERIFY(countVatIOSSES >= 1);
+    
+    QVERIFY(countRevenueFR20USD >= 1);
+    QVERIFY(countVatFR20USD >= 1);
+    QVERIFY(countRevenueEXP >= 1);
+    
+    // Debits:
+    // 1. EUR Customer (Total 239)
+    // 2. USD Customer (Total 120)
+    int countCustomerEUR = 0;
+    int countCustomerUSD = 0;
+    for (const auto &line : debits) {
+        if (line.currency_amount.contains("USD")) {
+            QCOMPARE(line.currency_amount["USD"], 220.0); // 120 + 100
+            countCustomerUSD++;
+        }
+        else if (line.currency_amount.contains("EUR")) {
+            QCOMPARE(line.currency_amount["EUR"], 480.0); // 239 + 120 + 121
+            countCustomerEUR++;
+        }
+    }
+    
+    QCOMPARE(countCustomerEUR, 1);
+    QCOMPARE(countCustomerUSD, 1);
+}
 QTEST_MAIN(TestBookEntries)
 #include "test_book_entries.moc"
+

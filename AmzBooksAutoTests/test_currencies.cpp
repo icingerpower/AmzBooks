@@ -17,6 +17,7 @@ public:
 private slots:
     void initTestCase()
     {
+        CurrencyRateManager::setAllowRealApiCalls(true);
         m_apiKey = QProcessEnvironment::systemEnvironment().value("FIXER_IO_API_KEY");
         if (m_apiKey.isEmpty()) {
             QString msg = "Environment variable 'FIXER_IO_API_KEY' is not set.\n"

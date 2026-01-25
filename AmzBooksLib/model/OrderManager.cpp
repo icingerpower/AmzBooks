@@ -159,21 +159,9 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                 Shipment latestShip = Shipment::fromJson(QJsonDocument::fromJson(latestJson.toUtf8()).object());
                 Shipment incomingShip = Shipment::fromJson(QJsonDocument::fromJson(jsonStr.toUtf8()).object());
                 
-                // Compare all activities
-                // Assuming order matters? Or ID usage?
-                // Simplest: Check if count differs, or if any activity differs
-                const auto &latestActs = latestShip.getActivities();
-                const auto &incomingActs = incomingShip.getActivities();
-                
-                if (latestActs.size() != incomingActs.size()) {
+                ConflictStatus status = checkConflict(latestShip, incomingShip);
+                if (status == ConflictStatus::Conflict) {
                     isConflict = true;
-                } else {
-                    for (int i = 0; i < latestActs.size(); ++i) {
-                        if (latestActs[i].isDifferentTaxes(incomingActs[i])) {
-                            isConflict = true;
-                            break;
-                        }
-                    }
                 }
             }
 
@@ -612,4 +600,95 @@ QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManag
     }
     
     return results;
+}
+
+OrderManager::ConflictStatus OrderManager::checkConflict(const Shipment &existing, const Shipment &incoming) const
+{
+    const auto &existingActs = existing.getActivities();
+    const auto &incomingActs = incoming.getActivities();
+    
+    if (existingActs.size() != incomingActs.size()) {
+        return ConflictStatus::Conflict;
+    }
+
+    QJsonObject exJson = existing.toJson();
+    QJsonObject inJson = incoming.toJson();
+    
+    // Exact match check
+    if (exJson == inJson) {
+        return ConflictStatus::NoChange;
+    }
+    
+    for (int i = 0; i < existingActs.size(); ++i) {
+        if (existingActs[i].isDifferentTaxes(incomingActs[i])) {
+            return ConflictStatus::Conflict;
+        }
+    }
+    
+    return ConflictStatus::ContentDiffers;
+}
+
+QSharedPointer<Shipment> OrderManager::getHeadShipment(const QString &id, QString *outStatus, QString *outJson) const
+{
+    // 1. Check Drafts (including revisions)
+    {
+        QSqlQuery q;
+        q.prepare("SELECT id, current_json, status FROM shipments WHERE status = 'Draft' AND (root_id = ? OR id = ?) ORDER BY event_date DESC, id DESC LIMIT 1");
+        q.addBindValue(id);
+        q.addBindValue(id);
+        if (q.exec() && q.next()) {
+             if (outStatus) *outStatus = q.value("status").toString();
+             if (outJson) *outJson = q.value("current_json").toString();
+             QJsonObject obj = QJsonDocument::fromJson(q.value("current_json").toString().toUtf8()).object();
+             return QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        }
+    }
+
+    // 2. Check Published Revisions
+    {
+        QSqlQuery q;
+        q.prepare("SELECT id, current_json, status FROM shipments WHERE status = 'Published' AND root_id = ? ORDER BY event_date DESC, id DESC LIMIT 1");
+        q.addBindValue(id);
+        if (q.exec() && q.next()) {
+             if (outStatus) *outStatus = q.value("status").toString();
+             if (outJson) *outJson = q.value("current_json").toString();
+             QJsonObject obj = QJsonDocument::fromJson(q.value("current_json").toString().toUtf8()).object();
+             return QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        }
+    }
+
+    // 3. Check Original (if not covered above)
+    {
+         QSqlQuery q;
+         q.prepare("SELECT id, current_json, status FROM shipments WHERE id = ?");
+         q.addBindValue(id);
+         if (q.exec() && q.next()) {
+             if (outStatus) *outStatus = q.value("status").toString();
+             if (outJson) *outJson = q.value("current_json").toString();
+             QJsonObject obj = QJsonDocument::fromJson(q.value("current_json").toString().toUtf8()).object();
+             return QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+         }
+    }
+
+    return nullptr;
+}
+
+QSharedPointer<Shipment> OrderManager::getShipmentOrRefundIfDifferent(const QString &orderId,
+                                                                      const ActivitySource *activitySource,
+                                                                      const Shipment *shipmentOrRefund) const
+{
+    Q_UNUSED(orderId);
+    Q_UNUSED(activitySource);
+
+    if (!shipmentOrRefund) return nullptr;
+    
+    QSharedPointer<Shipment> existing = getHeadShipment(shipmentOrRefund->getId());
+    if (!existing) return nullptr;
+    
+    ConflictStatus status = checkConflict(*existing, *shipmentOrRefund);
+    if (status == ConflictStatus::NoChange) {
+        return nullptr;
+    }
+    
+    return existing;
 }

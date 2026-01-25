@@ -113,6 +113,12 @@ bool JournalTable::removeRows(int row, int count, const QModelIndex &parent)
     return true;
 }
 
+QString JournalTable::getCustomerAccount(const ActivitySource *activitySource) const
+{
+    Q_UNUSED(activitySource);
+    return "CAMAZON";
+}
+
 QString JournalTable::getJournal(const ActivitySource *activitySource) const
 {
     Q_UNUSED(activitySource);

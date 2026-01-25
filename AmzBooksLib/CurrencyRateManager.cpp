@@ -1,6 +1,13 @@
 #include "CurrencyRateManager.h"
 #include "ExceptionRateCurrency.h"
 #include <QDebug>
+
+bool CurrencyRateManager::s_allowRealApiCalls = false;
+
+void CurrencyRateManager::setAllowRealApiCalls(bool allowed)
+{
+    s_allowRealApiCalls = allowed;
+}
 #include <QFileInfo>
 #include <QTextStream>
 #include <QNetworkAccessManager>
@@ -83,6 +90,9 @@ double CurrencyRateManager::convert(double amount, const QString &source, const 
 
 double CurrencyRateManager::retrieveCurrency(const QString &source, const QString &dest, const QDate &date) const
 {
+    if (!s_allowRealApiCalls) {
+         throw ExceptionRateCurrency("Real API calls are disabled. Use importRate() to provide test data.");
+    }
     Q_ASSERT(date < QDate::currentDate());
     double rate = 1.0;
     if (source != dest) {
@@ -140,6 +150,35 @@ double CurrencyRateManager::retrieveCurrency(const QString &source, const QStrin
         rate = rateDest / rateSource;
     }
     return rate;
+}
+
+void CurrencyRateManager::importRate(const QString &dateStr, const QString &currencyFrom, const QString &currencyTo, double rate)
+{
+    QDate date = QDate::fromString(dateStr, "yyyy-MM-dd");
+    if (!date.isValid()) {
+        date = QDate::fromString(dateStr, "yyyy_MM_dd");
+    }
+    if (!date.isValid()) {
+         qWarning() << "Invalid date format for importRate:" << dateStr;
+         return;
+    }
+    
+    QString key = date.toString("yyyy_MM_dd") + "/" + currencyTo + "-" + currencyFrom;
+    
+    QMutexLocker locker(&m_mutex);
+    _loadRates(); // ensure file is loaded before modifying
+    
+    // Check if already exists to avoid duplicates or overwrite? 
+    // Plan said "add the rate to m_rateCache and append it to the currency-rates.csv file"
+    // We can use _appendRate which does both.
+    
+    _appendRate(key, rate);
+    
+    // Also add reverse rate
+    if (rate != 0.0) {
+        QString keyReversed = date.toString("yyyy_MM_dd") + "/" + currencyFrom + "-" + currencyTo;
+        _appendRate(keyReversed, 1.0 / rate);
+    }
 }
 
 void CurrencyRateManager::setWorkingDir(const QDir &path)

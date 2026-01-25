@@ -65,7 +65,7 @@ private slots:
             initialCount = table.rowCount();
             QVERIFY(initialCount > 60);   
             
-            VatCountries vc = table.resolveVatCountries(TaxScheme::EuOssUnion, "IT", "DE");
+            VatCountries vc = table.resolveVatCountries(TaxScheme::EuOssUnion, "IT", "IT", "DE");
             SaleBookAccountsTable::Accounts acc = syncWait(table.getAccounts(vc, 19.0));
             QCOMPARE(acc.saleAccount, "7070OSSDE19");
             QCOMPARE(acc.vatAccount, "4457OSSDE19");
@@ -74,7 +74,7 @@ private slots:
         // 2. Add new account and save
         {
             SaleBookAccountsTable table(dir);
-            VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR");
+            VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR", "FR");
             SaleBookAccountsTable::Accounts newAcc;
             newAcc.saleAccount = "7001";
             newAcc.vatAccount = "4401";
@@ -92,7 +92,7 @@ private slots:
             SaleBookAccountsTable table(dir);
             QCOMPARE(table.rowCount(), initialCount + 1);
             
-            VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR");
+            VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR", "FR");
             SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 20.0));
             QCOMPARE(retrieved.saleAccount, "7001");
             QCOMPARE(retrieved.vatAccount, "4401");
@@ -104,7 +104,7 @@ private slots:
         
         {
              SaleBookAccountsTable table(dir);
-             VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR");
+             VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR", "FR");
              SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 20.0));
              // Should still find it
              QCOMPARE(retrieved.saleAccount, "7001");
@@ -117,7 +117,7 @@ private slots:
         QTemporaryDir tempDir;
         SaleBookAccountsTable table(QDir(tempDir.path()));
         
-        VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR");
+        VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR", "FR");
         SaleBookAccountsTable::Accounts acc;
         acc.saleAccount = "S1";
         acc.vatAccount = "V1";
@@ -135,7 +135,7 @@ private slots:
         table.addAccount(vc, 5.5, acc);
         
         // 4. Diff Scheme -> OK (Use BE to avoid collision with default PanEU Exempt entries which include FR)
-        VatCountries vc2 = table.resolveVatCountries(TaxScheme::Exempt, "BE", "BE");
+        VatCountries vc2 = table.resolveVatCountries(TaxScheme::Exempt, "BE", "BE", "BE");
         table.addAccount(vc2, 0.0, acc);
     }
 
@@ -144,7 +144,7 @@ private slots:
         SaleBookAccountsTable table(QDir(tempDir.path()));
         
         // Setup scenarios
-        VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "DE", "DE");
+        VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "DE", "DE", "DE");
         SaleBookAccountsTable::Accounts acc1;
         acc1.saleAccount = "S1";
         acc1.vatAccount = "V1";
@@ -176,12 +176,37 @@ private slots:
 
         // 1. Normalization
         {
-            auto vc = table.resolveVatCountries(TaxScheme::DomesticVat, " fr ", " DE ");
+            auto vc = table.resolveVatCountries(TaxScheme::DomesticVat, " fr ", " fr ", " DE ");
+            QCOMPARE(vc.countryCodeDeclaring, "FR");
             QCOMPARE(vc.countryCodeFrom, "FR");
             QCOMPARE(vc.countryCodeTo, "");
             
-            auto vc2 = table.resolveVatCountries(TaxScheme::EuOssUnion, "fr", "de");
-            QCOMPARE(vc2.countryCodeFrom, ""); 
+            auto vc2 = table.resolveVatCountries(TaxScheme::EuOssUnion, "fr", "fr", "de");
+            // Arg2="fr" (Company), Arg3="de" (From), Arg4 (default?) -> Wait, signature has 4 args.
+            // Test calls with 3 args? Let's check header or default values.
+            // Header: resolveVatCountries(TaxScheme taxScheme, const QString &companyCountryFrom, const QString &countryFrom, const QString &countryCodeTo)
+            // No defaults shown in cpp view earlier.
+            // Ah, looking at test code: `table.resolveVatCountries(TaxScheme::EuOssUnion, "fr", "de");`
+            // It seems it might be missing the 4th argument? Or there is an overload?
+            // Let's check Header file content from previous reasoning or assume user didn't change header to add defaults.
+            // If test compiled before, maybe there was an overload or default.
+            // The method signature in cpp was:
+            // VatCountries SaleBookAccountsTable::resolveVatCountries(TaxScheme taxScheme, const QString &companyCountryFrom, const QString &countryFrom, const QString &countryCodeTo)
+            
+            // The test code I am replacing (lines 179-183) shows:
+            // auto vc = table.resolveVatCountries(TaxScheme::DomesticVat, " fr ", " DE ");
+            // The 4th arg is missing? Is "DE" the 3rd or 4th?
+            // The test might have been failing to compile or I misread the arguments in the test view.
+            
+            // Let's look at lines 179 again:
+            // `auto vc = table.resolveVatCountries(TaxScheme::DomesticVat, " fr ", " DE ");`
+            // If signature is (Scheme, CompanyFrom, From, To), then To is missing.
+            // Maybe "DE" is `countryFrom` and `countryCodeTo` is defaulting?
+            
+            // Let's retrieve Header again to be sure.
+            
+            QCOMPARE(vc2.countryCodeDeclaring, "FR");
+            QCOMPARE(vc2.countryCodeFrom, "FR"); 
             QCOMPARE(vc2.countryCodeTo, "DE");
         }
     }
@@ -189,7 +214,7 @@ private slots:
     void test_getAccounts_missing_addCallback() {
         QTemporaryDir tempDir;
         SaleBookAccountsTable table(QDir(tempDir.path()));
-        VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "US", "US");
+        VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "US", "US", "US");
 
         // 1. Missing without callback -> throws ExceptionVatAccount
         QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9)), ExceptionVatAccount);

@@ -26,31 +26,37 @@ SaleBookAccountsTable::SaleBookAccountsTable(const QDir &workingDir, QObject *pa
 }
 
 VatCountries SaleBookAccountsTable::resolveVatCountries(
-        TaxScheme taxScheme, const QString &countryFrom, const QString &countryCodeTo) const
+        TaxScheme taxScheme
+        , const QString &companyCountryFrom
+        , const QString &countryFrom
+        , const QString &countryCodeTo) const
 {
     auto normalize = [](const QString &s) { return s.trimmed().toUpper(); };
     QString nFrom = normalize(countryFrom);
     QString nTo = normalize(countryCodeTo);
+    QString nCompany = normalize(companyCountryFrom);
 
     switch (taxScheme) {
     case TaxScheme::DomesticVat: // FR > FR or DE > DE
-        return {taxScheme, nFrom, ""};
+        // Declaring = From (The country where VAT is paid/declared locally)
+        return {taxScheme, nFrom, nFrom, ""};
     
     case TaxScheme::EuOssNonUnion: // Map to EuOssUnion
     case TaxScheme::EuOssUnion:
-        // VAT due in member state of consumption
-        return {TaxScheme::EuOssUnion, "", nTo};
+        // VAT due in member state of consumption but declared in Company Country (OSS)
+        return {TaxScheme::EuOssUnion, nCompany, nCompany, nTo};
     
     case TaxScheme::EuIoss:
-         return {TaxScheme::EuIoss, "", nTo};
+         // Declared in Company Country (IOSS)
+         return {TaxScheme::EuIoss, nCompany, nCompany, nTo};
 
     case TaxScheme::Exempt:
-        // Export: from=countryFrom
-        return {taxScheme, nFrom, ""};
+        // Export: Declaring = From (Origin)
+        return {taxScheme, nFrom, nFrom, ""};
         
     case TaxScheme::OutOfScope:
     case TaxScheme::MarketplaceDeemedSupplier:
-        return {TaxScheme::OutOfScope, "", ""};
+        return {TaxScheme::OutOfScope, "", "", ""};
 
     default:
         throw ExceptionTaxSchemeInvalid("Invalid Tax Scheme", 
@@ -64,20 +70,39 @@ QCoro::Task<SaleBookAccountsTable::Accounts> SaleBookAccountsTable::getAccounts(
         , std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing) const
 {
     // Helper to look up in cache
-    auto lookup = [&](const VatCountries &vc, double rate) -> std::optional<Accounts> {
-        if (m_vatCountries_vatRate_accountsCache.contains(vc)) {
-            const auto &rateMap = m_vatCountries_vatRate_accountsCache[vc];
-            QString rateStr = QString::number(rate);
+    auto lookup = [&](const VatCountries &orgVc, double rate) -> std::optional<Accounts> {
+        auto tryMatch = [&](const VatCountries &key) -> std::optional<Accounts> {
+            if (m_vatCountries_vatRate_accountsCache.contains(key)) {
+                const auto &rateMap = m_vatCountries_vatRate_accountsCache[key];
+                QString rateStr = QString::number(rate);
+                
+                // Level 2: VAT Rate
+                // Try exact match first
+                if (rateMap.contains(rateStr)) {
+                    return rateMap[rateStr];
+                } else if (rateMap.contains("")) {
+                     // Fallback: Default rate
+                    return rateMap[""];
+                }
+            }
+            return std::nullopt;
+        };
+
+        if (auto res = tryMatch(orgVc)) return res;
+        
+        // Fallback: Try with empty From (Generic)
+        if (!orgVc.countryCodeFrom.isEmpty()) {
+            VatCountries genericFrom = orgVc;
+            genericFrom.countryCodeFrom = "";
+            if (auto res = tryMatch(genericFrom)) return res;
             
-            // Level 2: VAT Rate
-            // Try exact match first
-            if (rateMap.contains(rateStr)) {
-                return rateMap[rateStr];
-            } else if (rateMap.contains("")) {
-                 // Fallback: Default rate
-                return rateMap[""];
+            // Fallback: Try with empty From AND empty Declaring (Generic OSS)
+            if (!orgVc.countryCodeDeclaring.isEmpty()) {
+                genericFrom.countryCodeDeclaring = "";
+                if (auto res = tryMatch(genericFrom)) return res;
             }
         }
+        
         return std::nullopt;
     };
 
@@ -370,6 +395,11 @@ void SaleBookAccountsTable::_fillIfEmpty()
         // User example: 7079OUT
         // Mapped to empty keys in resolveVatCountries
         createRow(TaxScheme::OutOfScope, "", "", 0.0, "7079OUT", "", "");
+        
+        // Default generic OutOfScope (any rate)
+        QStringList row;
+        row << taxSchemeToString(TaxScheme::OutOfScope) << "" << "" << "" << "7079OUT" << "" << "";
+        m_listOfStringList.append(row);
 
         _rebuildCache();
         _save();
@@ -407,7 +437,17 @@ void SaleBookAccountsTable::_rebuildCache()
         
         TaxScheme scheme = toTaxScheme(row[0]);
         
-        VatCountries vc{scheme, row[1], row[2]};
+        VatCountries vc;
+        vc.taxScheme = scheme;
+        vc.countryCodeFrom = row[1];
+        vc.countryCodeTo = row[2];
+        // For Domestic/Exempt, Declaring is From. For others, default to empty (generic)
+        if (scheme == TaxScheme::DomesticVat || scheme == TaxScheme::Exempt) {
+            vc.countryCodeDeclaring = row[1];
+        } else {
+            vc.countryCodeDeclaring = "";
+        }
+        
         QString rate = row[3];
         
         Accounts acc;
