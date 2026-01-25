@@ -56,23 +56,23 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
     QString flagDDP = purchaseInformation.isDDP ? " DDP" : "";
     QString countries = "";
     if (!purchaseInformation.countryCodeFrom.isEmpty() && !purchaseInformation.countryCodeTo.isEmpty()) {
-        countries = QString(" %1->%2").arg(purchaseInformation.countryCodeFrom).arg(purchaseInformation.countryCodeTo);
+        countries = QString(" %1->%2").arg(purchaseInformation.countryCodeFrom, purchaseInformation.countryCodeTo);
     }
     
     QString currencyInfo = "";
     if (purchaseInformation.currency != companyCurrency) {
         currencyInfo = QString(" (%1 %2)")
-                       .arg(purchaseInformation.totalAmount, 0, 'f', 2)
-                       .arg(purchaseInformation.currency);
+                       .arg(QString::number(purchaseInformation.totalAmount, 'f', 2),
+                            purchaseInformation.currency);
     }
     
     QString commonTitle = QString("%1%2%3 %4 - %5%6")
-                          .arg(prefix)
-                          .arg(flagDDP)
-                          .arg(countries)
-                          .arg(purchaseInformation.supplier)
-                          .arg(purchaseInformation.label)
-                          .arg(currencyInfo);
+                          .arg(prefix,
+                               flagDDP,
+                               countries,
+                               purchaseInformation.supplier,
+                               purchaseInformation.label,
+                               currencyInfo);
     
     // Main expense entry line (Class 6 account)
     JournalEntry::EntryLine expenseLine;
@@ -159,8 +159,6 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
     return entry;
 }
 
-
-
 QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
     ActivitySource *source,
     const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
@@ -226,11 +224,12 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
     // Common title for all lines in this entry
     // "Vente <Channel> <Subchannel> - <JournalCode>"
     QString commonTitle = QString("Vente %1 %2 - %3")
-                          .arg(source->channel)
-                          .arg(source->subchannel)
-                          .arg(journalCode);
+                          .arg(source->channel, source->subchannel, journalCode);
 
-    // Create revenue and VAT entries
+    QMap<QString, QMap<QString, double>> revenueByAccount;
+    QMap<QString, QMap<QString, double>> vatByAccount;
+
+    // Resolve accounts and aggregate by Account ID
     for (auto it = revenueByVat.constBegin(); it != revenueByVat.constEnd(); ++it) {
         const VatKey &key = it.key();
         double revenueAmount = it.value();
@@ -246,30 +245,39 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
         
         SaleBookAccountsTable::Accounts accounts = co_await m_saleBookAccounts->getAccounts(vc, key.vatRate, callbackAddIfMissing);
         
-        // Get currency rate if needed
-        double currencyRate = 1.0;
-        if (key.currency != companyCurrency) {
-            currencyRate = m_currencyRateManager->rate(key.currency, companyCurrency, entryDate);
-        }
-        
-        // Revenue entry (Credit - Class 7)
-        JournalEntry::EntryLine revenueLine;
-        revenueLine.title = commonTitle;
-        revenueLine.account = accounts.saleAccount;
-        revenueLine.currency_amount[key.currency] = revenueAmount;
-        
-        entry->addCreditRight(revenueLine, key.currency, currencyRate);
-        
-        // VAT collected entry (Credit - Class 4)
-        if (qAbs(vatAmount) > 0.01) {
-            JournalEntry::EntryLine vatLine;
-            vatLine.title = commonTitle;
-            vatLine.account = accounts.vatAccount;
-            vatLine.currency_amount[key.currency] = vatAmount;
-            
-            entry->addCreditRight(vatLine, key.currency, currencyRate);
-        }
+        revenueByAccount[accounts.saleAccount][key.currency] += revenueAmount;
+        vatByAccount[accounts.vatAccount][key.currency] += vatAmount;
     }
+    
+    // Helper to add lines
+    auto addLines = [&](const QMap<QString, QMap<QString, double>> &map, bool checkThreshold) {
+        for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+            const QString &account = it.key();
+            const auto &currencyMap = it.value();
+            
+            for (auto itCurr = currencyMap.constBegin(); itCurr != currencyMap.constEnd(); ++itCurr) {
+                const QString &currency = itCurr.key();
+                double amount = itCurr.value();
+                
+                if (checkThreshold && qAbs(amount) <= 0.01) continue;
+                
+                double currencyRate = 1.0;
+                if (currency != companyCurrency) {
+                    currencyRate = m_currencyRateManager->rate(currency, companyCurrency, entryDate);
+                }
+                
+                JournalEntry::EntryLine line;
+                line.title = commonTitle;
+                line.account = account;
+                line.currency_amount[currency] = amount;
+                
+                entry->addCreditRight(line, currency, currencyRate);
+            }
+        }
+    };
+    
+    addLines(revenueByAccount, false);
+    addLines(vatByAccount, true);
     
     // Customer receivable entry (Debit - Class 4)
     for (auto it = totalByCurrency.constBegin(); it != totalByCurrency.constEnd(); ++it) {
