@@ -25,4 +25,24 @@ SET(ORDERS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/OrderManager.h
     ${CMAKE_CURRENT_LIST_DIR}/ActivityUpdate.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ActivityUpdate.h
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractImporter.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractImporter.h
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractImporterApi.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractImporterApi.h
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractImporterFile.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractImporterFile.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiAmazon.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiAmazon.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiAmazonEu.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiAmazonEu.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiAmazonAmerica.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiAmazonAmerica.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiTemu.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiTemu.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiTemuEu.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiTemuEu.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiCommerceHQ.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterApiCommerceHQ.h
+    ${CMAKE_CURRENT_LIST_DIR}/ExceptionParamValue.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ExceptionParamValue.h
 )

@@ -20,3 +20,8 @@
 - **Implementation**: Header files (`.h`) should contain only declarations. Implementations must be in source files (`.cpp`).
     - **Exceptions**: Even simple Exception classes must follow this (constructors, verify/clone methods, etc.).
     - **Exception**: Template classes or inline performance-critical methods (use judgment) may remain in headers.
+
+## Coding Style
+- **If Statements**:
+    - Never write `if` instructions on the same row.
+    - **Brackets**: Always use brackets `{}` for `if`/`else` blocks, even for single instructions.

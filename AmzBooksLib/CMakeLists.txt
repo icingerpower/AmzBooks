@@ -60,6 +60,7 @@ target_link_libraries(AmzBooksLib
     PUBLIC
     Qt${QT_VERSION_MAJOR}::Gui
     Qt${QT_VERSION_MAJOR}::Sql
+    Qt${QT_VERSION_MAJOR}::Network
     QCoro::Network
 )
 
