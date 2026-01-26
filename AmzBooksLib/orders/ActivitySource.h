@@ -8,7 +8,7 @@
 struct ActivitySource {
     ActivitySourceType type;
     QString channel; // Exemple Amazon or Temu
-    QString subchannel; // Exemple amazon.fr or amazon.de
+    QString subchannel; // Exemple Europe
     QString reportOrMethode; // Report or method name that allowed to retried the information
 
     bool operator==(const ActivitySource &other) const {

@@ -99,3 +99,13 @@ add_test(NAME TestJournalTable COMMAND TestJournalTable)
 target_link_libraries(TestJournalTable PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(TestJournalTable PRIVATE ../AmzBooksLib)
 
+add_executable(TestFileImportAmz test_file_import_amazon.cpp)
+add_test(NAME TestFileImportAmz COMMAND TestFileImportAmz)
+target_link_libraries(TestFileImportAmz PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestFileImportAmz PRIVATE ../AmzBooksLib ../../common)
+
+add_custom_command(TARGET TestFileImportAmz POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
+    $<TARGET_FILE_DIR:TestFileImportAmz>/data/eu-vat-reports
+)

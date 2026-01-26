@@ -15,6 +15,7 @@ public:
                   , std::optional<QString> invoiceNumber = std::nullopt
                   , std::optional<QString> invoiceLink = std::nullopt);
 
+    bool isInvoiceDone() const;
     void setItems(const QList<Activity> &activities, const QList<LineItem> &items);
     const QList<LineItem> &getItems() const;
     std::optional<QString> getInvoiceNumber() const;

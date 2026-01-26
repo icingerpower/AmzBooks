@@ -18,6 +18,11 @@ InvoicingInfo::InvoicingInfo(
     }
 }
 
+bool InvoicingInfo::isInvoiceDone() const
+{
+    return !m_invoiceNumber->isEmpty();
+}
+
 void InvoicingInfo::adjustItemTaxes(const QList<Activity> &activities)
 {
     if (!m_items.isEmpty()) {

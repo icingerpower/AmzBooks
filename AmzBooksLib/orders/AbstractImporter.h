@@ -31,6 +31,7 @@ public:
         QList<AddressToWithId> orderAddresses;
         QList<Shipment> shipments;
         QList<Refund> refunds;
+        QHash<QString, QString> orderId_store;
         QDate dateMin;
         QDate dateMax;
     };

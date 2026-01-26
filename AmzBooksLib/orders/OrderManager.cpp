@@ -66,6 +66,24 @@ void OrderManager::initDb()
     if (!query.exec(OrderManagerSql::CREATE_TABLE_INVOICING_INFOS)) {
          qWarning() << "Failed to create invoicing_infos table:" << query.lastError().text();
     }
+
+    // Migration: Add store column if missing
+    {
+        QSqlQuery qMig("PRAGMA table_info(orders)");
+        bool hasStore = false;
+        while (qMig.next()) {
+            if (qMig.value("name").toString() == "store") {
+                hasStore = true;
+                break;
+            }
+        }
+        if (!hasStore) {
+            QSqlQuery qAlter;
+            if (!qAlter.exec("ALTER TABLE orders ADD COLUMN store TEXT")) {
+                qWarning() << "Failed to add store column to orders:" << qAlter.lastError().text();
+            }
+        }
+    }
 }
 
 QDateTime OrderManager::getLastDateTime(ActivitySource *activitySource) const
@@ -279,6 +297,18 @@ void OrderManager::recordAddressTo(const QString &orderId, const Address &addres
     qUpd.addBindValue(jsonStr);
     qUpd.addBindValue(orderId);
     if (!qUpd.exec()) qWarning() << "Failed to update address:" << qUpd.lastError();
+}
+
+void OrderManager::recordOrder(const QString &orderId, const QString &store)
+{
+    QSqlQuery q;
+    q.prepare("INSERT INTO orders (id, store) VALUES (?, ?) "
+              "ON CONFLICT(id) DO UPDATE SET store=excluded.store");
+    q.addBindValue(orderId);
+    q.addBindValue(store);
+    if (!q.exec()) {
+        qWarning() << "Failed to record order store:" << q.lastError();
+    }
 }
 
 void OrderManager::recordInvoicingInfo(const QString &shipmentOrRefundId,
@@ -690,5 +720,87 @@ QSharedPointer<Shipment> OrderManager::getShipmentOrRefundIfDifferent(const QStr
         return nullptr;
     }
     
+    
     return existing;
+}
+
+QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipment>>>> OrderManager::getActivitySource_store_ShipmentAndRefunds(
+        const QDate &dateFrom
+        , const QDate &dateTo
+        , std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const
+{
+    QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipment>>>> results;
+
+    QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, o.store "
+                       "FROM shipments s "
+                       "LEFT JOIN orders o ON s.order_id = o.id "
+                       "WHERE 1=1";
+
+    if (dateFrom.isValid()) {
+        queryStr += QString(" AND s.event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
+    }
+    if (dateTo.isValid()) {
+        queryStr += QString(" AND s.event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
+    }
+
+    QSqlQuery query(queryStr);
+
+    while (query.next()) {
+        QString jsonStr = query.value(0).toString();
+        QString sourceKey = query.value(1).toString();
+        QString dateStr = query.value(2).toString();
+        QString id = query.value(3).toString();
+        QString store = query.value(4).toString();
+        QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
+
+        // Parse Source
+        QStringList parts = sourceKey.split('|');
+        ActivitySource source;
+        if (parts.size() >= 4) {
+             source.type = static_cast<ActivitySourceType>(parts[0].toInt());
+             source.channel = parts[1];
+             source.subchannel = parts[2];
+             source.reportOrMethode = parts[3];
+        } else {
+            source.type = ActivitySourceType::API; // Default
+        }
+
+        // Parse Shipment
+        QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
+        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+
+        // Check for Reversal
+        if (id.contains("-rev-")) {
+            QList<Activity> newActs;
+            for (const auto &act : shipment->getActivities()) {
+                Amount negatedAmount(-act.getAmountTaxed(), -act.getAmountTaxesSource());
+                auto res = Activity::create(act.getEventId(),
+                                            act.getActivityId(),
+                                            act.getSubActivityId(),
+                                            act.getDateTime(),
+                                            act.getCurrency(),
+                                            act.getCountryCodeFrom(),
+                                            act.getCountryCodeTo(),
+                                            act.getCountryCodeVatPaidTo(),
+                                            negatedAmount,
+                                            act.getTaxSource(),
+                                            act.getTaxDeclaringCountryCode(),
+                                            act.getTaxScheme(),
+                                            act.getTaxJurisdictionLevel(),
+                                            act.getSaleType(),
+                                            act.getVatTerritoryFrom(),
+                                            act.getVatTerritoryTo());
+               if (res.value) {
+                   newActs.append(*res.value);
+               }
+            }
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+        }
+
+        if (!acceptCallback || acceptCallback(&source, shipment.data())) {
+            results[source][store].insert(eventDate, shipment);
+        }
+    }
+
+    return results;
 }

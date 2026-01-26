@@ -2,7 +2,7 @@
 #include "Shipment.h"
 #include "Refund.h"
 
-Order::Order(QString orderId)
+Order::Order(QString orderId, QString store)
     : m_id(std::move(orderId))
 {
 

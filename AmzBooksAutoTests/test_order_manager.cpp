@@ -29,6 +29,7 @@ private slots:
     void test_getActivitySource_ShipmentAndRefunds();
     void test_invoicingInfos();
     void test_getShipmentOrRefundIfDifferent();
+    void test_store_recording_and_querying();
 };
 
 void TestOrderManager::initTestCase()
@@ -638,7 +639,45 @@ void TestOrderManager::test_getShipmentOrRefundIfDifferent()
     
     res = manager.getShipmentOrRefundIfDifferent(orderId, &source, &refundDiff);
     QVERIFY(res != nullptr);
+    res = manager.getShipmentOrRefundIfDifferent(orderId, &source, &refundDiff);
+    QVERIFY(res != nullptr);
     QCOMPARE(res->getActivities().first().getAmountTaxed(), -50.0); // The existing one
+}
+
+void TestOrderManager::test_store_recording_and_querying()
+{
+    QTemporaryDir tempDir;
+    OrderManager manager(tempDir.path());
+    
+    // Sources
+    ActivitySource sourceA{ActivitySourceType::Report, "Amazon", "amazon.fr", "ReportA"};
+    
+    // Create Shipments
+    QString orderId1 = "ord_store_1";
+    auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment shipment1({*actRes1.value});
+    
+    manager.recordShipmentFromSource(orderId1, &sourceA, &shipment1, QDate());
+    manager.recordOrder(orderId1, "Store1");
+    
+    QString orderId2 = "ord_store_2";
+    auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment shipment2({*actRes2.value});
+    
+    manager.recordShipmentFromSource(orderId2, &sourceA, &shipment2, QDate());
+    manager.recordOrder(orderId2, "Store2");
+
+    // Query
+    auto results = manager.getActivitySource_store_ShipmentAndRefunds(QDate(), QDate(), nullptr);
+    
+    QVERIFY(results.contains(sourceA));
+    QCOMPARE(results[sourceA].size(), 2); // Store1 and Store2
+    QVERIFY(results[sourceA].contains("Store1"));
+    QCOMPARE(results[sourceA]["Store1"].size(), 1);
+    QVERIFY(results[sourceA].contains("Store2"));
+    QCOMPARE(results[sourceA]["Store2"].size(), 1);
 }
 
 QTEST_MAIN(TestOrderManager)

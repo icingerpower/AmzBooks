@@ -64,6 +64,8 @@ target_link_libraries(AmzBooksLib
     QCoro::Network
 )
 
+target_include_directories(AmzBooksLib PUBLIC ../../common)
+
 
 
 target_compile_definitions(AmzBooksLib PRIVATE AMZBOOKSLIB_LIBRARY)

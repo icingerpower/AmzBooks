@@ -285,7 +285,7 @@ void TestOrders::test_orders()
 {
     // 1. Create Order
     QString orderId = "ORDER-001";
-    Order order(orderId);
+    Order order(orderId, "Amazon.fr");
     QCOMPARE(order.id(), orderId);
 
     // 2. Set Address

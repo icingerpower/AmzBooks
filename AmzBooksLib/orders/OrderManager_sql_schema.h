@@ -8,7 +8,8 @@ namespace OrderManagerSql {
 const QString CREATE_TABLE_ORDERS = R"(
     CREATE TABLE If NOT EXISTS orders (
         id TEXT PRIMARY KEY,
-        address_json TEXT
+        address_json TEXT,
+        store TEXT
     )
 )";
 

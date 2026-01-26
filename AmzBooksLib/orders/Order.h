@@ -14,7 +14,7 @@ class Refund;
 class Order
 {
 public:
-    Order(QString orderId);
+    Order(QString orderId, QString store);
     const QString &id() const noexcept;
 
     void addShipment(const Shipment *shipment);
@@ -27,6 +27,7 @@ public:
 protected:
     QMultiMap<QDateTime, const Shipment *> m_activities;
     std::optional<Address> m_addressTo;
+    QString m_store; // Exemple amazon.fr while ActivitySource will have Amazon as channel and Amazon EU as subchannel for instance
     QString m_id;
 };
 

@@ -43,6 +43,8 @@ public:
                                const ActivitySource *activitySource
                                , const Shipment *shipmentOrRefund
                                , const QDate &newDateIfConflict); // Will record without erasing the original shipment (exception if shipment doesn't exist). // Save if new. Replace if not published OR not Activity::isDifferentTaxese. Otherwise create double entry (refund / re-invoicing).
+    void recordOrder(const QString &orderId,
+                         const QString &store); // Replace if exists
     void recordAddressTo(const QString &orderId,
                          const Address &addressTo); // Replace if exists
     // Records invoicing information (number, link, items) for a given shipment (or its root).
@@ -60,6 +62,10 @@ public:
             , const QDate &dateTo
             , std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const;
     QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> getActivitySource_ShipmentAndRefunds(
+            const QDate &dateFrom
+            , const QDate &dateTo
+            , std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const;
+    QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipment>>>> getActivitySource_store_ShipmentAndRefunds(
             const QDate &dateFrom
             , const QDate &dateTo
             , std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const;

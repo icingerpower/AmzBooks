@@ -45,4 +45,6 @@ SET(ORDERS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/ImporterApiCommerceHQ.h
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionParamValue.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionParamValue.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterFileAmazonVatEu.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterFileAmazonVatEu.h
 )
