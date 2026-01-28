@@ -42,6 +42,8 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionVatAccount.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionVatAccount.h
     ${CMAKE_CURRENT_LIST_DIR}/JournalEntryFactory.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/FbaCentersTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/FbaCentersTable.cpp
 )
 
 
