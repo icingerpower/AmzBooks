@@ -378,11 +378,11 @@ private slots:
 
     void test_CompanyAddressTable() {
         QTemporaryDir tempDir;
-        QString iniFiles = tempDir.filePath("company.csv"); // Renamed to CSV (logic handles extension but let's be explicit test file)
+        QString iniFiles = QDir(tempDir.path()).filePath("company-addresses.csv"); // Renamed to CSV (logic handles extension but let's be explicit test file)
 
         // 1. Init & Add Data
         {
-            CompanyAddressTable table(iniFiles);
+            CompanyAddressTable table(QDir(tempDir.path()));
             
             // Add Row 1
             table.insertRows(0, 1);
@@ -417,7 +417,7 @@ private slots:
         
         // 2. Persistence (New Instance)
         {
-            CompanyAddressTable table(iniFiles);
+            CompanyAddressTable table(QDir(tempDir.path()));
             QCOMPARE(table.rowCount(), 2);
             
             // Verify Data loaded sorted
@@ -430,14 +430,14 @@ private slots:
         
         // 3. Verify Modification Persisted
         {
-            CompanyAddressTable table(iniFiles);
+            CompanyAddressTable table(QDir(tempDir.path()));
             QCOMPARE(table.getCompanyName(QDate(2024, 1, 1)), "MyCo 2024 Mod");
         }
         
         // 4. Robustness
         injectFakeColumn(iniFiles);
         {
-            CompanyAddressTable table(iniFiles);
+            CompanyAddressTable table(QDir(tempDir.path()));
             QCOMPARE(table.rowCount(), 2);
             QCOMPARE(table.getCompanyName(QDate(2024, 1, 1)), "MyCo 2024 Mod");
         }
@@ -445,11 +445,11 @@ private slots:
 
     void test_CompanyInfosTable() {
         QTemporaryDir tempDir;
-        QString iniFiles = tempDir.filePath("infos.csv");
+        QString iniFiles = QDir(tempDir.path()).filePath("company.csv");
         
         // 1. Init & Modify
         {
-            CompanyInfosTable table(iniFiles);
+            CompanyInfosTable table(QDir(tempDir.path()));
             QCOMPARE(table.rowCount(), 2);
             
             // Modify Country (Row 0, Col 1)
@@ -461,7 +461,7 @@ private slots:
         
         // 2. Persistence (New Instance)
         {
-            CompanyInfosTable table(iniFiles);
+            CompanyInfosTable table(QDir(tempDir.path()));
             QCOMPARE(table.rowCount(), 2);
             
             // Check Values
@@ -472,7 +472,7 @@ private slots:
         // 3. Robustness
         injectFakeColumn(iniFiles);
         {
-            CompanyInfosTable table(iniFiles);
+            CompanyInfosTable table(QDir(tempDir.path()));
             QCOMPARE(table.data(table.index(0, 1)).toString(), "US");
         }
     }

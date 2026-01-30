@@ -30,6 +30,8 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     qt_add_executable(AmzBooks
         MANUAL_FINALIZATION
         ${PROJECT_SOURCES}
+        gui/DialogCompanyInfos.h gui/DialogCompanyInfos.cpp gui/DialogCompanyInfos.ui
+        gui/DialogCompanyInfos.h gui/DialogCompanyInfos.cpp gui/DialogCompanyInfos.ui
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET AmzBooks APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR
@@ -49,7 +51,7 @@ else()
     endif()
 endif()
 
-target_link_libraries(AmzBooks PRIVATE Qt${QT_VERSION_MAJOR}::Widgets)
+target_link_libraries(AmzBooks PRIVATE Qt${QT_VERSION_MAJOR}::Widgets AmzBooksLib)
 
 set_target_properties(AmzBooks PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER my.example.com

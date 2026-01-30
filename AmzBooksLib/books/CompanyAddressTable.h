@@ -6,6 +6,7 @@
 #include <QPair>
 #include <QList>
 #include <QObject>
+#include <QDir>
 
 class CompanyAddressTable : public QAbstractTableModel
 {
@@ -14,7 +15,8 @@ class CompanyAddressTable : public QAbstractTableModel
 public:
 
     static const QStringList HEADER_IDS;
-    explicit CompanyAddressTable(const QString &filePath, QObject *parent = nullptr);
+    explicit CompanyAddressTable(const QDir &workingDir, QObject *parent = nullptr);
+    void remove(const QModelIndex &index);
 
     QString getCompanyAddress(const QDate &date) const;
     QString getCompanyName(const QDate &date) const;

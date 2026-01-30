@@ -70,7 +70,7 @@ target_link_libraries(AmzBooksLib
     QCoro::Network
 )
 
-target_include_directories(AmzBooksLib PUBLIC ../../common)
+target_include_directories(AmzBooksLib PUBLIC ../../common ${CMAKE_CURRENT_SOURCE_DIR})
 
 
 

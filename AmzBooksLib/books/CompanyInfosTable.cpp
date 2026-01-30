@@ -13,19 +13,14 @@ const char* KEY_CURRENCY = "Currency";
 
 const QStringList CompanyInfosTable::HEADER_IDS = { "Parameter", "Value", "Id" };
 
-CompanyInfosTable::CompanyInfosTable(const QString &filePath, QObject *parent)
+CompanyInfosTable::CompanyInfosTable(
+    const QDir &workingDir, QObject *parent)
     : QAbstractTableModel(parent)
 {
-    // Ensure .csv extension if possible or use as is
-    QFileInfo fi(filePath);
-    if (fi.suffix() != "csv") {
-        m_filePath = fi.path() + "/" + fi.completeBaseName() + ".csv";
-    } else {
-        m_filePath = filePath;
-    }
-
+    m_filePath = workingDir.absoluteFilePath("company.csv");
     _load();
     if (m_data.isEmpty()) {
+        m_hadData = false;
         _ensureDefaults();
     }
 }
@@ -50,6 +45,11 @@ const QString &CompanyInfosTable::getCurrency() const
     }
     static QString empty;
     return empty;
+}
+
+bool CompanyInfosTable::hadData() const
+{
+    return m_hadData;
 }
 
 int CompanyInfosTable::rowCount(const QModelIndex &parent) const

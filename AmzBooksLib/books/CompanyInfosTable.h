@@ -4,15 +4,17 @@
 #include <QAbstractTableModel>
 #include <QString>
 #include <QList>
+#include <QDir>
 
 class CompanyInfosTable : public QAbstractTableModel
 {
     Q_OBJECT
 
 public:
-    explicit CompanyInfosTable(const QString &filePath, QObject *parent = nullptr);
+    explicit CompanyInfosTable(const QDir &workingDir, QObject *parent = nullptr);
     const QString &getCompanyCountryCode() const;
     const QString &getCurrency() const;
+    bool hadData() const;
 
     // QAbstractItemModel interface
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -36,6 +38,7 @@ private:
     QString m_filePath;
     QList<InfoItem> m_data;
     static const QStringList HEADER_IDS;
+    bool m_hadData;
 };
 
 #endif // COMPANYINFOSTABLE_H

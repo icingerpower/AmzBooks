@@ -12,17 +12,10 @@
 
 const QStringList CompanyAddressTable::HEADER_IDS = { "Date", "CompanyName", "Street1", "Street2", "PostalCode", "City" };
 
-CompanyAddressTable::CompanyAddressTable(const QString &filePath, QObject *parent)
+CompanyAddressTable::CompanyAddressTable(const QDir &workingDir, QObject *parent)
     : QAbstractTableModel(parent)
 {
-    // Ensure .csv extension if possible or use as is
-    QFileInfo fi(filePath);
-    if (fi.suffix() != "csv") {
-        m_filePath = fi.path() + "/" + fi.completeBaseName() + ".csv";
-    } else {
-        m_filePath = filePath;
-    }
-
+    m_filePath = workingDir.absoluteFilePath("company-addresses.csv");
     _load();
     if (m_data.isEmpty()) {
         // Just empty, no defaults requested.
@@ -231,6 +224,16 @@ bool CompanyAddressTable::removeRows(int row, int count, const QModelIndex &pare
     endRemoveRows();
     _save();
     return true;
+}
+
+void CompanyAddressTable::remove(const QModelIndex &index)
+{
+    if (index.isValid())
+    {
+        beginRemoveRows(QModelIndex{}, index.row(), index.row());
+        m_data.removeAt(index.row());
+        endRemoveRows();
+    }
 }
 
 void CompanyAddressTable::_sort()

@@ -607,7 +607,7 @@ void TestBookEntries::test_factory_purchase_no_conversion()
     QDir dir(tempDir.path());
     
     // Setup tables
-    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QString companyInfoPath = dir.filePath("company.csv");
     QFile companyFile(companyInfoPath);
     companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
     QTextStream out(&companyFile);
@@ -616,7 +616,7 @@ void TestBookEntries::test_factory_purchase_no_conversion()
     out << "Country;Country Code;FR\n";
     companyFile.close();
     
-    CompanyInfosTable companyInfos(companyInfoPath);
+    CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
     SaleBookAccountsTable saleAccounts(dir);
     PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
@@ -681,7 +681,7 @@ void TestBookEntries::test_factory_purchase_with_conversion()
     QDir dir(tempDir.path());
     
     // Setup company info
-    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QString companyInfoPath = dir.filePath("company.csv");
     QFile companyFile(companyInfoPath);
     companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
     QTextStream out(&companyFile);
@@ -690,7 +690,7 @@ void TestBookEntries::test_factory_purchase_with_conversion()
     out << "Country;Country Code;FR\n";
     companyFile.close();
     
-    CompanyInfosTable companyInfos(companyInfoPath);
+    CompanyInfosTable companyInfos(dir);
     
     // Setup currency rates
     CurrencyRateManager currencyManager(dir, "");
@@ -753,7 +753,7 @@ void TestBookEntries::test_factory_purchase_refund()
     QVERIFY(tempDir.isValid());
     QDir dir(tempDir.path());
     
-    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QString companyInfoPath = dir.filePath("company.csv");
     QFile companyFile(companyInfoPath);
     companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
     QTextStream out(&companyFile);
@@ -762,7 +762,7 @@ void TestBookEntries::test_factory_purchase_refund()
     out << "Country;Country Code;FR\n";
     companyFile.close();
     
-    CompanyInfosTable companyInfos(companyInfoPath);
+    CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
     SaleBookAccountsTable saleAccounts(dir);
     PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
@@ -830,7 +830,7 @@ void TestBookEntries::test_factory_shipment_no_conversion()
     QVERIFY(tempDir.isValid());
     QDir dir(tempDir.path());
     
-    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QString companyInfoPath = dir.filePath("company.csv");
     QFile companyFile(companyInfoPath);
     companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
     QTextStream out(&companyFile);
@@ -839,7 +839,7 @@ void TestBookEntries::test_factory_shipment_no_conversion()
     out << "Country;Country Code;FR\n";
     companyFile.close();
     
-    CompanyInfosTable companyInfos(companyInfoPath);
+    CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
     SaleBookAccountsTable saleAccounts(dir);
     PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
@@ -909,7 +909,7 @@ void TestBookEntries::test_factory_shipment_with_conversion()
     QVERIFY(tempDir.isValid());
     QDir dir(tempDir.path());
     
-    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QString companyInfoPath = dir.filePath("company.csv");
     QFile companyFile(companyInfoPath);
     companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
     QTextStream out(&companyFile);
@@ -918,7 +918,7 @@ void TestBookEntries::test_factory_shipment_with_conversion()
     out << "Country;Country Code;FR\n";
     companyFile.close();
     
-    CompanyInfosTable companyInfos(companyInfoPath);
+    CompanyInfosTable companyInfos(dir);
     
     // Setup currency rates
     
@@ -978,7 +978,7 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
     QDir dir(tempDir.path());
     
     // Setup Company
-    QString companyInfoPath = dir.filePath("companyInfo.csv");
+    QString companyInfoPath = dir.filePath("company.csv");
     QFile companyFile(companyInfoPath);
     companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
     QTextStream out(&companyFile);
@@ -987,7 +987,7 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
     out << "Country;Country Code;FR\n";
     companyFile.close();
     
-    CompanyInfosTable companyInfos(companyInfoPath);
+    CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
     currencyManager.importRate(QDate::currentDate().toString("yyyy-MM-dd"), "USD", "EUR", 0.85); // 1 USD = 0.85 EUR
     

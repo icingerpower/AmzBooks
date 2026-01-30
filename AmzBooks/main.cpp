@@ -2,7 +2,10 @@
 #include "../../common/workingdirectory/DialogOpenConfig.h"
 #include "../../common/types/types.h"
 
+#include "books/CompanyInfosTable.h"
+
 #include "gui/MainWindow.h"
+#include "gui/DialogCompanyInfos.h"
 
 #include <QApplication>
 #include <QSet>
@@ -23,6 +26,17 @@ int main(int argc, char *argv[])
     dialog.exec();
     if (dialog.wasRejected()) {
         return 0;
+    }
+    CompanyInfosTable compânyInfos{WorkingDirectoryManager::instance()
+                                       ->workingDir()};
+    if (!compânyInfos.hadData())
+    {
+        DialogCompanyInfos dialogCompanyInfos;
+        dialogCompanyInfos.exec();
+        if (dialogCompanyInfos.result() == QDialog::Rejected)
+        {
+            return 0;
+        }
     }
 
     MainWindow w;
