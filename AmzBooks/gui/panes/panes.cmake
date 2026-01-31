@@ -1,0 +1,11 @@
+SET(PANES_FILES
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettings.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettings.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettings.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsCompany.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsCompany.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsCompany.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsVatRates.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsVatRates.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsVatRates.ui
+)

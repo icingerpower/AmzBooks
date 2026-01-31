@@ -11,10 +11,14 @@ class CompanyInfosTable : public QAbstractTableModel
     Q_OBJECT
 
 public:
+    static const QStringList HEADER_IDS;
+    static const QString ID_COUNTRY;
+    static const QString ID_CURRENCY;
     explicit CompanyInfosTable(const QDir &workingDir, QObject *parent = nullptr);
     const QString &getCompanyCountryCode() const;
     const QString &getCurrency() const;
     bool hadData() const;
+    int getRowById(const QString &id) const;
 
     // QAbstractItemModel interface
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -37,7 +41,6 @@ private:
 
     QString m_filePath;
     QList<InfoItem> m_data;
-    static const QStringList HEADER_IDS;
     bool m_hadData;
 };
 

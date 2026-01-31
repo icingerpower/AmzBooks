@@ -68,7 +68,7 @@ void TestVatRateResolver::cleanupTestCase()
 void TestVatRateResolver::test_EuCountries()
 {
     QTemporaryDir tempDir;
-    VatResolver resolver(nullptr, tempDir.path());
+    VatResolver resolver(QDir(tempDir.path()), nullptr);
     
     QStringList euCountries = {
         "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "ES", "FI", "FR", "GR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT", "NL", "PL", "PT", "RO", "SE", "SI", "SK",
@@ -103,7 +103,7 @@ void TestVatRateResolver::test_AmazonReportsRates()
 
     QTemporaryDir tempDir;
     // Use in-memory VatResolver (no persistence, minimal I/O)
-    VatResolver vatResolver(nullptr, "", false);
+    VatResolver vatResolver(QDir(), nullptr, false);
     TaxResolver taxResolver(QCoreApplication::applicationDirPath());
 
     int totalMismatch = 0;
@@ -345,7 +345,7 @@ void TestVatRateResolver::test_NonOssScenarios()
 {
     // Unit tests for specific Non-OSS scenarios requested by user
     // No CSV loading, purely in-memory
-    VatResolver resolver(nullptr, "", false); // In-memory
+    VatResolver resolver(QDir(), nullptr, false); // In-memory
     
     // Case 1: Dep=DE (19%), Dest=IT (22%). Non-OSS => Should use DE rate.
     // Amazon applies DE rate. We simulate this by checking if getRate(DE) matches expected.

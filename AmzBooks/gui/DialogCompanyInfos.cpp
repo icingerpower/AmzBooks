@@ -13,26 +13,6 @@ DialogCompanyInfos::DialogCompanyInfos(QWidget *parent)
     , ui(new Ui::DialogCompanyInfos)
 {
     ui->setupUi(this);
-    QDir workingDir{WorkingDirectoryManager::instance()->workingDir()};
-    auto *companyInfosTable
-        = new CompanyInfosTable{workingDir, ui->tableViewInfos};
-    ui->tableViewInfos->setModel(companyInfosTable);
-    auto *companyAddressTable
-        = new CompanyAddressTable{workingDir, ui->tableViewAdresses};
-    ui->tableViewAdresses->setModel(companyAddressTable);
-    _connectSlots();
-}
-
-void DialogCompanyInfos::_connectSlots()
-{
-    connect(ui->buttonAdd,
-            &QPushButton::clicked,
-            this,
-            &DialogCompanyInfos::addAddress);
-    connect(ui->buttonRemove,
-            &QPushButton::clicked,
-            this,
-            &DialogCompanyInfos::removeAddress);
 }
 
 DialogCompanyInfos::~DialogCompanyInfos()
@@ -40,38 +20,22 @@ DialogCompanyInfos::~DialogCompanyInfos()
     delete ui;
 }
 
-void DialogCompanyInfos::addAddress()
-{
-        CompanyAddressTable *companyAddressTable
-            = static_cast<CompanyAddressTable *>(
-                ui->tableViewAdresses->model());
-    companyAddressTable->insertRow(0);
-}
-
-void DialogCompanyInfos::removeAddress()
-{
-    const auto &selIndexes = ui->tableViewAdresses
-                                 ->selectionModel()->selectedIndexes();
-    if (selIndexes.size() > 0)
-    {
-        CompanyAddressTable *companyAddressTable
-            = static_cast<CompanyAddressTable *>(
-                ui->tableViewAdresses->model());
-        companyAddressTable->remove(selIndexes.first());
-    }
-}
-
 void DialogCompanyInfos::accept()
 {
-    CompanyAddressTable *companyAddressTable
-        = static_cast<CompanyAddressTable *>(
-            ui->tableViewAdresses->model());
-    if (companyAddressTable->rowCount() == 0)
+    if (!ui->widgetInfos->hasVatNumberCompanyCountry())
     {
         QMessageBox::information(
             this,
-            tr("No address"),
-            tr("You need to input an address"));
+            tr("No VAT number"),
+            tr("You need to input the main VAT number of your company"));
+        return;
+    }
+    if (ui->widgetInfos->countAddresses() == 0)
+    {
+        QMessageBox::information(
+            this,
+            tr("Your company address"),
+            tr("You need to input at least one address for your company"));
         return;
     }
     QDialog::accept();

@@ -50,6 +50,12 @@ public:
     static const QSet<QString>& all();
 
     static const QStringList& getAmazonPanEuCountryCodes();
+    
+    // Returns list of all EU countries plus GB
+    static QStringList getCountries();
+    
+    // Returns list of currencies for GB and EU countries
+    static QStringList getCurrencies();
 };
 
 #endif // COUNTRIESEU_H

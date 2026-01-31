@@ -1,5 +1,19 @@
+include(${CMAKE_CURRENT_LIST_DIR}/panes/panes.cmake)
+
 SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/MainWindow.cpp
     ${CMAKE_CURRENT_LIST_DIR}/MainWindow.h
     ${CMAKE_CURRENT_LIST_DIR}/MainWindow.ui
+    ${CMAKE_CURRENT_LIST_DIR}/DialogCompanyInfos.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/DialogCompanyInfos.h
+    ${CMAKE_CURRENT_LIST_DIR}/DialogCompanyInfos.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatNumber.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatNumber.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatNumber.ui
+    ${CMAKE_CURRENT_LIST_DIR}/delegates/ComboBoxDelegate.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/delegates/ComboBoxDelegate.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatRate.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatRate.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatRate.ui
+    ${PANES_FILES}
 )

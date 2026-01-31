@@ -263,7 +263,7 @@ void SaleBookAccountsTable::_fillIfEmpty()
         // If it returns -1, we might fallback to 20 or similar? 
         // User request: "Incude the different defaut vat rates of VatResolver"
         
-        VatResolver vatResolver(nullptr, m_filePath.isEmpty() ? QDir::currentPath() : QFileInfo(m_filePath).dir().path());
+        VatResolver vatResolver(m_filePath.isEmpty() ? QDir::current() : QFileInfo(m_filePath).dir(), nullptr);
         QDate today = QDate::currentDate();
 
         // Helper to format account strings

@@ -206,7 +206,8 @@ bool CompanyAddressTable::insertRows(int row, int count, const QModelIndex &pare
 {
     beginInsertRows(parent, row, row + count - 1);
     for (int i = 0; i < count; ++i) {
-        m_data.insert(row, {QDate::currentDate(), "", "", "", "", ""});
+        auto date = rowCount() == 0 ? QDate::currentDate().addYears(-10) : QDate::currentDate();
+        m_data.insert(row, {date, "", "", "", "", ""});
     }
     endInsertRows();
     _sort(); 

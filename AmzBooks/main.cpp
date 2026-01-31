@@ -27,9 +27,9 @@ int main(int argc, char *argv[])
     if (dialog.wasRejected()) {
         return 0;
     }
-    CompanyInfosTable compânyInfos{WorkingDirectoryManager::instance()
+    CompanyInfosTable companyInfos{WorkingDirectoryManager::instance()
                                        ->workingDir()};
-    if (!compânyInfos.hadData())
+    if (!companyInfos.hadData())
     {
         DialogCompanyInfos dialogCompanyInfos;
         dialogCompanyInfos.exec();

@@ -10,16 +10,10 @@
 
 const QStringList VatNumbersTable::HEADER_IDS = { "Country", "VatNumber", "Id" };
 
-VatNumbersTable::VatNumbersTable(const QString &filePath, QObject *parent)
+VatNumbersTable::VatNumbersTable(const QDir &workingDir, QObject *parent)
     : QAbstractTableModel(parent)
 {
-     // Ensure .csv extension if possible or use as is
-    QFileInfo fi(filePath);
-    if (fi.suffix() != "csv") {
-        m_filePath = fi.path() + "/" + fi.completeBaseName() + ".csv";
-    } else {
-        m_filePath = filePath;
-    }
+    m_filePath = workingDir.filePath("vatNumbers.csv");
     _load();
 }
 

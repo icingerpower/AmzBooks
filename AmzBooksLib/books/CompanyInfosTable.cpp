@@ -8,19 +8,20 @@
 #include <QDir>
 #include <QDebug>
 
-const char* KEY_COUNTRY = "Country";
-const char* KEY_CURRENCY = "Currency";
+
 
 const QStringList CompanyInfosTable::HEADER_IDS = { "Parameter", "Value", "Id" };
+const QString CompanyInfosTable::ID_COUNTRY = "Country";
+const QString CompanyInfosTable::ID_CURRENCY = "Currency";
 
 CompanyInfosTable::CompanyInfosTable(
     const QDir &workingDir, QObject *parent)
     : QAbstractTableModel(parent)
 {
     m_filePath = workingDir.absoluteFilePath("company.csv");
+    m_hadData = QFile::exists(m_filePath);
     _load();
     if (m_data.isEmpty()) {
-        m_hadData = false;
         _ensureDefaults();
     }
 }
@@ -28,7 +29,7 @@ CompanyInfosTable::CompanyInfosTable(
 const QString &CompanyInfosTable::getCompanyCountryCode() const
 {
     for (const auto &item : m_data) {
-        if (item.id == KEY_COUNTRY) {
+        if (item.id == ID_COUNTRY) {
             return item.value;
         }
     }
@@ -39,7 +40,7 @@ const QString &CompanyInfosTable::getCompanyCountryCode() const
 const QString &CompanyInfosTable::getCurrency() const
 {
     for (const auto &item : m_data) {
-        if (item.id == KEY_CURRENCY) {
+        if (item.id == ID_CURRENCY) {
             return item.value;
         }
     }
@@ -50,6 +51,16 @@ const QString &CompanyInfosTable::getCurrency() const
 bool CompanyInfosTable::hadData() const
 {
     return m_hadData;
+}
+
+int CompanyInfosTable::getRowById(const QString &id) const
+{
+    for (int i = 0; i < m_data.size(); ++i) {
+        if (m_data[i].id == id) {
+            return i;
+        }
+    }
+    return -1;
 }
 
 int CompanyInfosTable::rowCount(const QModelIndex &parent) const
@@ -121,7 +132,7 @@ void CompanyInfosTable::_ensureDefaults()
     // Row 1: Country
     {
         InfoItem item;
-        item.id = KEY_COUNTRY;
+        item.id = ID_COUNTRY;
         item.parameter = tr("Company Country Code");
         item.value = QLocale::system().name().split('_').last();
         m_data.append(item);
@@ -130,7 +141,7 @@ void CompanyInfosTable::_ensureDefaults()
     // Row 2: Currency
     {
         InfoItem item;
-        item.id = KEY_CURRENCY;
+        item.id = ID_CURRENCY;
         item.parameter = tr("Currency");
         item.value = QLocale::system().currencySymbol(QLocale::CurrencyIsoCode);
         m_data.append(item);
@@ -180,8 +191,8 @@ void CompanyInfosTable::_load()
         
         // Fixup: parameter should be translated usually, but in CSV it might be static.
         // If we load by ID, we can force the correct Parameter Name from code if we want "translation update".
-        if (item.id == KEY_COUNTRY) item.parameter = tr("Company Country Code");
-        else if (item.id == KEY_CURRENCY) item.parameter = tr("Currency");
+        if (item.id == ID_COUNTRY) item.parameter = tr("Company Country Code");
+        else if (item.id == ID_CURRENCY) item.parameter = tr("Currency");
         
         if (!item.id.isEmpty()) {
             m_data.append(item);

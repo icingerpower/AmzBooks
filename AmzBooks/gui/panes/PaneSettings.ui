@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PaneSettings</class>
+ <widget class="QWidget" name="PaneSettings">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>971</width>
+    <height>611</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Form</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <widget class="QSplitter" name="splitter">
+     <property name="orientation">
+      <enum>Qt::Orientation::Horizontal</enum>
+     </property>
+     <widget class="QListWidget" name="listWidgetMenu">
+      <property name="maximumSize">
+       <size>
+        <width>200</width>
+        <height>16777215</height>
+       </size>
+      </property>
+      <item>
+       <property name="text">
+        <string>Company</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>VAT rates</string>
+       </property>
+      </item>
+     </widget>
+     <widget class="QStackedWidget" name="stackedWidget">
+      <widget class="PaneSettingsCompany" name="pageCompanyInfos"/>
+      <widget class="PaneSettingsVatRates" name="pageVatRates"/>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <customwidgets>
+  <customwidget>
+   <class>PaneSettingsCompany</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneSettingsCompany.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneSettingsVatRates</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneSettingsVatRates.h</header>
+   <container>1</container>
+  </customwidget>
+ </customwidgets>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>listWidgetMenu</sender>
+   <signal>currentRowChanged(int)</signal>
+   <receiver>stackedWidget</receiver>
+   <slot>setCurrentIndex(int)</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>186</x>
+     <y>89</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>467</x>
+     <y>93</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>

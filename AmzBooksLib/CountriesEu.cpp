@@ -57,3 +57,19 @@ const QStringList& CountriesEu::getAmazonPanEuCountryCodes()
     static const QStringList list = {DE, FR, IT, ES, PL, GB, CZ}; // Includes GB (Pan-EU legacy/scope)
     return list;
 }
+
+QStringList CountriesEu::getCountries()
+{
+    return {
+        AT, BE, BG, CY, CZ, DE, DK, EE, ES, FI, 
+        FR, GB, GR, HR, HU, IE, IT, LT, LU, LV, 
+        MT, NL, PL, PT, RO, SE, SI, SK
+    };
+}
+
+QStringList CountriesEu::getCurrencies()
+{
+    return {
+        "EUR", "GBP", "BGN", "CZK", "DKK", "HUF", "PLN", "RON", "SEK"
+    };
+}

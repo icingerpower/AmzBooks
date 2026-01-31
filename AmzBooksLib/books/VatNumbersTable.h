@@ -4,6 +4,7 @@
 #include <QAbstractTableModel>
 #include <QString>
 #include <QList>
+#include <QDir>
 
 class VatNumbersTable : public QAbstractTableModel
 {
@@ -12,7 +13,7 @@ class VatNumbersTable : public QAbstractTableModel
 public:
 
     static const QStringList HEADER_IDS;
-    explicit VatNumbersTable(const QString &filePath, QObject *parent = nullptr);
+    explicit VatNumbersTable(const QDir &workingDir, QObject *parent = nullptr);
 
     const QString &getVatNumber(const QString &countryCode) const;
     bool hasVatNumber(const QString &countryCode) const;

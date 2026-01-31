@@ -479,11 +479,11 @@ private slots:
 
     void test_VatNumbersTable() {
         QTemporaryDir tempDir;
-        QString iniFile = tempDir.filePath("vat.csv");
+        QString iniFile = QDir(tempDir.path()).filePath("vatNumbers.csv");
         
         // 1. Add and Save
         {
-            VatNumbersTable table(iniFile);
+            VatNumbersTable table(QDir(tempDir.path()));
             table.addVatNumber("FR", "FR123");
             table.addVatNumber("DE", "DE456");
             
@@ -501,7 +501,7 @@ private slots:
         
         // 2. Persistence
         {
-             VatNumbersTable table(iniFile);
+             VatNumbersTable table(QDir(tempDir.path()));
              QCOMPARE(table.rowCount(), 2);
              QCOMPARE(table.getVatNumber("DE"), "DE456");
         }
@@ -511,7 +511,7 @@ private slots:
         injectFakeColumn(iniFile);
         
         {
-             VatNumbersTable table(iniFile);
+             VatNumbersTable table(QDir(tempDir.path()));
              QCOMPARE(table.rowCount(), 2);
              QCOMPARE(table.getVatNumber("DE"), "DE456");
         }

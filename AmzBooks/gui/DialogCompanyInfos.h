@@ -16,13 +16,10 @@ public:
     ~DialogCompanyInfos();
 
 public slots:
-    void addAddress();
-    void removeAddress();
     void accept() override;
 
 private:
     Ui::DialogCompanyInfos *ui;
-    void _connectSlots();
 };
 
 #endif // DIALOGCOMPANYINFOS_H

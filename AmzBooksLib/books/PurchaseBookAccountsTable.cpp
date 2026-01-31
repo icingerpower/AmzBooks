@@ -235,7 +235,7 @@ void PurchaseBookAccountsTable::_fillIfEmpty()
         
         // Using "20" as per user context (FR typically).
         // To do it properly:
-        VatResolver resolver(nullptr, QFileInfo(m_filePath).dir().path());
+        VatResolver resolver(QFileInfo(m_filePath).dir(), nullptr);
         rate = resolver.getRate(QDate::currentDate(), countryCode, SaleType::Products, "", "");
         if (rate == 0.0) rate = 20.0;
         

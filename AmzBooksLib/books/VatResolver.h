@@ -3,6 +3,7 @@
 
 #include <QAbstractTableModel>
 #include <QDate>
+#include <QDir>
 #include <QVariant>
 
 #include "orders/SaleType.h"
@@ -14,7 +15,7 @@ class VatResolver : public QAbstractTableModel
     Q_OBJECT
 
 public:
-    explicit VatResolver(QObject *parent = nullptr, const QString &workingDir = QString(), bool usePersistence = true);
+    explicit VatResolver(const QDir &workingDir, QObject *parent = nullptr, bool usePersistence = true);
 
     bool hasRate(
             const QDate &date
@@ -28,6 +29,7 @@ public:
             , SaleType saleType
             , const QString &specialProducttype = QString{}
             , const QString &vatTerritory = QString{}) const;
+    void addRate(const QDate &date, const QString &country, SaleType type, double rate, const QString &specialCode = QString());
     void recordRate(const QDate &dateFrom
                     , const QDate &dateTo
                     , SaleType saleType
@@ -40,6 +42,7 @@ public:
                     , const QString &specialProducttype
                     , const QString &vatTerritory
                     , double vatRate);
+    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
     void remove(const QModelIndex &index);
 
     // Header:

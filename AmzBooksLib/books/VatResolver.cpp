@@ -16,12 +16,12 @@ const QStringList VatResolver::HEADER{
             , QObject::tr("Rate")
 };
 
-VatResolver::VatResolver(QObject *parent, const QString &workingDir, bool usePersistence)
+VatResolver::VatResolver(const QDir &workingDir, QObject *parent, bool usePersistence)
     : QAbstractTableModel(parent)
     , m_usePersistence(usePersistence)
 {
     if (m_usePersistence) {
-        m_filePath = QDir{workingDir}.absoluteFilePath("vatRates.csv");
+        m_filePath = workingDir.absoluteFilePath("vatRates.csv");
         _load();
     }
     _fillIfEmpty();
@@ -349,4 +349,24 @@ void VatResolver::remove(const QModelIndex &index)
        _rebuildCache();
        _save();
     }
+}
+
+void VatResolver::addRate(const QDate &date, const QString &country, SaleType type, double rate, const QString &specialCode)
+{
+    recordRate(date, QDate(), type, country, specialCode, "", rate);
+}
+
+bool VatResolver::removeRows(int row, int count, const QModelIndex &parent)
+{
+    if (parent.isValid()) return false;
+    if (row < 0 || row + count > m_listOfStringList.size()) return false;
+    
+    beginRemoveRows(parent, row, row + count - 1);
+    for (int i = 0; i < count; ++i) {
+        m_listOfStringList.removeAt(row);
+    }
+    endRemoveRows();
+    _rebuildCache();
+    _save();
+    return true;
 }
