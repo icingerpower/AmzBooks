@@ -8,7 +8,7 @@ set(CMAKE_AUTOUIC ON)
 set(CMAKE_AUTOMOC ON)
 set(CMAKE_AUTORCC ON)
 
-set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets)
@@ -32,6 +32,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         ${PROJECT_SOURCES}
         gui/panes/PaneSettingsCompany.h gui/panes/PaneSettingsCompany.cpp gui/panes/PaneSettingsCompany.ui
         gui/panes/PaneSettingsVatRates.h gui/panes/PaneSettingsVatRates.cpp gui/panes/PaneSettingsVatRates.ui
+        gui/panes/PaneSaleAccounts.h gui/panes/PaneSaleAccounts.cpp gui/panes/PaneSaleAccounts.ui
     )
 # Define target properties for Android with Qt 6 as:
 #    set_property(TARGET AmzBooks APPEND PROPERTY QT_ANDROID_PACKAGE_SOURCE_DIR

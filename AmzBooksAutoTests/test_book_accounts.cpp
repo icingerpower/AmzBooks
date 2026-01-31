@@ -79,10 +79,10 @@ private slots:
             newAcc.saleAccount = "7001";
             newAcc.vatAccount = "4401";
             
-            table.addAccount(vc, 20.0, newAcc);
+            table.addAccount(vc, 25.0, newAcc);
             
             // Verify immediate cache update
-            SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 20.0));
+            SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 25.0));
             QCOMPARE(retrieved.saleAccount, "7001");
             QCOMPARE(retrieved.vatAccount, "4401");
         }
@@ -93,7 +93,7 @@ private slots:
             QCOMPARE(table.rowCount(), initialCount + 1);
             
             VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR", "FR");
-            SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 20.0));
+            SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 25.0));
             QCOMPARE(retrieved.saleAccount, "7001");
             QCOMPARE(retrieved.vatAccount, "4401");
         }
@@ -105,7 +105,7 @@ private slots:
         {
              SaleBookAccountsTable table(dir);
              VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR", "FR");
-             SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 20.0));
+             SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 25.0));
              // Should still find it
              QCOMPARE(retrieved.saleAccount, "7001");
         }
@@ -148,7 +148,7 @@ private slots:
         SaleBookAccountsTable::Accounts acc1;
         acc1.saleAccount = "S1";
         acc1.vatAccount = "V1";
-        table.addAccount(vc, 19.0, acc1);
+        table.addAccount(vc, 18.0, acc1);
         
         // Setup second rate
         SaleBookAccountsTable::Accounts acc3;
@@ -157,18 +157,18 @@ private slots:
         table.addAccount(vc, 7.0, acc3); // Different rate
 
         // Case 1: Retrieve first rate
-        auto res1 = syncWait(table.getAccounts(vc, 19.0));
+        auto res1 = syncWait(table.getAccounts(vc, 18.0));
         QCOMPARE(res1.saleAccount, "S1");
 
         // Case 2: Retrieve second rate
         auto res3 = syncWait(table.getAccounts(vc, 7.0));
         QCOMPARE(res3.saleAccount, "S3");
 
-        // Case 4: Unknown rate -> fallback
-        auto res4 = syncWait(table.getAccounts(vc, 5.0));
-        QVERIFY(!res4.saleAccount.isEmpty());
-        // For DE Domestic (default 19%): 7070DOMDE19 if generated
-        QCOMPARE(res4.saleAccount, "7070DOMDE19");
+        // Case 4: Unknown rate -> Exception
+        QVERIFY_EXCEPTION_THROWN(
+            syncWait(table.getAccounts(vc, 5.0)),
+            ExceptionVatAccount
+        );
     }
 
     void test_resolveVatCountries() {

@@ -80,9 +80,6 @@ QCoro::Task<SaleBookAccountsTable::Accounts> SaleBookAccountsTable::getAccounts(
                 // Try exact match first
                 if (rateMap.contains(rateStr)) {
                     return rateMap[rateStr];
-                } else if (rateMap.contains("")) {
-                     // Fallback: Default rate
-                    return rateMap[""];
                 }
             }
             return std::nullopt;
@@ -177,7 +174,7 @@ void SaleBookAccountsTable::addAccount(
         << accounts.vatAccount;
         
     beginInsertRows(QModelIndex(), m_listOfStringList.size(), m_listOfStringList.size());
-    m_listOfStringList.append(row);
+    m_listOfStringList.insert(0, row);
     endInsertRows();
     _rebuildCache();
     _save();
@@ -282,7 +279,7 @@ void SaleBookAccountsTable::_fillIfEmpty()
              row << taxSchemeToString(scheme)
                  << from
                  << to
-                 << QString::number(rate * 100.0) // Display as percent? getAccounts takes 20.0 usually. 
+                 << QString::number(rate) // Display as percent? getAccounts takes 20.0 usually. 
                  // Wait, addAccount takes rate as double (e.g. 20.0). 
                  // Stored string in m_listOfStringList should be compatible with data() / setData()
                  // In addAccount: row << QString::number(vatRate) ...
@@ -295,29 +292,7 @@ void SaleBookAccountsTable::_fillIfEmpty()
 
         // 1. Domestic (Pan-EU Countries)
         const QStringList panEu = CountriesEu::getAmazonPanEuCountryCodes();
-        for (const auto &c : panEu) {
-             // For Domestic: From=c, To=""
-             // Rate: Get standard rate for 'Products' in that country
-             double rate = vatResolver.getRate(today, c, SaleType::Products);
-             if (rate < 0) rate = 0.20; // Fallback
-             
-             QString rStr = getRateStr(rate);
-             QString cCode = c; // Country Code
-             
-             // Pattern: 7070DOM<CC><Rate>, 4457DOM<CC><Rate>, 4457DOM<CC><Rate>_PAY
-             // User typo "4457DOMF0R20"? Assumed FR.
-             QString sale = QString("7070DOM%1%2").arg(cCode, rStr);
-             QString vat = QString("4457DOM%1%2").arg(cCode, rStr);
-             QString pay = QString("4457DOM%1%2_PAY").arg(cCode, rStr);
-             
-             createRow(TaxScheme::DomesticVat, c, "", 20.0, sale, vat, pay); // Using 20.0 as placeholder value matching string? 
-             // Actually vatResolver returned rate is 0.20. 
-             // createRow should assume Rate is 20.0?
-             // Adjust createRow to take 20.0 style.
-             // Wait, I passed rate * 100 in the call above? No, passed 20.0.
-        }
-        
-        // Correcting createRow usage locally
+
         // Helper above:
         auto addSchemeRows = [&](double rateVal, const QString &cCode) {
              QString rStr = getRateStr(rateVal);
@@ -331,10 +306,6 @@ void SaleBookAccountsTable::_fillIfEmpty()
                  
                  // Specific Rate
                  createRow(TaxScheme::DomesticVat, cCode, "", ratePct, sale, vat, pay);
-                 // Default Rate (Fallback) - Use same accounts
-                 QStringList row;
-                 row << taxSchemeToString(TaxScheme::DomesticVat) << cCode << "" << "" << sale << vat << pay;
-                 m_listOfStringList.append(row);
              }
              
              // 2. OSS (Union)
@@ -344,10 +315,6 @@ void SaleBookAccountsTable::_fillIfEmpty()
                  QString pay = QString("4457OSS%1%2_PAY").arg(cCode, rStr);
                  
                  createRow(TaxScheme::EuOssUnion, "", cCode, ratePct, sale, vat, pay);
-                 // Default
-                 QStringList row;
-                 row << taxSchemeToString(TaxScheme::EuOssUnion) << "" << cCode << "" << sale << vat << pay;
-                 m_listOfStringList.append(row);
              }
              
              // 3. IOSS
@@ -357,10 +324,6 @@ void SaleBookAccountsTable::_fillIfEmpty()
                  QString pay = QString("4457IOSS%1%2_PAY").arg(cCode, rStr);
                  
                  createRow(TaxScheme::EuIoss, "", cCode, ratePct, sale, vat, pay);
-                 // Default
-                 QStringList row;
-                 row << taxSchemeToString(TaxScheme::EuIoss) << "" << cCode << "" << sale << vat << pay;
-                 m_listOfStringList.append(row);
              }
         };
 
@@ -397,9 +360,7 @@ void SaleBookAccountsTable::_fillIfEmpty()
         createRow(TaxScheme::OutOfScope, "", "", 0.0, "7079OUT", "", "");
         
         // Default generic OutOfScope (any rate)
-        QStringList row;
-        row << taxSchemeToString(TaxScheme::OutOfScope) << "" << "" << "" << "7079OUT" << "" << "";
-        m_listOfStringList.append(row);
+        // Removed as per request (strict matching)
 
         _rebuildCache();
         _save();
@@ -456,6 +417,20 @@ void SaleBookAccountsTable::_rebuildCache()
         
         m_vatCountries_vatRate_accountsCache[vc][rate] = acc;
     }
+}
+
+void SaleBookAccountsTable::_sort()
+{
+    std::sort(m_listOfStringList.begin(), m_listOfStringList.end(), [](const QStringList &a, const QStringList &b) {
+        // 0: TaxScheme
+        if (a[0] != b[0]) return a[0] < b[0];
+        // 1: Country From
+        if (a[1] != b[1]) return a[1] < b[1];
+        // 2: Country To
+        if (a[2] != b[2]) return a[2] < b[2];
+        // 3: Rate
+        return a[3].toDouble() < b[3].toDouble();
+    });
 }
 
 void SaleBookAccountsTable::_save()
@@ -542,6 +517,7 @@ void SaleBookAccountsTable::_load()
         m_listOfStringList.append(normalizedRow);
     };
 
+
     if (isLegacy) {
         // Process the read headerLine as data
         processLine(headerLine);
@@ -550,6 +526,7 @@ void SaleBookAccountsTable::_load()
     while (!in.atEnd()) {
         processLine(in.readLine());
     }
+    _sort();
     
     _rebuildCache();
 }

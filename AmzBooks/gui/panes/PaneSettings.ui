@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>971</width>
-    <height>611</height>
+    <width>1383</width>
+    <height>914</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -16,9 +16,6 @@
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <widget class="QSplitter" name="splitter">
-     <property name="orientation">
-      <enum>Qt::Orientation::Horizontal</enum>
-     </property>
      <widget class="QListWidget" name="listWidgetMenu">
       <property name="maximumSize">
        <size>
@@ -36,10 +33,22 @@
         <string>VAT rates</string>
        </property>
       </item>
+      <item>
+       <property name="text">
+        <string>Sale accounts</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>Purchase accounts</string>
+       </property>
+      </item>
      </widget>
      <widget class="QStackedWidget" name="stackedWidget">
       <widget class="PaneSettingsCompany" name="pageCompanyInfos"/>
       <widget class="PaneSettingsVatRates" name="pageVatRates"/>
+      <widget class="PaneSaleAccounts" name="pageSaleAccounts"/>
+      <widget class="PanePurchaseAccount" name="pagePurchaseAccounts"/>
      </widget>
     </widget>
    </item>
@@ -56,6 +65,18 @@
    <class>PaneSettingsVatRates</class>
    <extends>QWidget</extends>
    <header>gui/panes/PaneSettingsVatRates.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneSaleAccounts</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneSaleAccounts.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PanePurchaseAccount</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PanePurchaseAccount.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

@@ -59,7 +59,11 @@ void PaneSettingsVatRates::removeRate()
         return;
     }
 
-    if (QMessageBox::question(this, tr("Confirm Removal"), tr("Are you sure you want to remove the selected rate(s)?"), QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
+    if (QMessageBox::question(
+                this
+                , tr("Confirm Removal")
+                , tr("Are you sure you want to remove the selected rate(s)?")
+                , QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
         // Remove rows. Handle multiple selection.
         // Taking unique rows.
         QSet<int> rows;

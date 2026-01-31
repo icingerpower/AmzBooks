@@ -12,6 +12,12 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatNumber.ui
     ${CMAKE_CURRENT_LIST_DIR}/delegates/ComboBoxDelegate.cpp
     ${CMAKE_CURRENT_LIST_DIR}/delegates/ComboBoxDelegate.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddSaleAccount.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddSaleAccount.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddSaleAccount.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddPurchaseAccount.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddPurchaseAccount.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddPurchaseAccount.ui
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatRate.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatRate.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatRate.ui

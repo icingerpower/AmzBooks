@@ -8,4 +8,10 @@ SET(PANES_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsVatRates.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsVatRates.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsVatRates.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSaleAccounts.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSaleAccounts.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSaleAccounts.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PanePurchaseAccount.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PanePurchaseAccount.h
+    ${CMAKE_CURRENT_LIST_DIR}/PanePurchaseAccount.ui
 )

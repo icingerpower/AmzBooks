@@ -11,7 +11,8 @@ class PurchaseBookAccountsTable : public QAbstractTableModel
     Q_OBJECT
 
 public:
-    explicit PurchaseBookAccountsTable(const QDir &workingDir, const QString &countryCodeCompany, QObject *parent = nullptr);
+    explicit PurchaseBookAccountsTable(const QDir &workingDir
+                                       , const QString &countryCodeCompany, QObject *parent = nullptr);
     
     QString getAccountsDebit6(const QString &countryCode) const;
     QString getAccountsCredit4(const QString &countryCode) const;

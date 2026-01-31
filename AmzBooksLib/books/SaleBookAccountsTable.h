@@ -70,6 +70,7 @@ private:
     void _save();
     void _load();
     void _rebuildCache();
+    void _sort();
     QString m_filePath;
 };
 

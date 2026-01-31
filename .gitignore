@@ -4,3 +4,4 @@ tests
 *.code-workspace
 *build*
 data.7z
+assistant/
