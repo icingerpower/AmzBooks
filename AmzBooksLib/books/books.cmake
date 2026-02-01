@@ -2,6 +2,8 @@
 set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/Activity.h
     ${CMAKE_CURRENT_LIST_DIR}/Activity.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ActivityTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/ActivityTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/TaxScheme.h
     ${CMAKE_CURRENT_LIST_DIR}/TaxScheme.cpp
     ${CMAKE_CURRENT_LIST_DIR}/TaxJurisdictionLevel.h

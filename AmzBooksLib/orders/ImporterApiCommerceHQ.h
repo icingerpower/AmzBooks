@@ -16,7 +16,9 @@ public:
     using AbstractImporterApi::AbstractImporterApi;
     
     ActivitySource getActivitySource() const override;
+
     QString getLabel() const override;
+    QString getId() const override;
     QMap<QString, ParamInfo> getRequiredParams() const override;
 
 protected:
@@ -38,7 +40,8 @@ private:
     QList<StoreConfig> getStores() const;
     QCoro::Task<void> fetchStoreOrders(const StoreConfig& store, const QDateTime& dateFrom, QSharedPointer<OrderInfos> targetInfos);
     
-    QNetworkAccessManager m_nam;
+    QNetworkAccessManager *m_nam = nullptr;
+    QNetworkAccessManager *nam();
 };
 
 #endif // IMPORTERAPICOMMERCEHQ_H

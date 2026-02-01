@@ -21,5 +21,11 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatRate.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatRate.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddVatRate.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddFbaCenter.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddFbaCenter.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddFbaCenter.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogVatParams.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogVatParams.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogVatParams.ui
     ${PANES_FILES}
 )

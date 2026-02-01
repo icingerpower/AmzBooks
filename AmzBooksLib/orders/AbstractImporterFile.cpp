@@ -5,6 +5,8 @@
 
 // QMap<QString, const AbstractImporterFile *> AbstractImporterFile::_IMPORTERS;
 
+const QString AbstractImporterFile::FOLDER_NAME{"sale_reports"}; // Don't translate
+
 QMap<QString, const AbstractImporterFile *> &AbstractImporterFile::getImporters() {
     static QMap<QString, const AbstractImporterFile *> importers;
     return importers;
@@ -42,6 +44,12 @@ static int getMinYear(AbstractImporter::OrderInfos& infos) {
     return minYear;
 }
 
+QString AbstractImporterFile::GET_WORKING_DIR(
+        const QDir &workingDir, const QString &importerId)
+{
+    return QDir{workingDir.absoluteFilePath(FOLDER_NAME)}.absoluteFilePath(importerId);
+}
+
 const QMap<QString, const AbstractImporterFile *> &AbstractImporterFile::ALL_IMPORTERS()
 {
     return getImporters();
@@ -53,7 +61,9 @@ QPair<QDateTime, QDateTime> AbstractImporterFile::datesFromTo() const
     return qMakePair(s->value("Reports/ImportedFrom").toDateTime(), s->value("Reports/ImportedTo").toDateTime());
 }
 
-QCoro::Task<AbstractImporter::ReturnOrderInfos> AbstractImporterFile::loadReport(const QString &filePath)
+QCoro::Task<AbstractImporter::ReturnOrderInfos> AbstractImporterFile::loadReport(
+    const QString &filePath,
+    std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
 {
     QString uniqueId = getUniqueReportId(filePath);
     
@@ -64,7 +74,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> AbstractImporterFile::loadReport
         co_return ReturnOrderInfos{nullptr, QString("Report already imported (ID: %1)").arg(uniqueId)};
     }
     
-    ReturnOrderInfos result = co_await _loadReport(filePath);
+    ReturnOrderInfos result = co_await _loadReport(filePath, callbackAddIfMissing);
     
     if (result.errorReturned.isEmpty() && result.orderInfos) {
         // Update date range in OrderInfos

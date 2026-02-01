@@ -12,15 +12,21 @@ DECLARE_IMPORTER_FILE(ImporterFileAmazonFbaInvoicing)
 
 QString ImporterFileAmazonFbaInvoicing::getLabel() const
 {
-    return "Amazon FBA Invoicing Report";
+    return QObject::tr("Amazon FBA Invoicing Report");
 }
 
 ActivitySource ImporterFileAmazonFbaInvoicing::getActivitySource() const
 {
     ActivitySource s;
     s.type = ActivitySourceType::Report;
-    s.subchannel = "amazon-fba-invoicing";
+    s.channel = CHANNEL_AMAZON;
+    s.reportOrMethode = QObject::tr("Amazon FBA Invoicing");
     return s;
+}
+
+QString ImporterFileAmazonFbaInvoicing::getId() const
+{
+    return "AmazonFbaInvoicing";
 }
 
 QMap<QString, AbstractImporter::ParamInfo> ImporterFileAmazonFbaInvoicing::getRequiredParams() const
@@ -33,7 +39,9 @@ QString ImporterFileAmazonFbaInvoicing::getUniqueReportId(const QString &filePat
     return QFileInfo(filePath).fileName();
 }
 
-QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::_loadReport(const QString &filePath)
+QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::_loadReport(
+    const QString &filePath,
+    std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
 {
     AbstractImporter::ReturnOrderInfos ret;
     ret.orderInfos = QSharedPointer<AbstractImporter::OrderInfos>::create();
@@ -117,8 +125,8 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         QString fc = line.value(idxFC).trimmed();
         QString originCountry;
         try {
-            // Nullptr callback means it throws if missing
-            originCountry = co_await fbaTable.getCountryCode(fc, nullptr);
+            // Forward the callback to allow user to add missing FBA centers
+            originCountry = co_await fbaTable.getCountryCode(fc, callbackAddIfMissing);
         } catch (const std::exception &e) {
             ret.errorReturned = QString("FC Error: ") + e.what();
             co_return ret;

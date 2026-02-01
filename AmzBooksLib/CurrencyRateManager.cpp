@@ -116,6 +116,10 @@ double CurrencyRateManager::retrieveCurrency(const QString &source, const QStrin
         QNetworkRequest request(url);
         QNetworkReply *reply = manager.get(request);
         
+        if (!reply) {
+            throw ExceptionRateCurrency("Network request failed to create reply");
+        }
+        
         QEventLoop loop;
         connect(reply, &QNetworkReply::finished, &loop, &QEventLoop::quit);
         loop.exec();

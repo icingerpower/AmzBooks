@@ -18,6 +18,8 @@
 class AbstractImporter
 {
 public:
+    static const QString CHANNEL_AMAZON;
+    static const QString CHANNEL_TEMU;
     struct InvoicingInfoWithId{
         QString shipmentOrRefundId;
         InvoicingInfo invoicingInfo;
@@ -52,6 +54,7 @@ public:
         std::function<std::pair<bool, QString>(const QVariant&)> validator;
     };
     virtual ActivitySource getActivitySource() const = 0;
+    virtual QString getId() const = 0; // Won't be translated while getLabel will
     virtual QString getLabel() const = 0;
     virtual QMap<QString, ParamInfo> getRequiredParams() const = 0;
 

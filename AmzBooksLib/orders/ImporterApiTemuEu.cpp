@@ -11,6 +11,11 @@ QString ImporterApiTemuEu::getEndpoint() const
     return "https://openapi-eu.temu.com";
 }
 
+QString ImporterApiTemuEu::getId() const
+{
+    return "TemuEu";
+}
+
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiTemuEu::_fetchShipments(const QDateTime &dateFrom)
 {
     ReturnOrderInfos result;
@@ -72,3 +77,11 @@ QCoro::Task<void> ImporterApiTemuEu::fetchShopOrders(const ShopConfig& shop, con
     co_return;
 }
 
+
+QNetworkAccessManager *ImporterApiTemuEu::nam()
+{
+    if (!m_nam) {
+        m_nam = new QNetworkAccessManager(nullptr);
+    }
+    return m_nam;
+}

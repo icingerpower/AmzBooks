@@ -7,12 +7,17 @@ DECLARE_IMPORTER_FILE(ImporterFileAmazonVatEu)
 
 QString ImporterFileAmazonVatEu::getLabel() const
 {
-    return "Amazon EU VAT Report";
+    return QObject::tr("Amazon EU VAT Report");
 }
 
 ActivitySource ImporterFileAmazonVatEu::getActivitySource() const
 {
-    return {ActivitySourceType::Report, "Amazon", "Amazon EU", "VAT Report"};
+    return {ActivitySourceType::Report, CHANNEL_AMAZON, "Amazon EU", QObject::tr("VAT Report")};
+}
+
+QString ImporterFileAmazonVatEu::getId() const
+{
+    return "AmazonVatEu";
 }
 
 QMap<QString, AbstractImporter::ParamInfo> ImporterFileAmazonVatEu::getRequiredParams() const
@@ -27,8 +32,11 @@ QString ImporterFileAmazonVatEu::getUniqueReportId(const QString &filePath) cons
     return QFileInfo(filePath).fileName();
 }
 
-QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadReport(const QString &filePath)
+QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadReport(
+    const QString &filePath,
+    std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
 {
+    Q_UNUSED(callbackAddIfMissing)
     AbstractImporter::ReturnOrderInfos result;
     result.orderInfos = QSharedPointer<AbstractImporter::OrderInfos>::create();
 

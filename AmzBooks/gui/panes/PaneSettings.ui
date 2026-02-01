@@ -48,6 +48,11 @@
         <string>Journals</string>
        </property>
       </item>
+      <item>
+       <property name="text">
+        <string>FBA Centers</string>
+       </property>
+      </item>
      </widget>
      <widget class="QStackedWidget" name="stackedWidget">
       <widget class="PaneSettingsCompany" name="pageCompanyInfos"/>
@@ -55,6 +60,7 @@
       <widget class="PaneSaleAccounts" name="pageSaleAccounts"/>
       <widget class="PanePurchaseAccount" name="pagePurchaseAccounts"/>
       <widget class="PaneJournals" name="pageJournals"/>
+      <widget class="PaneFbaCenters" name="pageFbaCenters"/>
      </widget>
     </widget>
    </item>
@@ -89,6 +95,12 @@
    <class>PaneJournals</class>
    <extends>QWidget</extends>
    <header>gui/panes/PaneJournals.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneFbaCenters</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneFbaCenters.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

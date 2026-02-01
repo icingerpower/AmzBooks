@@ -17,7 +17,6 @@ public:
 private:
     QString m_errorTitle;
     QString m_errorText;
-
 };
 
 #endif // BOOK_EXCEPTIONFILEERROR_H

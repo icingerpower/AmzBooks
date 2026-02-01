@@ -9,8 +9,8 @@ ActivitySource ImporterApiTemu::getActivitySource() const
     // For now, generic.
     return ActivitySource {
         .type = ActivitySourceType::API,
-        .channel = "Temu",
-        .subchannel = "Eu", // Default, specific subclasses might override if needed but here we share base
+        .channel = CHANNEL_TEMU,
+        .subchannel = "EU", // Default, specific subclasses might override if needed but here we share base
         .reportOrMethode = "OpenAPI"
     };
 }

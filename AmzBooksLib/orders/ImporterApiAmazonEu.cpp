@@ -16,6 +16,11 @@ QString ImporterApiAmazonEu::getLabel() const
     return "Amazon SP-API (EU)";
 }
 
+QString ImporterApiAmazonEu::getId() const
+{
+    return "AmazonSpApiEu";
+}
+
 QString ImporterApiAmazonEu::getRegion() const
 {
     return "eu-west-1";

@@ -81,7 +81,8 @@ private:
                                      const QString& region, 
                                      const QString& service) const;
 
-    QNetworkAccessManager m_nam;
+    QNetworkAccessManager *m_nam = nullptr;
+    QNetworkAccessManager *nam();
 };
 
 #endif // IMPORTERAPIAMAZON_H

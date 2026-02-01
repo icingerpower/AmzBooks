@@ -14,7 +14,7 @@ ActivitySource ImporterApiCommerceHQ::getActivitySource() const
     return ActivitySource {
         .type = ActivitySourceType::API,
         .channel = "CommerceHQ",
-        .subchannel = "Web",
+        .subchannel = "",
         .reportOrMethode = "API"
     };
 }
@@ -22,6 +22,11 @@ ActivitySource ImporterApiCommerceHQ::getActivitySource() const
 QString ImporterApiCommerceHQ::getLabel() const
 {
     return "CommerceHQ API";
+}
+
+QString ImporterApiCommerceHQ::getId() const
+{
+    return "CommerceHQ";
 }
 
 QMap<QString, AbstractImporter::ParamInfo> ImporterApiCommerceHQ::getRequiredParams() const
@@ -155,7 +160,7 @@ QCoro::Task<void> ImporterApiCommerceHQ::fetchStoreOrders(const StoreConfig& sto
     request.setRawHeader("Authorization", headerData.toLocal8Bit());
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
 
-    QNetworkReply *reply = m_nam.get(request);
+    QNetworkReply *reply = nam()->get(request);
     co_await reply;
 
     if (reply->error() != QNetworkReply::NoError) {
@@ -185,3 +190,11 @@ QCoro::Task<void> ImporterApiCommerceHQ::fetchStoreOrders(const StoreConfig& sto
     }
 }
 
+
+QNetworkAccessManager *ImporterApiCommerceHQ::nam()
+{
+    if (!m_nam) {
+        m_nam = new QNetworkAccessManager(nullptr);
+    }
+    return m_nam;
+}

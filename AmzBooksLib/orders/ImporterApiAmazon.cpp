@@ -12,7 +12,7 @@ ActivitySource ImporterApiAmazon::getActivitySource() const
 {
     return ActivitySource {
         .type = ActivitySourceType::API,
-        .channel = "Amazon",
+        .channel = CHANNEL_AMAZON,
         .subchannel = getMarketplaceId(),
         .reportOrMethode = "SP-API"
     };
@@ -112,7 +112,7 @@ QCoro::Task<void> ImporterApiAmazon::refreshAccessToken()
     query.addQueryItem("client_id", getParam("clientId").toString());
     query.addQueryItem("client_secret", getParam("clientSecret").toString());
     
-    QNetworkReply *reply = m_nam.post(request, query.toString(QUrl::FullyEncoded).toUtf8());
+    QNetworkReply *reply = nam()->post(request, query.toString(QUrl::FullyEncoded).toUtf8());
     co_await reply;
     
     if (reply->error() != QNetworkReply::NoError) {
@@ -234,9 +234,9 @@ QCoro::Task<QByteArray> ImporterApiAmazon::sendSignedRequest(const QString& meth
     
     QNetworkReply* reply = nullptr;
     if (method == "GET") {
-        reply = m_nam.get(request);
+        reply = nam()->get(request);
     } else if (method == "POST") {
-        reply = m_nam.post(request, payload);
+        reply = nam()->post(request, payload);
     } else {
         throw std::runtime_error("Unsupported method: " + method.toStdString());
     }
@@ -249,4 +249,12 @@ QCoro::Task<QByteArray> ImporterApiAmazon::sendSignedRequest(const QString& meth
     }
     
     co_return reply->readAll();
+}
+
+QNetworkAccessManager *ImporterApiAmazon::nam()
+{
+    if (!m_nam) {
+        m_nam = new QNetworkAccessManager(nullptr);
+    }
+    return m_nam;
 }

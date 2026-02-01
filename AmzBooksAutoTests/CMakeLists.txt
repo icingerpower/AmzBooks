@@ -157,3 +157,15 @@ add_custom_command(TARGET TestBanks POST_BUILD
     ${CMAKE_CURRENT_SOURCE_DIR}/../data/bankAccounts
     $<TARGET_FILE_DIR:TestBanks>/data/bankAccounts
 )
+
+add_executable(TestFileImportTemuOrders test_file_import_temu_orders.cpp)
+add_test(NAME TestFileImportTemuOrders COMMAND TestFileImportTemuOrders)
+target_link_libraries(TestFileImportTemuOrders PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestFileImportTemuOrders PRIVATE ../AmzBooksLib ../../common)
+
+add_custom_command(TARGET TestFileImportTemuOrders POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/temu-orders
+    $<TARGET_FILE_DIR:TestFileImportTemuOrders>/data/temu-orders
+)
+

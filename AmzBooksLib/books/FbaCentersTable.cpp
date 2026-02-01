@@ -86,6 +86,22 @@ void FbaCentersTable::addCenter(const FbaCenter &center)
     _save();
 }
 
+bool FbaCentersTable::removeRows(int row, int count, const QModelIndex &parent)
+{
+    if (parent.isValid()) return false;
+    if (row < 0 || row + count > m_listOfStringList.size()) return false;
+
+    beginRemoveRows(parent, row, row + count - 1);
+    for (int i = 0; i < count; ++i) {
+        m_listOfStringList.removeAt(row);
+    }
+    endRemoveRows();
+
+    _rebuildCache();
+    _save();
+    return true;
+}
+
 QVariant FbaCentersTable::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (role == Qt::DisplayRole && orientation == Qt::Horizontal) {

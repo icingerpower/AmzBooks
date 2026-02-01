@@ -51,4 +51,14 @@ SET(ORDERS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/ImporterFileAmazonVatEu.h
     ${CMAKE_CURRENT_LIST_DIR}/ImporterFileAmazonTransactions.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ImporterFileAmazonTransactions.h
+    ${CMAKE_CURRENT_LIST_DIR}/FileImportersTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/FileImportersTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/ApiImportersTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ApiImportersTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/ParamsTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ParamsTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterFileTemuOrders.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterFileTemuOrders.h
 )

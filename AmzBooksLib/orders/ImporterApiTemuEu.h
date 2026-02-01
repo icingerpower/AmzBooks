@@ -11,6 +11,7 @@ public:
 
 protected:
     QString getEndpoint() const override;
+    QString getId() const override;
     
     QCoro::Task<ReturnOrderInfos> _fetchShipments(const QDateTime &dateFrom) override;
     QCoro::Task<ReturnOrderInfos> _fetchRefunds(const QDateTime &dateFrom) override;
@@ -20,7 +21,8 @@ protected:
 private:
     QCoro::Task<void> fetchShopOrders(const ShopConfig& shop, const QDateTime& dateFrom, QSharedPointer<OrderInfos> targetInfos);
     
-    QNetworkAccessManager m_nam;
+    QNetworkAccessManager *m_nam = nullptr;
+    QNetworkAccessManager *nam();
 };
 
 #endif // IMPORTERAPITEMUEU_H

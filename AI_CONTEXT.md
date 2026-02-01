@@ -53,4 +53,39 @@ To run the tests:
     - **LU 2023**: Amazon sometimes applied 17% (2022 rate) in early 2023. This is resolved by preferring `TAX_CALCULATION_DATE` (if available) over Transaction Date in VAT reports. The system expects 16% for 2023 and 17% for 2024.
     - **IT Rate**: 22% rate logic in `VatResolver` was updated to cover pre-2021 dates (fallback).
 
+### Callback Pattern for Missing Data
+
+When having a callback such as `callbackAddIfMissing` (used in `_loadReport`, `getCountryCode`, etc.):
+1. Call the callback in a **while loop** as long as the data searched was not found OR `callbackAddIfMissing` returns `true`
+2. Only raise the exception if, after calling the callback:
+   - The data searched is still not found, AND
+   - `false` was returned (user cancelled/declined)
+
+This pattern allows users to add missing configuration (VAT rates, FBA centers, sale accounts, etc.) during import without aborting the entire operation. The user may try to add data and fail, so the loop continues until either the data is found or the user cancels.
+
+**Example usage in FbaCentersTable::getCountryCode**:
+```cpp
+while (true) {
+    QString country = lookup(fbaCenterId);
+    if (!country.isEmpty()) {
+        co_return country;
+    }
+    
+    if (!callbackAddIfMissing) {
+        break;
+    }
+    
+    bool retry = co_await callbackAddIfMissing(errorTitle, errorText);
+    
+    country = lookup(fbaCenterId);
+    if (!country.isEmpty()) {
+        co_return country;
+    }
+    
+    if (!retry) {
+        throw std::runtime_error("FBA Center not found");
+    }
+}
+```
+
 

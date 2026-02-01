@@ -16,6 +16,11 @@ QString ImporterApiAmazonAmerica::getLabel() const
     return "Amazon SP-API (NA)";
 }
 
+QString ImporterApiAmazonAmerica::getId() const
+{
+    return "AmazonSpApiNa";
+}
+
 QString ImporterApiAmazonAmerica::getRegion() const
 {
     // NA region includes US, CA, MX, BR. Endpoint is usually us-east-1 for NA.

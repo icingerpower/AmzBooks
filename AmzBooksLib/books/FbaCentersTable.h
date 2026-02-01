@@ -27,6 +27,7 @@ public:
         std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
 
     void addCenter(const FbaCenter &center);
+    bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
 
     // Header:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;

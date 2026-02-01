@@ -2,6 +2,8 @@
 
 #include "AbstractImporter.h"
 
+const QString AbstractImporter::CHANNEL_AMAZON{"Amazon"};
+const QString AbstractImporter::CHANNEL_TEMU{"Temu"};
 
 AbstractImporter::AbstractImporter(const QDir &workingDirectory)
     : m_workingDirectory(workingDirectory)

@@ -9,12 +9,17 @@ DECLARE_IMPORTER_FILE(ImporterFileAmazonTransactions)
 
 QString ImporterFileAmazonTransactions::getLabel() const
 {
-    return "Amazon Transactions Report";
+    return QObject::tr("Amazon Transactions Report");
 }
 
 ActivitySource ImporterFileAmazonTransactions::getActivitySource() const
 {
-    return {ActivitySourceType::Report, "Amazon", "Amazon Transactions", "Transactions Report"};
+    return {ActivitySourceType::Report, CHANNEL_AMAZON, QString{}, QObject::tr("Transactions Report")};
+}
+
+QString ImporterFileAmazonTransactions::getId() const
+{
+    return "AmazonTransactions";
 }
 
 QMap<QString, AbstractImporter::ParamInfo> ImporterFileAmazonTransactions::getRequiredParams() const
@@ -27,8 +32,11 @@ QString ImporterFileAmazonTransactions::getUniqueReportId(const QString &filePat
     return QFileInfo(filePath).fileName();
 }
 
-QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::_loadReport(const QString &filePath)
+QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::_loadReport(
+    const QString &filePath,
+    std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
 {
+    Q_UNUSED(callbackAddIfMissing)
     AbstractImporter::ReturnOrderInfos result;
     result.orderInfos = QSharedPointer<AbstractImporter::OrderInfos>::create();
 

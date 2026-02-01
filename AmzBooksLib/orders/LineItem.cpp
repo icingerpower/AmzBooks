@@ -9,13 +9,13 @@ Result<LineItem> LineItem::create(QString sku,
     Result<LineItem> result;
 
     if (name.isEmpty()) {
-        result.errors.append(ValidationError{"name", "Name must not be empty"});
+        result.errors.append(ValidationError{QObject::tr("Name"), QObject::tr("Name must not be empty")});
     }
     if (taxedAmount == 0.0) {
-        result.errors.append(ValidationError{"taxedAmount", "Taxed amount must not be 0"});
+        result.errors.append(ValidationError{QObject::tr("taxedAmount"), QObject::tr("Taxed amount must not be 0")});
     }
     if (quantity <= 0) {
-        result.errors.append(ValidationError{"quantity", "Quantity must be greater than 0"});
+        result.errors.append(ValidationError{QObject::tr("quantity"), QObject::tr("Quantity must be greater than 0")});
     }
 
     if (result.errors.isEmpty()) {

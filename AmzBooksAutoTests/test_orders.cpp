@@ -33,6 +33,7 @@ private slots:
     void test_vatTerritoryResolver();
     void test_getTaxContext();
     void test_isEuMember();
+    void test_ActivityTable();
 };
 
 TestOrders::TestOrders()
@@ -572,3 +573,151 @@ void TestOrders::test_isEuMember()
 QTEST_MAIN(TestOrders)
 
 #include "test_orders.moc"
+
+#include "books/ActivityTable.h"
+
+void TestOrders::test_ActivityTable()
+{
+    // 1. Instantiation
+    ActivityTable table;
+    QCOMPARE(table.rowCount(), 0);
+    QCOMPARE(table.columnCount(), 19);
+
+    // 2. Headers Check
+    // We check English strings or tr() keys. 
+    // Since we used tr(), and no translator is installed, they should match strict string literals.
+    QCOMPARE(table.headerData(0, Qt::Horizontal).toString(), QString("Date"));
+    QCOMPARE(table.headerData(4, Qt::Horizontal).toString(), QString("Currency"));
+    QCOMPARE(table.headerData(18, Qt::Horizontal).toString(), QString("Taxes Computed"));
+
+    // Prepare Data
+    QDateTime dt1 = QDateTime(QDate(2025, 1, 10), QTime(10, 0));
+    QDateTime dt2 = QDateTime(QDate(2025, 1, 15), QTime(12, 0));
+    QDateTime dt3 = QDateTime(QDate(2025, 1, 5), QTime(9, 0)); // Earliest
+
+    auto res1 = Activity::create("evt1", "act1", "sub1", dt1, "EUR", "FR", "DE", "DE",
+                                 Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE",
+                                 TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    QVERIFY(res1.ok());
+    Activity a1 = *res1.value;
+
+    auto res2 = Activity::create("evt2", "act2", "sub2", dt2, "USD", "US", "US", "US",
+                                 Amount(50.0, 0.0), TaxSource::SelfComputed, "US",
+                                 TaxScheme::OutOfScope, TaxJurisdictionLevel::Unknown, SaleType::Service);
+    QVERIFY(res2.ok());
+    Activity a2 = *res2.value;
+
+    auto res3 = Activity::create("evt3", "act3", "sub3", dt3, "GBP", "GB", "GB", "GB",
+                                 Amount(200.0, 40.0), TaxSource::ManualOverride, "GB",
+                                 TaxScheme::DomesticVat, TaxJurisdictionLevel::Country, SaleType::Products);
+    QVERIFY(res3.ok());
+    Activity a3 = *res3.value;
+
+    // 3. Add Single Activity
+    table.addActivity(a1);
+    QCOMPARE(table.rowCount(), 1);
+
+    // 4. Data Check Row 0
+    QCOMPARE(table.data(table.index(0, 0)).toDateTime(), dt1);
+    QCOMPARE(table.data(table.index(0, 1)).toDouble(), 80.0); // 100 - 20
+    QCOMPARE(table.data(table.index(0, 2)).toDouble(), 20.0);
+    QCOMPARE(table.data(table.index(0, 4)).toString(), QString("EUR"));
+    QCOMPARE(table.data(table.index(0, 5)).toString(), QString("evt1"));
+
+    // 5. Add Multiple Activities
+    table.addActivities({a2, a3});
+    QCOMPARE(table.rowCount(), 3);
+
+    // 6. Verify insertion order (before sorting)
+    // Index 0: a1 (dt Jan 10)
+    // Index 1: a2 (dt Jan 15)
+    // Index 2: a3 (dt Jan 5)
+    QCOMPARE(table.data(table.index(1, 0)).toDateTime(), dt2);
+    QCOMPARE(table.data(table.index(2, 0)).toDateTime(), dt3);
+
+    // 7. Sort by Date Ascending
+    table.sort(0, Qt::AscendingOrder);
+    // Expected: dt3 (Jan 5), dt1 (Jan 10), dt2 (Jan 15)
+    QCOMPARE(table.data(table.index(0, 5)).toString(), QString("evt3"));
+    QCOMPARE(table.data(table.index(1, 5)).toString(), QString("evt1"));
+    QCOMPARE(table.data(table.index(2, 5)).toString(), QString("evt2"));
+
+    // 8. Sort by Date Descending
+    table.sort(0, Qt::DescendingOrder);
+    // Expected: dt2 (Jan 15), dt1 (Jan 10), dt3 (Jan 5)
+    QCOMPARE(table.data(table.index(0, 5)).toString(), QString("evt2"));
+    QCOMPARE(table.data(table.index(2, 5)).toString(), QString("evt3"));
+
+    // 9. Sort by Amount Untaxed Ascending
+    // a1: 80.0, a2: 50.0, a3: 160.0
+    // Order: a2 (50), a1 (80), a3 (160)
+    table.sort(1, Qt::AscendingOrder);
+    QCOMPARE(table.data(table.index(0, 5)).toString(), QString("evt2"));
+    QCOMPARE(table.data(table.index(1, 5)).toString(), QString("evt1"));
+    QCOMPARE(table.data(table.index(2, 5)).toString(), QString("evt3"));
+
+    // 10. Sort by Currency Ascending
+    // EUR, USD, GBP -> EUR, GBP, USD ? Alphabetical: EUR, GBP, USD.
+    // Wait, E < G < U.
+    // a1: EUR, a2: USD, a3: GBP
+    // Expected: a1 (EUR), a3 (GBP), a2 (USD)
+    table.sort(4, Qt::AscendingOrder);
+    QCOMPARE(table.data(table.index(0, 4)).toString(), QString("EUR"));
+    QCOMPARE(table.data(table.index(1, 4)).toString(), QString("GBP"));
+    QCOMPARE(table.data(table.index(2, 4)).toString(), QString("USD"));
+
+    // 11. Sort by Tax Scheme Ascending (String based)
+    // a1: EuOssUnion
+    // a2: OutOfScope
+    // a3: DomesticVat
+    // Alphabetical: DomesticVat, EuOssUnion, OutOfScope
+    // Expected: a3, a1, a2
+    table.sort(13, Qt::AscendingOrder);
+    QCOMPARE(table.data(table.index(0, 5)).toString(), QString("evt3")); // DomesticVat
+    QCOMPARE(table.data(table.index(1, 5)).toString(), QString("evt1")); // EuOssUnion
+    QCOMPARE(table.data(table.index(2, 5)).toString(), QString("evt2")); // OutOfScope
+
+    // 12. Invalid Index (row out of bounds)
+    QCOMPARE(table.data(table.index(99, 0)), QVariant());
+
+    // 13. Invalid Index (col out of bounds)
+    QCOMPARE(table.data(table.index(0, 99)), QVariant());
+
+    // 14. Invalid Index (invalid QModelIndex)
+    QCOMPARE(table.data(QModelIndex()), QVariant());
+
+    // 15. Header Data Invalid Orientation
+    QCOMPARE(table.headerData(0, Qt::Vertical), QVariant());
+
+    // 16. Header Data Invalid Role
+    QCOMPARE(table.headerData(0, Qt::Horizontal, Qt::UserRole), QVariant());
+
+    // 17. Flags
+    Qt::ItemFlags f = table.flags(table.index(0, 0));
+    QVERIFY(f & Qt::ItemIsEnabled);
+    QVERIFY(f & Qt::ItemIsSelectable);
+    QVERIFY(!(f & Qt::ItemIsEditable)); // Should strictly NOT be editable
+
+    // 18. Invalid Flags (Invalid index)
+    QCOMPARE(table.flags(QModelIndex()), Qt::NoItemFlags);
+
+    // 19. Clear
+    table.clear();
+    QCOMPARE(table.rowCount(), 0);
+    // Data should be gone
+    QCOMPARE(table.data(table.index(0, 0)), QVariant());
+
+    // 20. Add empty list
+    table.addActivities({});
+    QCOMPARE(table.rowCount(), 0);
+
+    // 21. Check Column 18 (Taxes Computed) access
+    // Add one back
+    table.addActivity(a1);
+    // a1 taxes computed is 0.0 (MarketplaceProvided)
+    QCOMPARE(table.data(table.index(0, 18)).toDouble(), 0.0);
+
+    // 22. Check Column 15 (Sale Type)
+    // a1 SaleType::Products -> "Products"
+    QCOMPARE(table.data(table.index(0, 15)).toString(), QString("Products"));
+}

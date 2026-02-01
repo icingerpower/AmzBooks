@@ -6,6 +6,7 @@
 - **Inheritance**: Exceptions should ideally inherit from `QException`.
 - **Cross-Thread Safety**: They must implement `raise()` and `clone()` methods to be compatible with Qt's cross-thread exception transport.
 - **Detail**: Always provide a title and detailed error text.
+- **Catching**: Do not catch `const std::exception &e` if the exception inherits from `QException`. Catch `const QException &e` (or the specific type) first.
 
 ## QAbstractTableModel Implementations
 - **Robust Loading**:
@@ -14,7 +15,7 @@
 - **Technical IDs**: Use hidden, stable technical IDs ("Hidden ID") for logic, which are stored in the file but not displayed in `columnCount`/`data`.
 - **Localization**:
     - Use `tr()` for all user-facing strings (headers, parameter names).
-    - **Exception**: Do **NOT** use `tr()` for hidden internal IDs or technical column headers in the saved file.
+    - **Exception**: Do **NOT** use `tr()` for matching hidden internal IDs, folder names, or technical keys.
 
 ## C++ Header/Source Separation
 - **Implementation**: Header files (`.h`) should contain only declarations. Implementations must be in source files (`.cpp`).
