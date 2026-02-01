@@ -4,6 +4,8 @@
 #include <QJsonArray>
 #include <QUrlQuery>
 
+DECLARE_CLASS(ImporterApiAmazonEu)
+
 QString ImporterApiAmazonEu::getEndpoint() const
 {
     return "https://sellingpartnerapi-eu.amazon.com";
@@ -116,3 +118,4 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonEu::_fetchInvoi
      result.orderInfos = QSharedPointer<OrderInfos>::create();
      co_return result;
 }
+

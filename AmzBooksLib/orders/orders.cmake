@@ -18,6 +18,8 @@ SET(ORDERS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/Order.h
     ${CMAKE_CURRENT_LIST_DIR}/Address.cpp
     ${CMAKE_CURRENT_LIST_DIR}/Address.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterFileAmazonFbaInvoicing.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterFileAmazonFbaInvoicing.h
     ${CMAKE_CURRENT_LIST_DIR}/InvoicingInfo.cpp
     ${CMAKE_CURRENT_LIST_DIR}/InvoicingInfo.h
     ${CMAKE_CURRENT_LIST_DIR}/Result.h

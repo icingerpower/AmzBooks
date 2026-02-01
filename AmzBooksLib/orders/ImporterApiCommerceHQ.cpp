@@ -7,6 +7,8 @@
 #include <QUrlQuery>
 #include <QCoroNetworkReply>
 
+DECLARE_CLASS(ImporterApiCommerceHQ)
+
 ActivitySource ImporterApiCommerceHQ::getActivitySource() const
 {
     return ActivitySource {
@@ -182,3 +184,4 @@ QCoro::Task<void> ImporterApiCommerceHQ::fetchStoreOrders(const StoreConfig& sto
         }
     }
 }
+

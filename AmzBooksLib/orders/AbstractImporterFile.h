@@ -4,6 +4,7 @@
 #include "AbstractImporter.h"
 #include <QCoroTask>
 
+
 class AbstractImporterFile : public AbstractImporter
 {
 public:

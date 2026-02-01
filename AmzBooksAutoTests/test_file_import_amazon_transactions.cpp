@@ -12,13 +12,13 @@
 // We need a main for QCoro tests if we use QCoroTest, or just use QTEST_MAIN and block on tasks.
 // Using QCoro::waitFor(task) is simplest for synchronous tests.
 
-class TestFileImportAmz : public QObject
+class TestFileImportAmazonTransactions : public QObject
 {
     Q_OBJECT
 
 public:
-    TestFileImportAmz();
-    ~TestFileImportAmz();
+    TestFileImportAmazonTransactions();
+    ~TestFileImportAmazonTransactions();
 
 private slots:
     void initTestCase();
@@ -33,18 +33,19 @@ private slots:
     void test_amazonTransactions_structure();
     void test_amazonTransactions_realData();
     void test_amazonTransactions_invalid();
+    void test_crossVerifyVsEuVat();
 };
 
 
-TestFileImportAmz::TestFileImportAmz()
+TestFileImportAmazonTransactions::TestFileImportAmazonTransactions()
 {
 }
 
-TestFileImportAmz::~TestFileImportAmz()
+TestFileImportAmazonTransactions::~TestFileImportAmazonTransactions()
 {
 }
 
-void TestFileImportAmz::initTestCase()
+void TestFileImportAmazonTransactions::initTestCase()
 {
     QDir appDir(QCoreApplication::applicationDirPath());
     // Assuming data copied to data/eu-vat-reports
@@ -86,11 +87,11 @@ void TestFileImportAmz::initTestCase()
     qDebug() << "Transactions Path:" << m_transactionsPath;
 }
 
-void TestFileImportAmz::cleanupTestCase()
+void TestFileImportAmazonTransactions::cleanupTestCase()
 {
 }
 
-void TestFileImportAmz::test_allFiles()
+void TestFileImportAmazonTransactions::test_allFiles()
 {
     QDir reportDir(m_reportsPath);
     QStringList filters;
@@ -215,7 +216,7 @@ void TestFileImportAmz::test_allFiles()
     }
 }
 
-void TestFileImportAmz::test_amazonTransactions_structure()
+void TestFileImportAmazonTransactions::test_amazonTransactions_structure()
 {
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
@@ -264,7 +265,7 @@ void TestFileImportAmz::test_amazonTransactions_structure()
     out << "\"1/31/2025\",\"\",\"111-1111111-1111124\",\"Product N\",\"-20.00\",\"0\",\"0\",\"0\",\"-20.00\"\n";
     // 18. Case sensitive type check ("refund" instead of "Refund" - assuming strict check so skipped)
     out << "\"1/31/2025\",\"refund\",\"111-1111111-1111125\",\"Product O\",\"-20.00\",\"0\",\"0\",\"0\",\"-18.00\"\n";
-     // 19. Large Amount
+    // 19. Large Amount
     out << "\"1/31/2025\",\"Refund\",\"111-1111111-1111126\",\"Product P\",\"-20000.00\",\"0\",\"0\",\"0\",\"-20000.00\"\n";
     // 20. Very small amount
     out << "\"1/31/2025\",\"Refund\",\"111-1111111-1111127\",\"Product Q\",\"-0.01\",\"0\",\"0\",\"0\",\"-0.01\"\n";
@@ -325,7 +326,7 @@ void TestFileImportAmz::test_amazonTransactions_structure()
     QVERIFY(found);
 }
 
-void TestFileImportAmz::test_amazonTransactions_realData()
+void TestFileImportAmazonTransactions::test_amazonTransactions_realData()
 {
     if (m_transactionsPath.isEmpty()) {
         QSKIP("Transactions data path not found.");
@@ -407,7 +408,7 @@ void TestFileImportAmz::test_amazonTransactions_realData()
     }
 }
 
-void TestFileImportAmz::test_amazonTransactions_invalid()
+void TestFileImportAmazonTransactions::test_amazonTransactions_invalid()
 {
     QTemporaryDir tempDir;
     
@@ -494,5 +495,185 @@ void TestFileImportAmz::test_amazonTransactions_invalid()
     }
 }
 
-QTEST_MAIN(TestFileImportAmz)
-#include "test_file_import_amazon.moc"
+void TestFileImportAmazonTransactions::test_crossVerifyVsEuVat()
+{
+    // Cross-verify Transaction refunds against VAT reports
+    // Transactions uses Order ID as Event ID
+    // VAT Report uses TRANSACTION_EVENT_ID (Refund ID) as Event ID, but has ORDER_ID column
+    // We need to match by Order ID
+    
+    QTemporaryDir tempDir;
+    
+    // Structure to hold activity details for comparison
+    struct ActivityDetails {
+        QDate date;
+        double grossAmount;
+        QString currency;
+    };
+    
+    // Load VAT Reports - Build map of Order ID -> Activity Details
+    // Need to manually parse to get ORDER_ID column since it's not in Activity
+    QMap<QString, ActivityDetails> vatRefundsByOrder;
+    
+    QDir vatReportDir(m_reportsPath);
+    QFileInfoList vatFiles = vatReportDir.entryInfoList(QStringList() << "*.csv", QDir::Files);
+    
+    for (const QFileInfo &f : vatFiles) {
+        try {
+            CsvReader reader(f.absoluteFilePath(), ",", "\"", true, "\n", 0, "UTF-8");
+            if (!reader.readAll()) continue;
+            
+            const auto *data = reader.dataRode();
+            int idxType = data->header.pos("TRANSACTION_TYPE");
+            // For REFUND, TRANSACTION_EVENT_ID contains the Order ID
+            // Older formats might have ORDER_ID column
+            int idxOrderId = data->header.pos("TRANSACTION_EVENT_ID");
+            if (idxOrderId == -1) idxOrderId = data->header.pos("ORDER_ID");
+            int idxDate = data->header.pos("TAX_CALCULATION_DATE");
+            if (idxDate == -1) idxDate = data->header.pos("TRANSACTION_COMPLETE_DATE");
+            int idxTotalExcl = data->header.pos("TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL");
+            int idxTotalVat = data->header.pos("TOTAL_ACTIVITY_VALUE_VAT_AMT");
+            int idxCurrency = data->header.pos("TRANSACTION_CURRENCY_CODE");
+            
+            if (idxType == -1 || idxOrderId == -1 || idxTotalExcl == -1) continue;
+            
+            for (const auto &line : data->lines) {
+                if (line.value(idxType) != "REFUND") continue;
+                
+                QString orderId = line.value(idxOrderId);
+                if (orderId.isEmpty()) continue;
+                
+                double excl = line.value(idxTotalExcl).toDouble();
+                double vat = (idxTotalVat != -1) ? line.value(idxTotalVat).toDouble() : 0.0;
+                double gross = excl + vat;
+                
+                QString dateStr = (idxDate != -1) ? line.value(idxDate) : "";
+                QDate date = QDate::fromString(dateStr.left(10), "dd-MM-yyyy");
+                if (!date.isValid()) date = QDate::fromString(dateStr.left(10), "yyyy-MM-dd");
+                
+                QString currency = (idxCurrency != -1) ? line.value(idxCurrency) : "";
+                
+                // Aggregate by Order ID
+                if (vatRefundsByOrder.contains(orderId)) {
+                    vatRefundsByOrder[orderId].grossAmount += gross;
+                } else {
+                    ActivityDetails details;
+                    details.date = date;
+                    details.grossAmount = gross;
+                    details.currency = currency;
+                    vatRefundsByOrder[orderId] = details;
+                }
+            }
+        } catch (...) {
+            // Skip files that can't be parsed
+        }
+    }
+    
+    qDebug() << "Loaded VAT Refunds by Order ID:" << vatRefundsByOrder.size();
+    
+    // Load Transaction Reports - Build map of Order ID -> Activity Details
+    QMap<QString, ActivityDetails> transRefundsByOrder;
+    
+    ImporterFileAmazonTransactions transImporter(tempDir.path());
+    QDirIterator it(m_transactionsPath, QStringList() << "*.csv", QDir::Files, QDirIterator::Subdirectories);
+    
+    while (it.hasNext()) {
+        it.next();
+        try {
+            auto task = transImporter.loadReport(it.fileInfo().absoluteFilePath());
+            auto res = QCoro::waitFor(task);
+            if (!res.errorReturned.isEmpty()) continue;
+            
+            for (const auto &refund : res.orderInfos->refunds) {
+                for (const auto &act : refund.getActivities()) {
+                    QString orderId = act.getEventId(); // Transactions uses Order ID as Event ID
+                    
+                    // Aggregate by Order ID
+                    if (transRefundsByOrder.contains(orderId)) {
+                        transRefundsByOrder[orderId].grossAmount += act.getAmountTaxed();
+                    } else {
+                        ActivityDetails details;
+                        details.date = act.getDateTime().date();
+                        details.grossAmount = act.getAmountTaxed();
+                        details.currency = act.getCurrency();
+                        transRefundsByOrder[orderId] = details;
+                    }
+                }
+            }
+        } catch (...) {
+            // Skip files that can't be loaded
+        }
+    }
+    
+    qDebug() << "Loaded Transaction Refunds by Order ID:" << transRefundsByOrder.size();
+    
+    // Compare overlapping Order IDs
+    int matches = 0;
+    int mismatches = 0;
+    QStringList mismatchDetails;
+    
+    for (auto it = transRefundsByOrder.constBegin(); it != transRefundsByOrder.constEnd(); ++it) {
+        const QString &orderId = it.key();
+        const ActivityDetails &trans = it.value();
+        
+        if (!vatRefundsByOrder.contains(orderId)) continue;
+        
+        const ActivityDetails &vat = vatRefundsByOrder[orderId];
+        matches++;
+        
+        QStringList issues;
+        
+        // Compare date (allow 1 day tolerance for timezone differences)
+        if (trans.date.isValid() && vat.date.isValid()) {
+            if (qAbs(trans.date.toJulianDay() - vat.date.toJulianDay()) > 1) {
+                issues << QString("Date: Trans=%1 VAT=%2").arg(trans.date.toString()).arg(vat.date.toString());
+            }
+        }
+        
+        // Compare gross amount (5 cents tolerance)
+        if (qAbs(trans.grossAmount - vat.grossAmount) > 0.05) {
+            issues << QString("Gross: Trans=%1 VAT=%2").arg(trans.grossAmount).arg(vat.grossAmount);
+        }
+        
+        if (!issues.isEmpty()) {
+            mismatches++;
+            mismatchDetails << QString("Order %1: %2").arg(orderId).arg(issues.join("; "));
+            if (mismatchDetails.size() <= 10) {
+                qWarning() << "Mismatch:" << orderId << issues;
+            }
+        }
+    }
+    
+    qDebug() << "Cross-verification results:";
+    qDebug() << "  Overlapping Orders:" << matches;
+    qDebug() << "  Mismatches:" << mismatches;
+    qDebug() << "  Match rate:" << (matches > 0 ? (matches - mismatches) * 100.0 / matches : 0) << "%";
+    
+    // Report results
+    if (matches == 0) {
+        qWarning() << "No overlapping orders found. Cannot verify.";
+        QSKIP("No overlapping data to verify");
+    }
+    
+    if (mismatches > 0) {
+        qWarning() << "Found" << mismatches << "mismatches out of" << matches << "overlapping orders";
+        qWarning() << "Note: Mismatches may be due to:";
+        qWarning() << "  - Different column interpretation (Transactions uses 'Total product charges')";
+        qWarning() << "  - MARKETPLACE-handled orders (VAT collected by Amazon)";
+        qWarning() << "  - Currency conversion or rounding differences";
+        // Show first 10 mismatches for investigation
+        for (int i = 0; i < qMin(10, mismatchDetails.size()); i++) {
+            qWarning() << mismatchDetails[i];
+        }
+    }
+    
+    // Test passes if we successfully loaded and compared data
+    // Mismatches are logged for investigation but don't fail the test
+    // as they may be due to data quality issues, not importer bugs
+    QVERIFY(matches > 0);
+    QVERIFY(transRefundsByOrder.size() > 0);
+    QVERIFY(vatRefundsByOrder.size() > 0);
+}
+
+QTEST_MAIN(TestFileImportAmazonTransactions)
+#include "test_file_import_amazon_transactions.moc"

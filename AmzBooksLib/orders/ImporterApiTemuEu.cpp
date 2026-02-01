@@ -4,6 +4,8 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 
+DECLARE_CLASS(ImporterApiTemuEu)
+
 QString ImporterApiTemuEu::getEndpoint() const
 {
     return "https://openapi-eu.temu.com";
@@ -59,3 +61,4 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiTemuEu::_fetchInvoice
      result.orderInfos = QSharedPointer<OrderInfos>::create();
      co_return result;
 }
+
