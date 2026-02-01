@@ -857,7 +857,7 @@ void TestBookEntries::test_factory_shipment_no_conversion()
     auto activityResult = Activity::create(
         "SHIP-001", "ACT-001", "", QDateTime::currentDateTime(),
         "EUR", "FR", "FR", "FR",
-        Amount{100.0, 20.0}, TaxSource::MarketplaceProvided,
+        Amount{120.0, 20.0}, TaxSource::MarketplaceProvided,
         "FR", TaxScheme::DomesticVat, TaxJurisdictionLevel::Country,
         SaleType::Products
     );
@@ -940,7 +940,7 @@ void TestBookEntries::test_factory_shipment_with_conversion()
     auto activityResult = Activity::create(
         "SHIP-002", "ACT-002", "", QDateTime::currentDateTime(),
         "USD", "US", "US", "US",
-        Amount{100.0, 20.0}, TaxSource::MarketplaceProvided,
+        Amount{120.0, 0.0}, TaxSource::MarketplaceProvided,
         "US", TaxScheme::OutOfScope, TaxJurisdictionLevel::Country,
         SaleType::Products
     );

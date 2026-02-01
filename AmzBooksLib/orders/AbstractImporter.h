@@ -62,6 +62,7 @@ public:
     QVariant getParam(const QString& key) const;
 
 protected:
+    AbstractImporter() : m_workingDirectory(QDir::current()) {}
     QDir m_workingDirectory;
     QString m_settingPath;
     QSharedPointer<QSettings> _settings() const;

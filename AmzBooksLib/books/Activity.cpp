@@ -236,7 +236,7 @@ const QString& Activity::getVatTerritoryTo() const noexcept
 
 double Activity::getVatRate() const noexcept
 {
-    double net = getAmountTaxed();
+    double net = getAmountUntaxed();
     if (qFuzzyIsNull(net)) {
         return 0.0;
     }

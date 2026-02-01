@@ -108,4 +108,7 @@ add_custom_command(TARGET TestFileImportAmz POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
     $<TARGET_FILE_DIR:TestFileImportAmz>/data/eu-vat-reports
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-transactions
+    $<TARGET_FILE_DIR:TestFileImportAmz>/data/amazon-transactions
 )

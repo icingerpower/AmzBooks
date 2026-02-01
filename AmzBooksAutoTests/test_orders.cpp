@@ -63,7 +63,7 @@ void TestOrders::test_Activity_getters()
     QString currency = "EUR";
     QString fr = "FR";
     QString de = "DE";
-    double amountTaxed = 100.0;
+    double amountTaxed = 120.0;
     double amountTaxes = 20.0;
     QString taxDeclaring = "DE";
 
@@ -107,10 +107,10 @@ void TestOrders::test_Activity_getters()
         QCOMPARE(activity.getAmountTaxesComputed(), newTaxes);
         QCOMPARE(activity.getAmountTaxes(), newTaxes);
         
-        // Rate should update with new taxes (25 / 100 = 0.25)
-        QCOMPARE(activity.getVatRate(), 0.25);
-        QCOMPARE(activity.getVatRate_4digits(), QString("0.2500"));
-        QCOMPARE(activity.getVatRate_2digits(), QString("0.25"));
+        // Rate should update with new taxes (25 / (120 - 25) = 25/95 = 0.26315...)
+        QCOMPARE(activity.getVatRate(), 25.0/95.0);
+        QCOMPARE(activity.getVatRate_4digits(), QString::number(25.0/95.0, 'f', 4));
+        QCOMPARE(activity.getVatRate_2digits(), QString::number(25.0/95.0, 'f', 2));
     }
 
     // Case 2: SelfComputed

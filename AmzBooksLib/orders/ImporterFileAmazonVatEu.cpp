@@ -3,6 +3,8 @@
 #include <QFileInfo>
 #include <QDebug>
 
+DECLARE_CLASS(ImporterFileAmazonVatEu)
+
 QString ImporterFileAmazonVatEu::getLabel() const
 {
     return "Amazon EU VAT Report";
@@ -133,9 +135,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         } else {
             dateStr = line.value(indDate);
         }
-        QDate date = QDate::fromString(dateStr, "dd-MM-yyyy");
-        if (!date.isValid()) date = QDate::fromString(dateStr, "dd/MM/yyyy");
-        if (!date.isValid()) date = QDate::fromString(dateStr, "yyyy-MM-dd"); // From test_vat_rate
+        QDate date = parseDateFormats(dateStr, {"dd-MM-yyyy", "dd/MM/yyyy", "yyyy-MM-dd"});
         if (!date.isValid()) {
              // Fallback or skip?
              continue; 
