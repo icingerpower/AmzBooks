@@ -45,6 +45,7 @@ include(../../common/utils/utils.cmake)
 
 include(orders/orders.cmake)
 include(books/books.cmake)
+include(banks/banks.cmake)
 
 add_library(AmzBooksLib STATIC
   AmzBooksLib.cpp
@@ -57,6 +58,7 @@ add_library(AmzBooksLib STATIC
   ExceptionRateCurrency.cpp
   ${ORDERS_FILES}
   ${BOOKS_FILES}
+  ${BANKS_FILES}
   ${UTILS_FILES}
 )
 

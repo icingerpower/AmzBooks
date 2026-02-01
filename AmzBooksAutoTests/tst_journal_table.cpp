@@ -9,6 +9,9 @@ class TestJournalTable : public QObject
 
 private slots:
     void test_init_and_persistence();
+    void test_auto_population();
+    void test_csv_row_shuffling();
+    void test_csv_overrides_defaults();
     void test_getters();
 };
 
@@ -18,49 +21,213 @@ void TestJournalTable::test_init_and_persistence()
     QVERIFY(tempDir.isValid());
     QDir dir(tempDir.path());
 
-    // 1. First Load - Should create file with "Purchase"
+    // 1. First Load - Should create file with auto-populated entries
+    int initialRowCount;
     {
         JournalTable table(dir);
-        QCOMPARE(table.rowCount(), 1);
-        // Col 0: Code ("AC"), Col 1: Name ("Purchase")
-        QCOMPARE(table.data(table.index(0, 0)).toString(), QString("AC"));
-        QCOMPARE(table.data(table.index(0, 1)).toString(), QString("Purchase"));
+        initialRowCount = table.rowCount();
+        // Should have at least "purchase" journal
+        QVERIFY(initialRowCount >= 1);
         
+        // Verify "purchase" exists
+        bool foundPurchase = false;
+        for (int i = 0; i < table.rowCount(); ++i) {
+            QModelIndex idx = table.index(i, 0);
+            if (table.data(idx).toString() == "AC") {
+                foundPurchase = true;
+                QCOMPARE(table.data(table.index(i, 1)).toString(), QString("Purchase"));
+                break;
+            }
+        }
+        QVERIFY(foundPurchase);
+    }
+    
+    // 2. Modify Entry
+    {
+        JournalTable table(dir);
+        QCOMPARE(table.rowCount(), initialRowCount);
+        
+        // Find purchase journal and modify its name
+        for (int i = 0; i < table.rowCount(); ++i) {
+            QModelIndex idxCode = table.index(i, 0);
+            QModelIndex idxName = table.index(i, 1);
+            
+            if (table.data(idxCode).toString() == "AC") {
+                // Code (Col 0) should NOT be editable
+                QVERIFY(!(table.flags(idxCode) & Qt::ItemIsEditable));
+                QVERIFY(!table.setData(idxCode, "VE", Qt::EditRole));
+                
+                // Name (Col 1) SHOULD be editable
+                QVERIFY(table.flags(idxName) & Qt::ItemIsEditable);
+                QVERIFY(table.setData(idxName, "Purchase Invoices", Qt::EditRole));
+                
+                // Check update
+                QCOMPARE(table.data(idxName).toString(), QString("Purchase Invoices"));
+                break;
+            }
+        }
+
         // Check file existence
         QFile file(dir.filePath("journals.csv"));
         QVERIFY(file.exists());
     }
     
-    // 2. Add New Row
+    // 3. Reload and Verify persistence
     {
         JournalTable table(dir);
-        QCOMPARE(table.rowCount(), 1);
+        QCOMPARE(table.rowCount(), initialRowCount);
         
-        table.insertRows(1, 1);
-        QModelIndex idxCode = table.index(1, 0); // Col 0 = Code
-        QModelIndex idxName = table.index(1, 1); // Col 1 = Name
+        // Verify the modified name persisted
+        bool foundModified = false;
+        for (int i = 0; i < table.rowCount(); ++i) {
+            if (table.data(table.index(i, 0)).toString() == "AC") {
+                QCOMPARE(table.data(table.index(i, 1)).toString(), QString("Purchase Invoices"));
+                foundModified = true;
+                break;
+            }
+        }
+        QVERIFY(foundModified);
+    }
+}
+
+void TestJournalTable::test_auto_population()
+{
+    QTemporaryDir tempDir;
+    QDir dir(tempDir.path());
+    JournalTable table(dir);
+    
+    // Verify that table is auto-populated with at least the purchase journal
+    QVERIFY(table.rowCount() >= 1);
+    
+    // Check that "purchase" journal exists
+    bool foundPurchase = false;
+    for (int i = 0; i < table.rowCount(); ++i) {
+        QModelIndex idxCode = table.index(i, 0);
+        QModelIndex idxName = table.index(i, 1);
         
-        // Code (Col 0) should NOT be editable
-        QVERIFY(!(table.flags(idxCode) & Qt::ItemIsEditable));
-        QVERIFY(!table.setData(idxCode, "VE", Qt::EditRole));
+        if (table.data(idxCode).toString() == "AC" &&
+            table.data(idxName).toString() == "Purchase") {
+            foundPurchase = true;
+            break;
+        }
+    }
+    QVERIFY(foundPurchase);
+}
+
+void TestJournalTable::test_csv_row_shuffling()
+{
+    QTemporaryDir tempDir;
+    QDir dir(tempDir.path());
+    
+    // Create initial table and get row count
+    int initialRowCount;
+    QStringList initialCodes;
+    {
+        JournalTable table(dir);
+        initialRowCount = table.rowCount();
         
-        // Name (Col 1) SHOULD be editable
-        QVERIFY(table.flags(idxName) & Qt::ItemIsEditable);
-        QVERIFY(table.setData(idxName, "Sales", Qt::EditRole));
-        
-        // Check update
-        QCOMPARE(table.data(idxName).toString(), QString("Sales"));
-        // Code remains empty
-        QCOMPARE(table.data(idxCode).toString(), QString(""));
+        // Collect all codes in initial order
+        for (int i = 0; i < table.rowCount(); ++i) {
+            initialCodes.append(table.data(table.index(i, 0)).toString());
+        }
     }
     
-    // 3. Reload and Verify
+    // Manually shuffle the CSV file
+    QString csvPath = dir.filePath("journals.csv");
+    QFile file(csvPath);
+    QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+    
+    QStringList lines;
+    QTextStream in(&file);
+    QString header = in.readLine(); // Read header
+    lines.append(header);
+    
+    QStringList dataLines;
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        if (!line.trimmed().isEmpty()) {
+            dataLines.append(line);
+        }
+    }
+    file.close();
+    
+    // Shuffle the data lines (reverse order as simple shuffle)
+    std::reverse(dataLines.begin(), dataLines.end());
+    
+    // Write back in shuffled order
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream out(&file);
+    out << header << "\n";
+    for (const QString &line : dataLines) {
+        out << line << "\n";
+    }
+    file.close();
+    
+    // Reload table and verify all entries are still present
     {
         JournalTable table(dir);
-        QCOMPARE(table.rowCount(), 2);
-        // Row 1: Code="", Name="Sales"
-        QCOMPARE(table.data(table.index(1, 0)).toString(), QString(""));
-        QCOMPARE(table.data(table.index(1, 1)).toString(), QString("Sales"));
+        QCOMPARE(table.rowCount(), initialRowCount);
+        
+        // Verify all original codes are still present (regardless of order)
+        QSet<QString> currentCodes;
+        for (int i = 0; i < table.rowCount(); ++i) {
+            currentCodes.insert(table.data(table.index(i, 0)).toString());
+        }
+        
+        QSet<QString> initialCodesSet = QSet<QString>(initialCodes.begin(), initialCodes.end());
+        QCOMPARE(currentCodes, initialCodesSet);
+    }
+}
+
+void TestJournalTable::test_csv_overrides_defaults()
+{
+    QTemporaryDir tempDir;
+    QDir dir(tempDir.path());
+    
+    // Create initial table
+    {
+        JournalTable table(dir);
+        QVERIFY(table.rowCount() >= 1);
+    }
+    
+    // Manually edit CSV to override "purchase" journal name
+    QString csvPath = dir.filePath("journals.csv");
+    QFile file(csvPath);
+    QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+    
+    QStringList lines;
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        QString line = in.readLine();
+        // Replace "Purchase" with "Custom Purchase Name" for purchase journal
+        if (line.contains(";purchase")) {
+            line.replace("Purchase", "Custom Purchase Name");
+        }
+        lines.append(line);
+    }
+    file.close();
+    
+    // Write modified content back
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream out(&file);
+    for (const QString &line : lines) {
+        out << line << "\n";
+    }
+    file.close();
+    
+    // Reload and verify CSV override worked
+    {
+        JournalTable table(dir);
+        
+        bool foundCustomName = false;
+        for (int i = 0; i < table.rowCount(); ++i) {
+            if (table.data(table.index(i, 0)).toString() == "AC") {
+                QCOMPARE(table.data(table.index(i, 1)).toString(), QString("Custom Purchase Name"));
+                foundCustomName = true;
+                break;
+            }
+        }
+        QVERIFY(foundCustomName);
     }
 }
 

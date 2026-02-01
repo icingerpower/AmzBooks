@@ -2,14 +2,21 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDebug>
+#include <QSet>
+
+#include "orders/AbstractImporterApi.h"
+#include "orders/AbstractImporterFile.h"
+#include "banks/AbstractBankStatement.h"
+
 
 JournalTable::JournalTable(const QDir &workingDir, QObject *parent)
     : QAbstractTableModel(parent)
     , m_workingDir(workingDir)
 {
     m_filePath = m_workingDir.absoluteFilePath("journals.csv");
-    _load();
     _init();
+    _load();
+    _save(); // Ensure CSV is saved after initialization
 }
 
 int JournalTable::rowCount(const QModelIndex &parent) const
@@ -138,25 +145,33 @@ JournalItem JournalTable::getJournalPurchaseInvoice() const
 
 void JournalTable::_load()
 {
-    beginResetModel();
-    m_data.clear();
-    
     QFile file(m_filePath);
     if (file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream in(&file);
         // Skip header
-        QString header = in.readLine(); 
+        in.readLine();
         
+        // Read CSV and update existing entries based on ID
         while (!in.atEnd()) {
             QString line = in.readLine();
             if (line.trimmed().isEmpty()) continue;
             QStringList parts = line.split(";");
             if (parts.size() >= 3) {
-                m_data.append({parts[0], parts[1], parts[2]});
+                QString csvName = parts[0];
+                QString csvCode = parts[1];
+                QString csvId = parts[2];
+                
+                // Find and replace existing entry with same ID
+                for (auto &item : m_data) {
+                    if (item.id == csvId) {
+                        item.name = csvName;
+                        item.code = csvCode;
+                        break;
+                    }
+                }
             }
         }
     }
-    endResetModel();
 }
 
 void JournalTable::_save()
@@ -173,19 +188,43 @@ void JournalTable::_save()
 
 void JournalTable::_init()
 {
-    // Check if "purchase" exists
-    bool found = false;
-    for (const auto &item : m_data) {
-        if (item.id == "purchase") {
-            found = true;
-            break;
+    // Auto-populate default entries from importers (unique channels)
+    QSet<QString> existingIds;
+    QSet<QString> channels;
+    
+    // Collect unique channels from AbstractImporterApi
+    for (const auto *importer : AbstractImporterApi::ALL_IMPORTERS()) {
+        QString channel = importer->getActivitySource().channel;
+        if (!channel.isEmpty()) {
+            channels.insert(channel);
         }
     }
     
-    if (!found) {
-        beginInsertRows(QModelIndex(), m_data.size(), m_data.size());
+    // Collect unique channels from AbstractImporterFile
+    for (const auto *importer : AbstractImporterFile::ALL_IMPORTERS()) {
+        QString channel = importer->getActivitySource().channel;
+        if (!channel.isEmpty()) {
+            channels.insert(channel);
+        }
+    }
+    
+    // Add channel entries
+    for (const QString &channel : channels) {
+        m_data.append({channel, channel, channel});
+        existingIds.insert(channel);
+    }
+    
+    // Add entries from AbstractBankStatement
+    for (const auto *bank : AbstractBankStatement::ALL_BANKS()) {
+        QString id = bank->getId();
+        if (!existingIds.contains(id)) {
+            m_data.append({bank->getName(), bank->getId(), id});
+            existingIds.insert(id);
+        }
+    }
+    
+    // Add "purchase" journal if not already present
+    if (!existingIds.contains("purchase")) {
         m_data.append({ tr("Purchase"), tr("AC"), "purchase" });
-        endInsertRows();
-        _save();
     }
 }
