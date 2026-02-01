@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>PaneOrdersApi</class>
- <widget class="QWidget" name="PaneOrdersApi">
+ <class>PaneOrderApis</class>
+ <widget class="QWidget" name="PaneOrderApis">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -20,14 +20,14 @@
       <enum>Qt::Horizontal</enum>
      </property>
      <widget class="QTableView" name="tableImporters"/>
-     <widget class="QWidget" name="">
+     <widget class="QWidget" name="layoutWidget">
       <layout class="QVBoxLayout" name="verticalLayout">
        <item>
         <widget class="QSplitter" name="splitter">
          <property name="orientation">
           <enum>Qt::Vertical</enum>
          </property>
-         <widget class="QWidget" name="">
+         <widget class="QWidget" name="layoutWidget">
           <layout class="QHBoxLayout" name="horizontalLayout">
            <item>
             <widget class="QPushButton" name="buttonImport">
@@ -64,9 +64,20 @@
            </item>
           </layout>
          </widget>
-         <widget class="QTableView" name="tableParams"/>
+         <widget class="QTableView" name="tableParams">
+          <attribute name="horizontalHeaderDefaultSectionSize">
+           <number>250</number>
+          </attribute>
+          <attribute name="horizontalHeaderStretchLastSection">
+           <bool>true</bool>
+          </attribute>
+         </widget>
          <widget class="QChartView" name="chartOrders"/>
-         <widget class="QTableView" name="tableOrders"/>
+         <widget class="QTableView" name="tableOrders">
+          <property name="sortingEnabled">
+           <bool>true</bool>
+          </property>
+         </widget>
         </widget>
        </item>
        <item>

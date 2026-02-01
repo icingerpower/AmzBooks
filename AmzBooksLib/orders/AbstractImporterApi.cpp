@@ -13,8 +13,9 @@ const QMap<QString, const AbstractImporterApi *> &AbstractImporterApi::ALL_IMPOR
     return getImporters();
 }
 
-AbstractImporterApi::Recorder::Recorder(const AbstractImporterApi *dataGetter)
+AbstractImporterApi::Recorder::Recorder(AbstractImporterApi *dataGetter)
 {
+    dataGetter->load();
     getImporters()[dataGetter->getLabel()] = dataGetter;
 }
 

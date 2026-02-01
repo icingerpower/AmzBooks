@@ -142,7 +142,8 @@ QDate AbstractImporterFile::parseDateFormats(const QString &dateStr, const QStri
     return QDate();
 }
 
-AbstractImporterFile::Recorder::Recorder(const AbstractImporterFile *dataGetter)
+AbstractImporterFile::Recorder::Recorder(AbstractImporterFile *dataGetter)
 {
+    dataGetter->load();
     getImporters()[dataGetter->getLabel()] = dataGetter;
 }

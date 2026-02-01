@@ -46,7 +46,7 @@ public:
 
     class Recorder{
     public:
-        Recorder(const AbstractImporterApi *dataGetter);
+        Recorder(AbstractImporterApi *dataGetter);
     };
 };
 

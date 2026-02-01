@@ -20,7 +20,7 @@
       <property name="currentIndex">
        <number>0</number>
       </property>
-      <widget class="QWidget" name="tabOrdersApi">
+      <widget class="PaneOrderApis" name="tabOrdersApi">
        <attribute name="title">
         <string>Api Orders</string>
        </attribute>
@@ -87,6 +87,12 @@
    <class>PaneOrderFiles</class>
    <extends>QWidget</extends>
    <header>gui/panes/PaneOrderFiles.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneOrderApis</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneOrderApis.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

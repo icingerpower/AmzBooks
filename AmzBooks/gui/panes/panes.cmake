@@ -23,7 +23,7 @@ SET(PANES_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrderFiles.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrderFiles.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrderFiles.ui
-    ${CMAKE_CURRENT_LIST_DIR}/PaneOrdersApi.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/PaneOrdersApi.h
-    ${CMAKE_CURRENT_LIST_DIR}/PaneOrdersApi.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneOrderApis.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneOrderApis.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneOrderApis.ui
 )

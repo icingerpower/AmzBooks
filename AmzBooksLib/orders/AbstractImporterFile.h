@@ -28,7 +28,7 @@ public:
     virtual QString getUniqueReportId(const QString &filePath) const = 0;
     class Recorder{
     public:
-        Recorder(const AbstractImporterFile *dataGetter);
+        Recorder(AbstractImporterFile *dataGetter);
     };
 
 protected:
