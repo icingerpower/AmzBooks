@@ -2,6 +2,26 @@
 set(BANKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/AbstractBankStatement.h
     ${CMAKE_CURRENT_LIST_DIR}/AbstractBankStatement.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankPaypal.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankPaypal.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankPaypalEUR.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankPaypalEUR.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankPaypalUSD.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankPaypalUSD.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankStripe.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankStripe.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankStripeEUR.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankStripeEUR.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankStripeUSD.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankStripeUSD.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankWise.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankWise.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseEUR.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseEUR.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseGBP.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseGBP.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseUSD.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseUSD.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankQonto.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankQonto.cpp
 )
-
-

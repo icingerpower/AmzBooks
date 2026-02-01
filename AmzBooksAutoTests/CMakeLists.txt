@@ -146,4 +146,14 @@ add_custom_command(TARGET TestFileImportAmazonFbaInvoicing POST_BUILD
 add_executable(TestRecorders test_recorders.cpp)
 add_test(NAME TestRecorders COMMAND TestRecorders)
 target_link_libraries(TestRecorders PRIVATE Qt${QT_VERSION_MAJOR}::Test -Wl,--whole-archive AmzBooksLib -Wl,--no-whole-archive)
-target_include_directories(TestRecorders PRIVATE ../AmzBooksLib)
+
+add_executable(TestBanks test_banks.cpp)
+add_test(NAME TestBanks COMMAND TestBanks)
+target_link_libraries(TestBanks PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestBanks PRIVATE ../AmzBooksLib ../../common)
+
+add_custom_command(TARGET TestBanks POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/bankAccounts
+    $<TARGET_FILE_DIR:TestBanks>/data/bankAccounts
+)

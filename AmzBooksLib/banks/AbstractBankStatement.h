@@ -13,6 +13,7 @@ public:
         QString label;
         double amount = 0.;
         double fees = 0.;
+        QString currency;
     };
     static const QMap<QString, const AbstractBankStatement *> &ALL_BANKS();
     AbstractBankStatement();
