@@ -3,7 +3,7 @@
 #include <QFileInfo>
 #include <QDebug>
 
-DECLARE_CLASS(ImporterFileAmazonVatEu)
+DECLARE_IMPORTER_FILE(ImporterFileAmazonVatEu)
 
 QString ImporterFileAmazonVatEu::getLabel() const
 {

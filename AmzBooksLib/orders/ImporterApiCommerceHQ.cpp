@@ -7,7 +7,7 @@
 #include <QUrlQuery>
 #include <QCoroNetworkReply>
 
-DECLARE_CLASS(ImporterApiCommerceHQ)
+DECLARE_IMPORTER_API(ImporterApiCommerceHQ)
 
 ActivitySource ImporterApiCommerceHQ::getActivitySource() const
 {

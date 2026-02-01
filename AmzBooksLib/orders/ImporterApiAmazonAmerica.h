@@ -12,6 +12,7 @@ protected:
     QString getEndpoint() const override;
     QString getRegion() const override;
     QString getMarketplaceId() const override;
+    QString getLabel() const override;
     
     QCoro::Task<ReturnOrderInfos> _fetchShipments(const QDateTime &dateFrom) override;
     QCoro::Task<ReturnOrderInfos> _fetchRefunds(const QDateTime &dateFrom) override;

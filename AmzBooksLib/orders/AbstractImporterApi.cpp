@@ -1,15 +1,21 @@
 #include "AbstractImporterApi.h"
 
-QMap<QString, const AbstractImporterApi *> AbstractImporterApi::_IMPORTERS;
+// QMap<QString, const AbstractImporterApi *> AbstractImporterApi::_IMPORTERS;
+
+QMap<QString, const AbstractImporterApi *> &AbstractImporterApi::getImporters()
+{
+    static QMap<QString, const AbstractImporterApi *> importers;
+    return importers;
+}
 
 const QMap<QString, const AbstractImporterApi *> &AbstractImporterApi::ALL_IMPORTERS()
 {
-    return _IMPORTERS;
+    return getImporters();
 }
 
 AbstractImporterApi::Recorder::Recorder(const AbstractImporterApi *dataGetter)
 {
-    _IMPORTERS[dataGetter->getLabel()] = dataGetter;
+    getImporters()[dataGetter->getLabel()] = dataGetter;
 }
 
 QPair<QDateTime, QDateTime> AbstractImporterApi::datesFromToShipments() const

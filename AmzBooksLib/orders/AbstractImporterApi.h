@@ -39,7 +39,7 @@ protected:
     virtual QCoro::Task<ReturnOrderInfos> _fetchAddresses(const QDateTime &dateFrom) = 0;
     virtual QCoro::Task<ReturnOrderInfos> _fetchInvoiceInfos(const QDateTime &dateFrom) = 0;
     
-    static QMap<QString, const AbstractImporterApi *> _IMPORTERS;
+    static QMap<QString, const AbstractImporterApi *> &getImporters();
     
 public:
     static const QMap<QString, const AbstractImporterApi *> &ALL_IMPORTERS();
@@ -50,9 +50,9 @@ public:
     };
 };
 
-#define DECLARE_CLASS(NEW_CLASS) \
+#define DECLARE_IMPORTER_API(NEW_CLASS) \
 NEW_CLASS instance##NEW_CLASS; \
-    NEW_CLASS::Recorder recorder##NEW_CLASS{&instance##NEW_CLASS};
+    AbstractImporterApi::Recorder recorder##NEW_CLASS{&instance##NEW_CLASS};
 //*/
 
 #endif // ABSTRACTIMPORTERAPI_H

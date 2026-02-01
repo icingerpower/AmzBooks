@@ -142,3 +142,8 @@ add_custom_command(TARGET TestFileImportAmazonFbaInvoicing POST_BUILD
     # I should ensure the test can write to working dir or finds it.
     # If I run test in build/TestDir, it will create `fbacenters.csv` there. Good.
 )
+
+add_executable(TestRecorders test_recorders.cpp)
+add_test(NAME TestRecorders COMMAND TestRecorders)
+target_link_libraries(TestRecorders PRIVATE Qt${QT_VERSION_MAJOR}::Test -Wl,--whole-archive AmzBooksLib -Wl,--no-whole-archive)
+target_include_directories(TestRecorders PRIVATE ../AmzBooksLib)

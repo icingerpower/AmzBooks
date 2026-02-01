@@ -30,11 +30,11 @@ public:
         Recorder(const AbstractBankStatement *dataGetter);
     };
 protected:
-    static QMap<QString, const AbstractBankStatement *> _BANKS;
+    static QMap<QString, const AbstractBankStatement *> &getBanks();
 };
 
-#define DECLARE_CLASS(NEW_CLASS) \
+#define DECLARE_BANK_STATEMENT(NEW_CLASS) \
 NEW_CLASS instance##NEW_CLASS; \
-    NEW_CLASS::Recorder recorder##NEW_CLASS{&instance##NEW_CLASS};
+    AbstractBankStatement::Recorder recorder##NEW_CLASS{&instance##NEW_CLASS};
 
 #endif // ABSTRACTBANKSTATEMENT_H

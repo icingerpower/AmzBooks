@@ -3,7 +3,12 @@
 #include <QDir>
 #include <algorithm>
 
-QMap<QString, const AbstractImporterFile *> AbstractImporterFile::_IMPORTERS;
+// QMap<QString, const AbstractImporterFile *> AbstractImporterFile::_IMPORTERS;
+
+QMap<QString, const AbstractImporterFile *> &AbstractImporterFile::getImporters() {
+    static QMap<QString, const AbstractImporterFile *> importers;
+    return importers;
+}
 
 // Helper to find min year from OrderInfos and update date range
 static int getMinYear(AbstractImporter::OrderInfos& infos) {
@@ -39,7 +44,7 @@ static int getMinYear(AbstractImporter::OrderInfos& infos) {
 
 const QMap<QString, const AbstractImporterFile *> &AbstractImporterFile::ALL_IMPORTERS()
 {
-    return _IMPORTERS;
+    return getImporters();
 }
 
 QPair<QDateTime, QDateTime> AbstractImporterFile::datesFromTo() const
@@ -129,5 +134,5 @@ QDate AbstractImporterFile::parseDateFormats(const QString &dateStr, const QStri
 
 AbstractImporterFile::Recorder::Recorder(const AbstractImporterFile *dataGetter)
 {
-    _IMPORTERS[dataGetter->getLabel()] = dataGetter;
+    getImporters()[dataGetter->getLabel()] = dataGetter;
 }

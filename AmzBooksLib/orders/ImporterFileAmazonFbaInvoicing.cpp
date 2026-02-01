@@ -8,7 +8,7 @@
 #include <QDebug>
 #include <exception>
 
-DECLARE_CLASS(ImporterFileAmazonFbaInvoicing)
+DECLARE_IMPORTER_FILE(ImporterFileAmazonFbaInvoicing)
 
 QString ImporterFileAmazonFbaInvoicing::getLabel() const
 {

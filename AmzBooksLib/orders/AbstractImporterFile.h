@@ -25,11 +25,11 @@ public:
 
 protected:
     virtual QCoro::Task<ReturnOrderInfos> _loadReport(const QString &filePath) = 0;
-    static QMap<QString, const AbstractImporterFile *> _IMPORTERS;
+    static QMap<QString, const AbstractImporterFile *> &getImporters();
 };
 
-#define DECLARE_CLASS(NEW_CLASS) \
+#define DECLARE_IMPORTER_FILE(NEW_CLASS) \
 NEW_CLASS instance##NEW_CLASS; \
-    NEW_CLASS::Recorder recorder##NEW_CLASS{&instance##NEW_CLASS};
+    AbstractImporterFile::Recorder recorder##NEW_CLASS{&instance##NEW_CLASS};
 
 #endif // ABSTRACTIMPORTERFILE_H

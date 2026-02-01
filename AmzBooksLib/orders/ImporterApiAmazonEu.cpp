@@ -4,11 +4,16 @@
 #include <QJsonArray>
 #include <QUrlQuery>
 
-DECLARE_CLASS(ImporterApiAmazonEu)
+DECLARE_IMPORTER_API(ImporterApiAmazonEu)
 
 QString ImporterApiAmazonEu::getEndpoint() const
 {
     return "https://sellingpartnerapi-eu.amazon.com";
+}
+
+QString ImporterApiAmazonEu::getLabel() const
+{
+    return "Amazon SP-API (EU)";
 }
 
 QString ImporterApiAmazonEu::getRegion() const

@@ -5,7 +5,7 @@
 #include <QDebug>
 #include "SaleType.h"
 
-DECLARE_CLASS(ImporterFileAmazonTransactions)
+DECLARE_IMPORTER_FILE(ImporterFileAmazonTransactions)
 
 QString ImporterFileAmazonTransactions::getLabel() const
 {

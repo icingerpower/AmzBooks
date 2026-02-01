@@ -4,7 +4,7 @@
 #include <QNetworkRequest>
 #include <QNetworkReply>
 
-DECLARE_CLASS(ImporterApiTemuEu)
+DECLARE_IMPORTER_API(ImporterApiTemuEu)
 
 QString ImporterApiTemuEu::getEndpoint() const
 {
@@ -60,5 +60,15 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiTemuEu::_fetchInvoice
      ReturnOrderInfos result;
      result.orderInfos = QSharedPointer<OrderInfos>::create();
      co_return result;
+}
+
+QCoro::Task<void> ImporterApiTemuEu::fetchShopOrders(const ShopConfig& shop, const QDateTime& dateFrom, QSharedPointer<OrderInfos> targetInfos)
+{
+    // TODO: Implement actual Temu API call
+    // For now, just return to satisfy linker
+    Q_UNUSED(shop);
+    Q_UNUSED(dateFrom);
+    Q_UNUSED(targetInfos);
+    co_return;
 }
 

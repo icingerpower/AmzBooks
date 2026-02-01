@@ -52,7 +52,7 @@ else()
     endif()
 endif()
 
-target_link_libraries(AmzBooks PRIVATE Qt${QT_VERSION_MAJOR}::Widgets AmzBooksLib)
+target_link_libraries(AmzBooks PRIVATE Qt${QT_VERSION_MAJOR}::Widgets -Wl,--whole-archive AmzBooksLib -Wl,--no-whole-archive)
 
 set_target_properties(AmzBooks PROPERTIES
     MACOSX_BUNDLE_GUI_IDENTIFIER my.example.com
