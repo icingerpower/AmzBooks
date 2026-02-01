@@ -14,4 +14,7 @@ SET(PANES_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PanePurchaseAccount.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PanePurchaseAccount.h
     ${CMAKE_CURRENT_LIST_DIR}/PanePurchaseAccount.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneJournals.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneJournals.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneJournals.ui
 )

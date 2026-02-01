@@ -43,12 +43,18 @@
         <string>Purchase accounts</string>
        </property>
       </item>
+      <item>
+       <property name="text">
+        <string>Journals</string>
+       </property>
+      </item>
      </widget>
      <widget class="QStackedWidget" name="stackedWidget">
       <widget class="PaneSettingsCompany" name="pageCompanyInfos"/>
       <widget class="PaneSettingsVatRates" name="pageVatRates"/>
       <widget class="PaneSaleAccounts" name="pageSaleAccounts"/>
       <widget class="PanePurchaseAccount" name="pagePurchaseAccounts"/>
+      <widget class="PaneJournals" name="pageJournals"/>
      </widget>
     </widget>
    </item>
@@ -77,6 +83,12 @@
    <class>PanePurchaseAccount</class>
    <extends>QWidget</extends>
    <header>gui/panes/PanePurchaseAccount.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneJournals</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneJournals.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>
