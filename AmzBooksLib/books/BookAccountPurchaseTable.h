@@ -1,17 +1,17 @@
-#ifndef PURCHASEBOOKACCOUNTSTABLE_H
-#define PURCHASEBOOKACCOUNTSTABLE_H
+#ifndef BOOKACCOUNTPURCHASETABLE_H
+#define BOOKACCOUNTPURCHASETABLE_H
 
 #include <QAbstractTableModel>
 #include <QDir>
 #include <QHash>
 #include <QSet>
 
-class PurchaseBookAccountsTable : public QAbstractTableModel
+class BookAccountPurchaseTable : public QAbstractTableModel
 {
     Q_OBJECT
 
 public:
-    explicit PurchaseBookAccountsTable(const QDir &workingDir
+    explicit BookAccountPurchaseTable(const QDir &workingDir
                                        , const QString &countryCodeCompany, QObject *parent = nullptr);
     
     QString getAccountsDebit6(const QString &countryCode) const;
@@ -58,4 +58,4 @@ private:
     QString m_countryCodeCompany;
 };
 
-#endif // PURCHASEBOOKACCOUNTSTABLE_H
+#endif // BOOKACCOUNTPURCHASETABLE_H

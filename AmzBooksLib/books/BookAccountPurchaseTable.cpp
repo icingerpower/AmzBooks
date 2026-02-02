@@ -3,21 +3,21 @@
 #include <QDebug>
 #include <QRegularExpression>
 
-#include "PurchaseBookAccountsTable.h"
+#include "BookAccountPurchaseTable.h"
 #include "CountriesEu.h"
 #include "ExceptionVatAccountExisting.h"
 #include "ExceptionTaxSchemeInvalid.h"
 #include "books/VatResolver.h"
 #include "ExceptionVatAccount.h"
 
-const QStringList PurchaseBookAccountsTable::HEADER{
+const QStringList BookAccountPurchaseTable::HEADER{
     QObject::tr("Country")
     , QObject::tr("Vat rate")
     , QObject::tr("VAT Debit (6)")
     , QObject::tr("VAT Credit (4)")
 };
 
-PurchaseBookAccountsTable::PurchaseBookAccountsTable(
+BookAccountPurchaseTable::BookAccountPurchaseTable(
         const QDir &workingDir, const QString &countryCodeCompany, QObject *parent)
     : QAbstractTableModel(parent)
     , m_countryCodeCompany(countryCodeCompany)
@@ -27,7 +27,7 @@ PurchaseBookAccountsTable::PurchaseBookAccountsTable(
     _fillIfEmpty();
 }
 
-bool PurchaseBookAccountsTable::isDoubleVatEntryNeeded(const QString &countryFrom, const QString &countryTo) const
+bool BookAccountPurchaseTable::isDoubleVatEntryNeeded(const QString &countryFrom, const QString &countryTo) const
 {
     // French bookkeeping rules (and general VAT rules):
     // "TVA auto-liquidé" (Reverse Charge) applies when purchasing goods/services from outside the domestic tax jurisdiction
@@ -43,7 +43,7 @@ bool PurchaseBookAccountsTable::isDoubleVatEntryNeeded(const QString &countryFro
     return (countryTo == m_countryCodeCompany) && (countryFrom != m_countryCodeCompany);
 }
 
-QString PurchaseBookAccountsTable::getAccountsDebit6(const QString &countryCode) const
+QString BookAccountPurchaseTable::getAccountsDebit6(const QString &countryCode) const
 {
     if (m_cache.contains(countryCode)) {
         return m_cache[countryCode].debit6;
@@ -52,7 +52,7 @@ QString PurchaseBookAccountsTable::getAccountsDebit6(const QString &countryCode)
                               tr("No VAT Debit (6) account found for country %1").arg(countryCode));
 }
 
-QString PurchaseBookAccountsTable::getAccountsCredit4(const QString &countryCode) const
+QString BookAccountPurchaseTable::getAccountsCredit4(const QString &countryCode) const
 {
     if (m_cache.contains(countryCode)) {
         return m_cache[countryCode].credit4;
@@ -63,7 +63,7 @@ QString PurchaseBookAccountsTable::getAccountsCredit4(const QString &countryCode
 
 // ... (existing code)
 
-void PurchaseBookAccountsTable::addAccount(
+void BookAccountPurchaseTable::addAccount(
         const QString &countryCode
         , double vatRate
         , const QString &vatAccountDebit6
@@ -139,7 +139,7 @@ void PurchaseBookAccountsTable::addAccount(
     _save();
 }
 
-QVariant PurchaseBookAccountsTable::headerData(int section, Qt::Orientation orientation, int role) const
+QVariant BookAccountPurchaseTable::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (role == Qt::DisplayRole) {
         if (orientation == Qt::Horizontal) {
@@ -159,7 +159,7 @@ QVariant PurchaseBookAccountsTable::headerData(int section, Qt::Orientation orie
     return QVariant();
 }
 
-int PurchaseBookAccountsTable::rowCount(const QModelIndex &parent) const
+int BookAccountPurchaseTable::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid()) {
         return 0;
@@ -167,7 +167,7 @@ int PurchaseBookAccountsTable::rowCount(const QModelIndex &parent) const
     return m_listOfStringList.size();
 }
 
-int PurchaseBookAccountsTable::columnCount(const QModelIndex &parent) const
+int BookAccountPurchaseTable::columnCount(const QModelIndex &parent) const
 {
     if (parent.isValid()) {
         return 0;
@@ -175,7 +175,7 @@ int PurchaseBookAccountsTable::columnCount(const QModelIndex &parent) const
     return HEADER.size();
 }
 
-QVariant PurchaseBookAccountsTable::data(const QModelIndex &index, int role) const
+QVariant BookAccountPurchaseTable::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid()) {
         return QVariant();
@@ -190,7 +190,7 @@ QVariant PurchaseBookAccountsTable::data(const QModelIndex &index, int role) con
     return QVariant();
 }
 
-bool PurchaseBookAccountsTable::setData(const QModelIndex &index, const QVariant &value, int role)
+bool BookAccountPurchaseTable::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     if (index.isValid() && role == Qt::EditRole) {
         if (index.row() >= 0 && index.row() < m_listOfStringList.size() &&
@@ -207,7 +207,7 @@ bool PurchaseBookAccountsTable::setData(const QModelIndex &index, const QVariant
     return false;
 }
 
-Qt::ItemFlags PurchaseBookAccountsTable::flags(const QModelIndex &index) const
+Qt::ItemFlags BookAccountPurchaseTable::flags(const QModelIndex &index) const
 {
     if (!index.isValid()) {
         return Qt::NoItemFlags;
@@ -215,7 +215,7 @@ Qt::ItemFlags PurchaseBookAccountsTable::flags(const QModelIndex &index) const
     return QAbstractItemModel::flags(index) | Qt::ItemIsEditable;
 }
 
-void PurchaseBookAccountsTable::_fillIfEmpty()
+void BookAccountPurchaseTable::_fillIfEmpty()
 {
     if (m_listOfStringList.isEmpty()) {
         QString countryCode = m_countryCodeCompany;
@@ -259,7 +259,7 @@ const QStringList HEADER_IDS = {
 
 // ...
 
-void PurchaseBookAccountsTable::_rebuildCache()
+void BookAccountPurchaseTable::_rebuildCache()
 {
     m_cache.clear();
     m_existenceCache.clear();
@@ -291,11 +291,11 @@ void PurchaseBookAccountsTable::_rebuildCache()
     }
 }
 
-void PurchaseBookAccountsTable::_save()
+void BookAccountPurchaseTable::_save()
 {
     QFile file(m_filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        qWarning() << "Failed to save PurchaseBookAccountsTable:" << file.errorString();
+        qWarning() << "Failed to save BookAccountPurchaseTable:" << file.errorString();
         return;
     }
     
@@ -310,7 +310,7 @@ void PurchaseBookAccountsTable::_save()
     }
 }
 
-void PurchaseBookAccountsTable::_load()
+void BookAccountPurchaseTable::_load()
 {
     m_listOfStringList.clear();
     QFile file(m_filePath);
@@ -327,7 +327,7 @@ void PurchaseBookAccountsTable::_load()
     // Legacy check:
     // Legacy Header (Display Strings): "Country", "Vat rate", "VAT Debit (6)", "VAT Credit (4)" (or localized!)
     // But in `SaleBookAccountsTable`, we assumed data only in legacy.
-    // In `PurchaseBookAccountsTable`, it might be data only too.
+    // In `BookAccountPurchaseTable`, it might be data only too.
     // First line data: Country Code (2 chars).
     // New Header: "Country".
     // Check if first token is "Country".

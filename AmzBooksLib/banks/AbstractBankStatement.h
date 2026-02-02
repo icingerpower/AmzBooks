@@ -16,6 +16,7 @@ public:
         QString currency;
     };
     static const QMap<QString, const AbstractBankStatement *> &ALL_BANKS();
+
     AbstractBankStatement();
     virtual ~AbstractBankStatement() = default;
     virtual QString getId() const = 0;

@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>PaneJournals</class>
- <widget class="QWidget" name="PaneJournals">
+ <class>PaneSettingsJournal</class>
+ <widget class="QWidget" name="PaneSettingsJournal">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -16,6 +16,9 @@
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
     <widget class="QTableView" name="tableJournals">
+     <property name="alternatingRowColors">
+      <bool>true</bool>
+     </property>
      <attribute name="horizontalHeaderStretchLastSection">
       <bool>true</bool>
      </attribute>

@@ -5,8 +5,8 @@
 #include "books/ExceptionFileError.h"
 #include "books/JournalEntryFactory.h"
 #include "books/CompanyInfosTable.h"
-#include "books/SaleBookAccountsTable.h"
-#include "books/PurchaseBookAccountsTable.h"
+#include "books/BooksAccountsSalesTable.h"
+#include "books/BookAccountPurchaseTable.h"
 #include "books/JournalTable.h"
 #include "CurrencyRateManager.h"
 #include "orders/ActivitySource.h"
@@ -50,6 +50,7 @@ private slots:
     void test_factory_shipment_no_conversion();
     void test_factory_shipment_with_conversion();
     void test_factory_shipment_mixed_rates();
+    void test_factory_purchase_with_extra();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -442,6 +443,45 @@ void TestBookEntries::test_invoice_encoding()
     // Test Folder Structure Path
     QString path = PurchaseInvoiceManager::getRelativePath(info);
     QCOMPARE(path, QString("purchase-invoices/2025/02"));
+    
+    // Test Case 4: EXTRA tokens
+    QString fileName4 = "2025-05-10__607222__Mix__Supplier__EXTRA-607223-20.1EUR__120.1EUR.pdf";
+    PurchaseInformation info4 = PurchaseInvoiceManager::decode(fileName4);
+    QCOMPARE(info4.date, QDate(2025, 5, 10));
+    QCOMPARE(info4.account, "607222");
+    QCOMPARE(info4.totalAmount, 120.1);
+    QVERIFY(info4.subUntaxedAmount.contains("607223"));
+    QCOMPARE(info4.subUntaxedAmount["607223"], 20.1);
+    QCOMPARE(info4.vatTokens.isEmpty(), true);
+    
+    // Roundtrip for EXTRA
+    QString encoded4 = PurchaseInvoiceManager::encode(info4);
+    QCOMPARE(encoded4, fileName4);
+    
+    // Test Case 5: Double EXTRA tokens
+    QString fileName5 = "2025-06-15__607000__MultiMix__Supp__EXTRA-607001-30.0EUR__EXTRA-607002-15.5EUR__245.5EUR.pdf";
+    PurchaseInformation info5 = PurchaseInvoiceManager::decode(fileName5);
+    QCOMPARE(info5.date, QDate(2025, 6, 15));
+    QCOMPARE(info5.account, "607000");
+    QCOMPARE(info5.totalAmount, 245.5);
+    QCOMPARE(info5.subUntaxedAmount.size(), 2);
+    QVERIFY(info5.subUntaxedAmount.contains("607001"));
+    QCOMPARE(info5.subUntaxedAmount["607001"], 30.0);
+    QVERIFY(info5.subUntaxedAmount.contains("607002"));
+    QCOMPARE(info5.subUntaxedAmount["607002"], 15.5);
+    
+    // Roundtrip
+    QString encoded5 = PurchaseInvoiceManager::encode(info5);
+    // Note: Hash map order is not guaranteed, so encoded string might have swapped EXTRA orders.
+    // However, for valid roundtrip, it should match if we don't care about order, OR verify parts.
+    // encode() iterates over hash.
+    // Let's check parts presence instead of exact string match if order is unstable.
+    // But since it's a test, maybe just check it contains both.
+    QVERIFY(encoded5.contains("EXTRA-607001-30EUR"));
+    QVERIFY(encoded5.contains("EXTRA-607002-15.5EUR"));
+    // And prefix/suffix
+    QVERIFY(encoded5.startsWith("2025-06-15__607000__MultiMix__Supp__"));
+    QVERIFY(encoded5.endsWith("__245.5EUR.pdf"));
 }
 
 void TestBookEntries::test_invoice_model_loading()
@@ -618,8 +658,8 @@ void TestBookEntries::test_factory_purchase_no_conversion()
     
     CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
-    SaleBookAccountsTable saleAccounts(dir);
-    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
     // Add purchase account for FR
@@ -695,8 +735,8 @@ void TestBookEntries::test_factory_purchase_with_conversion()
     // Setup currency rates
     CurrencyRateManager currencyManager(dir, "");
     currencyManager.importRate("2024-03-15", "USD", "EUR", 0.85);
-    SaleBookAccountsTable saleAccounts(dir);
-    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
     purchaseAccounts.addAccount("FR", 20.0, "445660", "445710");
@@ -764,8 +804,8 @@ void TestBookEntries::test_factory_purchase_refund()
     
     CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
-    SaleBookAccountsTable saleAccounts(dir);
-    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
     purchaseAccounts.addAccount("FR", 20.0, "445660", "445710");
@@ -824,6 +864,98 @@ void TestBookEntries::test_factory_purchase_refund()
     QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
 }
 
+void TestBookEntries::test_factory_purchase_with_extra()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    
+    // Setup tables
+    QString companyInfoPath = dir.filePath("company.csv");
+    QFile companyFile(companyInfoPath);
+    companyFile.open(QIODevice::WriteOnly | QIODevice::Text);
+    QTextStream out(&companyFile);
+    out << "Id;Parameter;Value\n";
+    out << "Currency;Currency;EUR\n";
+    out << "Country;Country Code;FR\n";
+    companyFile.close();
+    
+    CompanyInfosTable companyInfos(dir);
+    CurrencyRateManager currencyManager(dir, "");
+    BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountPurchaseTable purchaseAccounts(dir, "FR");
+    JournalTable journalTable(dir);
+    
+    purchaseAccounts.addAccount("FR", 20.0, "445660", "445710");
+    
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    
+    // Case: Purchase 200 Total. 180 Main + 20 Extra.
+    
+    PurchaseInformation purchase;
+    purchase.date = QDate(2024, 6, 1);
+    purchase.account = "607000"; // Main Account
+    purchase.label = "Mixed Purchase";
+    purchase.supplier = "Vendor";
+    purchase.totalAmount = 200.0;
+    purchase.currency = "EUR";
+    purchase.countryCodeFrom = "FR";
+    purchase.countryCodeTo = "FR";
+    
+    // Extra: 20 EUR to account 607999
+    purchase.subUntaxedAmount["607999"] = 20.0;
+    
+    auto entry = factory.createEntry(purchase);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), 200.0);
+    QCOMPARE(entry->getCreditSum(), 200.0);
+    
+    const auto &debits = entry->getDebits();
+    // Expected: 
+    // 1. Account 607000 Amount 180.0
+    // 2. Account 607999 Amount 20.0
+    
+    bool foundMain = false;
+    bool foundExtra = false;
+    
+    for (const auto &line : debits) {
+        if (line.account == "607000") {
+            foundMain = true;
+            QCOMPARE(line.currency_amount["EUR"], 180.0);
+        } else if (line.account == "607999") {
+            foundExtra = true;
+            QCOMPARE(line.currency_amount["EUR"], 20.0);
+        }
+    }
+    QVERIFY(foundMain);
+    QVERIFY(foundExtra);
+    
+    // Case 2: Refund with Extra
+    PurchaseInformation refund = purchase;
+    refund.totalAmount = -200.0;
+    refund.label = "Refund Mixed";
+    
+    auto entryRefund = factory.createEntry(refund);
+    QVERIFY(!entryRefund.isNull());
+    QCOMPARE(entryRefund->getCreditSum(), 200.0); // Expenses on credit side for refund
+    
+    const auto &credits = entryRefund->getCredits();
+    foundMain = false;
+    foundExtra = false;
+    
+    for (const auto &line : credits) {
+        if (line.account == "607000") {
+            foundMain = true;
+            QCOMPARE(line.currency_amount["EUR"], 180.0);
+        } else if (line.account == "607999") {
+            foundExtra = true;
+            QCOMPARE(line.currency_amount["EUR"], 20.0);
+        }
+    }
+    QVERIFY(foundMain);
+    QVERIFY(foundExtra);
+}
+
 void TestBookEntries::test_factory_shipment_no_conversion()
 {
     QTemporaryDir tempDir;
@@ -841,8 +973,8 @@ void TestBookEntries::test_factory_shipment_no_conversion()
     
     CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
-    SaleBookAccountsTable saleAccounts(dir);
-    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
@@ -925,8 +1057,8 @@ void TestBookEntries::test_factory_shipment_with_conversion()
     CurrencyRateManager currencyManager(dir, "");
     QString dateStr = QDate::currentDate().toString("yyyy-MM-dd");
     currencyManager.importRate(dateStr, "USD", "EUR", 0.85);
-    SaleBookAccountsTable saleAccounts(dir);
-    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
@@ -991,8 +1123,8 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
     CurrencyRateManager currencyManager(dir, "");
     currencyManager.importRate(QDate::currentDate().toString("yyyy-MM-dd"), "USD", "EUR", 0.85); // 1 USD = 0.85 EUR
     
-    SaleBookAccountsTable saleAccounts(dir); // Will populate defaults (DOM FR 20, OSS DE 19 etc)
-    PurchaseBookAccountsTable purchaseAccounts(dir, "FR");
+    BooksAccountsSalesTable saleAccounts(dir); // Will populate defaults (DOM FR 20, OSS DE 19 etc)
+    BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);

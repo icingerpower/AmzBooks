@@ -14,10 +14,10 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/VatResolver.cpp
     ${CMAKE_CURRENT_LIST_DIR}/VatTerritoryResolver.h
     ${CMAKE_CURRENT_LIST_DIR}/VatTerritoryResolver.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/SaleBookAccountsTable.h
-    ${CMAKE_CURRENT_LIST_DIR}/SaleBookAccountsTable.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/PurchaseBookAccountsTable.h
-    ${CMAKE_CURRENT_LIST_DIR}/PurchaseBookAccountsTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BooksAccountsSalesTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BooksAccountsSalesTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/CompanyAddressTable.h
     ${CMAKE_CURRENT_LIST_DIR}/CompanyAddressTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ExceptionCompanyInfo.h
@@ -46,6 +46,26 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/JournalEntryFactory.cpp
     ${CMAKE_CURRENT_LIST_DIR}/FbaCentersTable.h
     ${CMAKE_CURRENT_LIST_DIR}/FbaCentersTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountBankTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountBankTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountAmzBalanceTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountAmzBalanceTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BooksAccountsSalesTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BooksAccountsSalesTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ExceptionAccountMissing.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ExceptionAccountMissing.h
+    ${CMAKE_CURRENT_LIST_DIR}/BooksConnections.h
+    ${CMAKE_CURRENT_LIST_DIR}/BooksConnections.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/EntrySelfTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/EntrySelfTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTableBank.h
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTableBank.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountBankTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountBankTable.cpp
 )
 
 

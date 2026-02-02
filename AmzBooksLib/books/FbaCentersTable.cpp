@@ -58,7 +58,7 @@ QCoro::Task<QString> FbaCentersTable::getCountryCode(
         
         if (!retry) {
             // User cancelled
-            // Return empty or throw? SaleBookAccountsTable throws ExceptionVatAccount.
+            // Return empty or throw? BooksAccountsSalesTable throws ExceptionVatAccount.
             // Let's return empty string to indicate failure if we don't want to throw, 
             // but consistency suggests throwing or returning empty if valid. 
             // We'll throw simple exception for now to abort flow if critical.

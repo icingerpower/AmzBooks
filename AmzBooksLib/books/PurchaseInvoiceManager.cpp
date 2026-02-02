@@ -211,40 +211,60 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
         info.rawTotalAmount = totalPart;
     }
     
-    // Middle parts are VATs
+    // Middle parts are VATs or EXTRAs
     for (int i = 4; i < parts.size() - 1; ++i) {
         QString token = parts[i];
-        info.vatTokens.append(token);
         
-        // Parse Token: COUNTRY-LABEL-AMOUNT (e.g. FR-TVA5.5-13.6EUR or FR-TVA-13.6EUR)
-        // Split by '-'
-        QStringList tokenParts = token.split('-');
-        if (tokenParts.size() >= 3) {
-            QString country = tokenParts[0];
-            QString label = tokenParts[1];
-            QString amountStrWithCurr = tokenParts.last(); // Last part is amount
-            
-            // Extract numeric amount from amountStrWithCurr (e.g. 13.6EUR -> 13.6)
-            double vatAmount = 0.0;
-            QRegularExpressionMatch matchAmt = regexTotal.match(amountStrWithCurr);
-            if (matchAmt.hasMatch()) {
-                vatAmount = matchAmt.captured(1).toDouble();
-            } else {
-                 vatAmount = amountStrWithCurr.toDouble();
+        if (token.startsWith("EXTRA-")) {
+            // Parse EXTRA-ACCOUNT-AMOUNT (e.g. EXTRA-607222-20.1EUR)
+            QStringList extraParts = token.split('-');
+            if (extraParts.length() >= 3) {
+                 QString account = extraParts[1];
+                 QString amountStr = extraParts.last(); 
+                 
+                 double extraAmount = 0.0;
+                 QRegularExpressionMatch matchAmt = regexTotal.match(amountStr);
+                 if (matchAmt.hasMatch()) {
+                     extraAmount = matchAmt.captured(1).toDouble();
+                 } else {
+                     extraAmount = amountStr.toDouble();
+                 }
+                 
+                 info.subUntaxedAmount[account] += extraAmount;
             }
+        } else {
+            info.vatTokens.append(token);
             
-            // Extract Rate from Label (e.g. "TVA5.5" -> "5.50", "TVA" -> "")
-            // Look for digits in label
-            static QRegularExpression regexRate("[0-9.]+");
-            QRegularExpressionMatch matchRate = regexRate.match(label);
-            QString rateKey = ""; // Default empty
-            if (matchRate.hasMatch()) {
-                double rateVal = matchRate.captured(0).toDouble();
-                // Format with 2 decimal places
-                rateKey = QString::number(rateVal, 'f', 2);
+            // Parse Token: COUNTRY-LABEL-AMOUNT (e.g. FR-TVA5.5-13.6EUR or FR-TVA-13.6EUR)
+            // Split by '-'
+            QStringList tokenParts = token.split('-');
+            if (tokenParts.size() >= 3) {
+                QString country = tokenParts[0];
+                QString label = tokenParts[1];
+                QString amountStrWithCurr = tokenParts.last(); // Last part is amount
+                
+                // Extract numeric amount from amountStrWithCurr (e.g. 13.6EUR -> 13.6)
+                double vatAmount = 0.0;
+                QRegularExpressionMatch matchAmt = regexTotal.match(amountStrWithCurr);
+                if (matchAmt.hasMatch()) {
+                    vatAmount = matchAmt.captured(1).toDouble();
+                } else {
+                     vatAmount = amountStrWithCurr.toDouble();
+                }
+                
+                // Extract Rate from Label (e.g. "TVA5.5" -> "5.50", "TVA" -> "")
+                // Look for digits in label
+                static QRegularExpression regexRate("[0-9.]+");
+                QRegularExpressionMatch matchRate = regexRate.match(label);
+                QString rateKey = ""; // Default empty
+                if (matchRate.hasMatch()) {
+                    double rateVal = matchRate.captured(0).toDouble();
+                    // Format with 2 decimal places
+                    rateKey = QString::number(rateVal, 'f', 2);
+                }
+                
+                info.country_vatRate_vat[country][rateKey] += vatAmount;
             }
-            
-            info.country_vatRate_vat[country][rateKey] += vatAmount;
         }
     }
     
@@ -260,6 +280,19 @@ QString PurchaseInvoiceManager::encode(const PurchaseInformation &info)
     parts << info.supplier;
     
     parts.append(info.vatTokens);
+    
+    // Add EXTRA tokens from subUntaxedAmount if not already in vatTokens (vatTokens usually stores original strings)
+    // But since we split them in decode, we should reconstruct them if we want to support round-trip for synthesized info.
+    // However, decode() puts non-EXTRA tokens into vatTokens.
+    // So we just append extras here.
+    for (auto it = info.subUntaxedAmount.constBegin(); it != info.subUntaxedAmount.constEnd(); ++it) {
+        QString amountStr = QString::number(it.value()); 
+        // We need to append currency if available in raw? Prefer standard format.
+        if (!info.currency.isEmpty()) {
+            amountStr += info.currency;
+        }
+        parts << QString("EXTRA-%1-%2").arg(it.key(), amountStr);
+    }
     
     // Total formatting
     QString totalStr;

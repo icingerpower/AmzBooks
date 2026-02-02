@@ -73,3 +73,21 @@ QStringList CountriesEu::getCurrencies()
         "EUR", "GBP", "BGN", "CZK", "DKK", "HUF", "PLN", "RON", "SEK"
     };
 }
+const QStringList CountriesEu::DEFAULT_AMAZON_SITES = {
+    "amazon.ca",
+    "amazon.com",
+    "amazon.com.be",
+    "amazon.com.mx",
+    "amazon.de",
+    "amazon.es",
+    "amazon.fr",
+    "amazon.ie",
+    "amazon.it",
+    "amazon.nl",
+    "amazon.pl",
+    "amazon.se",
+    "amazon.tr",
+    "amazon.uk",
+    "amazon.co.uk",
+    "amazon.co.jp"
+};

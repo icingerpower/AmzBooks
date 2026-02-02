@@ -2,9 +2,9 @@
 #include <QCoreApplication>
 #include <QTemporaryDir>
 
-#include "books/SaleBookAccountsTable.h"
+#include "books/BooksAccountsSalesTable.h"
 #include "books/TaxScheme.h"
-#include "books/PurchaseBookAccountsTable.h"
+#include "books/BookAccountPurchaseTable.h"
 #include "books/ExceptionVatAccountExisting.h"
 #include "books/ExceptionTaxSchemeInvalid.h"
 #include "books/CompanyAddressTable.h"
@@ -14,6 +14,11 @@
 #include <QCoroTask>
 #include <QCoroFuture>
 #include "books/ExceptionVatAccount.h"
+
+#include "books/BookAccountBankTable.h"
+#include "banks/AbstractBankStatement.h"
+#include "books/BookAccountAmzBalanceTable.h"
+#include "books/ExceptionAccountMissing.h"
 
 // Helper to synchronously wait for QCoro::Task
 template <typename T>
@@ -61,39 +66,39 @@ private slots:
         int initialCount = 0;
         // 1. Initialize - should default populate
         {
-            SaleBookAccountsTable table(dir);
+            BooksAccountsSalesTable table(dir);
             initialCount = table.rowCount();
             QVERIFY(initialCount > 60);   
             
             VatCountries vc = table.resolveVatCountries(TaxScheme::EuOssUnion, "IT", "IT", "DE");
-            SaleBookAccountsTable::Accounts acc = syncWait(table.getAccounts(vc, 19.0));
+            BooksAccountsSalesTable::Accounts acc = syncWait(table.getAccounts(vc, 19.0));
             QCOMPARE(acc.saleAccount, "7070OSSDE19");
             QCOMPARE(acc.vatAccount, "4457OSSDE19");
         }
 
         // 2. Add new account and save
         {
-            SaleBookAccountsTable table(dir);
+            BooksAccountsSalesTable table(dir);
             VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR", "FR");
-            SaleBookAccountsTable::Accounts newAcc;
+            BooksAccountsSalesTable::Accounts newAcc;
             newAcc.saleAccount = "7001";
             newAcc.vatAccount = "4401";
             
             table.addAccount(vc, 25.0, newAcc);
             
             // Verify immediate cache update
-            SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 25.0));
+            BooksAccountsSalesTable::Accounts retrieved = syncWait(table.getAccounts(vc, 25.0));
             QCOMPARE(retrieved.saleAccount, "7001");
             QCOMPARE(retrieved.vatAccount, "4401");
         }
 
         // 3. Reload and verify persistence
         {
-            SaleBookAccountsTable table(dir);
+            BooksAccountsSalesTable table(dir);
             QCOMPARE(table.rowCount(), initialCount + 1);
             
             VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR", "FR");
-            SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 25.0));
+            BooksAccountsSalesTable::Accounts retrieved = syncWait(table.getAccounts(vc, 25.0));
             QCOMPARE(retrieved.saleAccount, "7001");
             QCOMPARE(retrieved.vatAccount, "4401");
         }
@@ -103,9 +108,9 @@ private slots:
         injectFakeColumn(csvPath);
         
         {
-             SaleBookAccountsTable table(dir);
+             BooksAccountsSalesTable table(dir);
              VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR", "FR");
-             SaleBookAccountsTable::Accounts retrieved = syncWait(table.getAccounts(vc, 25.0));
+             BooksAccountsSalesTable::Accounts retrieved = syncWait(table.getAccounts(vc, 25.0));
              // Should still find it
              QCOMPARE(retrieved.saleAccount, "7001");
         }
@@ -115,10 +120,10 @@ private slots:
 
     void test_saleValidation() {
         QTemporaryDir tempDir;
-        SaleBookAccountsTable table(QDir(tempDir.path()));
+        BooksAccountsSalesTable table(QDir(tempDir.path()));
         
         VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "FR", "FR", "FR");
-        SaleBookAccountsTable::Accounts acc;
+        BooksAccountsSalesTable::Accounts acc;
         acc.saleAccount = "S1";
         acc.vatAccount = "V1";
         
@@ -141,17 +146,17 @@ private slots:
 
     void test_lookup() {
         QTemporaryDir tempDir;
-        SaleBookAccountsTable table(QDir(tempDir.path()));
+        BooksAccountsSalesTable table(QDir(tempDir.path()));
         
         // Setup scenarios
         VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "DE", "DE", "DE");
-        SaleBookAccountsTable::Accounts acc1;
+        BooksAccountsSalesTable::Accounts acc1;
         acc1.saleAccount = "S1";
         acc1.vatAccount = "V1";
         table.addAccount(vc, 18.0, acc1);
         
         // Setup second rate
-        SaleBookAccountsTable::Accounts acc3;
+        BooksAccountsSalesTable::Accounts acc3;
         acc3.saleAccount = "S3";
         acc3.vatAccount = "V3";
         table.addAccount(vc, 7.0, acc3); // Different rate
@@ -172,7 +177,7 @@ private slots:
     }
 
     void test_resolveVatCountries() {
-        SaleBookAccountsTable table(QDir::tempPath());
+        BooksAccountsSalesTable table(QDir::tempPath());
 
         // 1. Normalization
         {
@@ -191,7 +196,7 @@ private slots:
             // Let's check Header file content from previous reasoning or assume user didn't change header to add defaults.
             // If test compiled before, maybe there was an overload or default.
             // The method signature in cpp was:
-            // VatCountries SaleBookAccountsTable::resolveVatCountries(TaxScheme taxScheme, const QString &companyCountryFrom, const QString &countryFrom, const QString &countryCodeTo)
+            // VatCountries BooksAccountsSalesTable::resolveVatCountries(TaxScheme taxScheme, const QString &companyCountryFrom, const QString &countryFrom, const QString &countryCodeTo)
             
             // The test code I am replacing (lines 179-183) shows:
             // auto vc = table.resolveVatCountries(TaxScheme::DomesticVat, " fr ", " DE ");
@@ -213,7 +218,7 @@ private slots:
 
     void test_getAccounts_missing_addCallback() {
         QTemporaryDir tempDir;
-        SaleBookAccountsTable table(QDir(tempDir.path()));
+        BooksAccountsSalesTable table(QDir(tempDir.path()));
         VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "US", "US", "US");
 
         // 1. Missing without callback -> throws ExceptionVatAccount
@@ -237,13 +242,13 @@ private slots:
 
         // 4. Missing with callback that Adds -> Returns Account
         auto cbAdd = [&](const QString& title, const QString& text) -> QCoro::Task<bool> {
-             SaleBookAccountsTable::Accounts acc;
+             BooksAccountsSalesTable::Accounts acc;
              acc.saleAccount = "DynamicSale";
              acc.vatAccount = "DynamicVat";
              
              // We can check title/text if we want strictly, but purpose is just to add.
              // Reconstruct logic from scope or use hardcoded invocation for this test context.
-             const_cast<SaleBookAccountsTable&>(table).addAccount(vc, 99.9, acc);
+             const_cast<BooksAccountsSalesTable&>(table).addAccount(vc, 99.9, acc);
              co_return true;
         };
         
@@ -257,10 +262,10 @@ private slots:
             if (countSuccess == 1) co_return true; // Just retry, don't add yet
             
             // Add on 2nd attempt
-             SaleBookAccountsTable::Accounts acc;
+             BooksAccountsSalesTable::Accounts acc;
              acc.saleAccount = "RetrySale";
              acc.vatAccount = "RetryVat";
-             const_cast<SaleBookAccountsTable&>(table).addAccount(vc, 88.8, acc);
+             const_cast<BooksAccountsSalesTable&>(table).addAccount(vc, 88.8, acc);
              co_return true;
         };
         
@@ -273,7 +278,7 @@ private slots:
 
     void test_purchaseDoubleVatEntry() {
         // Test isDoubleVatEntryNeeded
-        PurchaseBookAccountsTable table(QDir::tempPath(), "FR");
+        BookAccountPurchaseTable table(QDir::tempPath(), "FR");
         
         QVERIFY(!table.isDoubleVatEntryNeeded("FR", "FR")); // Domestic
         QVERIFY(table.isDoubleVatEntryNeeded("DE", "FR")); // Intra-Community
@@ -291,7 +296,7 @@ private slots:
         
         // 1. Init & Defaults
         {
-            PurchaseBookAccountsTable table(dir, "FR");
+            BookAccountPurchaseTable table(dir, "FR");
             QVERIFY(table.rowCount() == 1); // Should have 1 default row for FR
             
             QString debit = table.getAccountsDebit6("FR");
@@ -302,7 +307,7 @@ private slots:
         
         // 2. Add & Save
         {
-            PurchaseBookAccountsTable table(dir, "FR");
+            BookAccountPurchaseTable table(dir, "FR");
             // Add account for DE (Import/Intra)
             table.addAccount("DE", 19.0, "600DE", "400DE");
             
@@ -312,7 +317,7 @@ private slots:
         
         // 3. Reload
         {
-            PurchaseBookAccountsTable table(dir, "FR");
+            BookAccountPurchaseTable table(dir, "FR");
             QCOMPARE(table.rowCount(), 2); // FR + DE
             
             QCOMPARE(table.getAccountsDebit6("DE"), "600DE");
@@ -324,7 +329,7 @@ private slots:
         injectFakeColumn(csvPath);
         
         {
-            PurchaseBookAccountsTable table(dir, "FR");
+            BookAccountPurchaseTable table(dir, "FR");
             // Check Data valid
             QString val = table.getAccountsDebit6("DE");
             QCOMPARE(val, "600DE");
@@ -333,7 +338,7 @@ private slots:
     
     void test_purchaseValidation() {
         QTemporaryDir tempDir;
-        PurchaseBookAccountsTable table(QDir(tempDir.path()), "FR");
+        BookAccountPurchaseTable table(QDir(tempDir.path()), "FR");
         
         // 1. Invalid Country
         QVERIFY_EXCEPTION_THROWN(
@@ -364,7 +369,7 @@ private slots:
 
     void test_purchaseLookup() {
           QTemporaryDir tempDir;
-          PurchaseBookAccountsTable table(QDir(tempDir.path()), "FR");
+          BookAccountPurchaseTable table(QDir(tempDir.path()), "FR");
           
           table.addAccount("IT", 22.0, "600IT", "400IT");
           
@@ -514,6 +519,248 @@ private slots:
              VatNumbersTable table(QDir(tempDir.path()));
              QCOMPARE(table.rowCount(), 2);
              QCOMPARE(table.getVatNumber("DE"), "DE456");
+        }
+    }
+
+    void test_BookAccountBankTable() {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        QDir dir(tempDir.path());
+
+        // 1. Init & Defaults
+        int initialRowCount;
+        {
+            BookAccountBankTable table(dir);
+            initialRowCount = table.rowCount();
+            // Should have rows equal to ALL_BANKS size
+            QCOMPARE(initialRowCount, AbstractBankStatement::ALL_BANKS().size());
+            
+            // Pick one bank (e.g. first one) to verify defaults
+            if (initialRowCount > 0) {
+                auto banks = AbstractBankStatement::ALL_BANKS().values();
+                const auto *bank = banks.first();
+                
+                // Find row for this bank
+                bool found = false;
+                for (int i = 0; i < table.rowCount(); ++i) {
+                    if (table.data(table.index(i, 0)).toString() == bank->getName()) {
+                        found = true;
+                        QCOMPARE(table.data(table.index(i, 1)).toString(), bank->defaultAccount());
+                        QCOMPARE(table.data(table.index(i, 2)).toString(), bank->defaultAccountFees());
+                        break;
+                    }
+                }
+                QVERIFY(found);
+            }
+        }
+        
+        // 2. Modify Entry
+        QString modifiedAccount = "123456";
+        QString targetBankName;
+        {
+            BookAccountBankTable table(dir);
+            if (table.rowCount() > 0) {
+                targetBankName = table.data(table.index(0, 0)).toString();
+                QModelIndex idxAccount = table.index(0, 1);
+                
+                // Verify editable
+                QVERIFY(table.flags(idxAccount) & Qt::ItemIsEditable);
+                QVERIFY(table.setData(idxAccount, modifiedAccount, Qt::EditRole));
+                
+                // Check update in model
+                QCOMPARE(table.data(idxAccount).toString(), modifiedAccount);
+            }
+        }
+        
+        // 3. Reload and Verify persistence
+        if (!targetBankName.isEmpty()) {
+            BookAccountBankTable table(dir);
+            bool foundModified = false;
+            for (int i = 0; i < table.rowCount(); ++i) {
+                if (table.data(table.index(i, 0)).toString() == targetBankName) {
+                    QCOMPARE(table.data(table.index(i, 1)).toString(), modifiedAccount);
+                    foundModified = true;
+                    break;
+                }
+            }
+            QVERIFY(foundModified);
+        }
+
+        // 4. CSV Overrides Default
+        {
+             // Manually edit CSV
+            QString csvPath = dir.filePath("accountsBanks.csv");
+            
+            // It was already saved in steps above, so modify it
+            QFile file(csvPath);
+            QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+            
+            QStringList lines;
+            QTextStream in(&file);
+            QString header = in.readLine();
+            lines.append(header);
+            
+            QString targetId;
+            QString targetBankNameOverride;
+            
+            while (!in.atEnd()) {
+                QString line = in.readLine();
+                if (line.trimmed().isEmpty()) continue;
+                
+                // Format: Bank;Account;Fees Account;Id
+                if (targetId.isEmpty()) {
+                    QStringList parts = line.split(";");
+                    if (parts.size() >= 4) {
+                        targetBankNameOverride = parts[0];
+                        targetId = parts[3];
+                        // Change Account to "OVERRIDE_ACC"
+                        parts[1] = "OVERRIDE_ACC";
+                        line = parts.join(";");
+                    }
+                }
+                lines.append(line);
+            }
+            file.close();
+            
+            if (!targetId.isEmpty()) {
+                // Write back
+                QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+                QTextStream out(&file);
+                for (const QString &l : lines) {
+                    out << l << "\n";
+                }
+                file.close();
+                
+                // Reload and verify
+                BookAccountBankTable table(dir);
+                bool foundOverride = false;
+                for (int i = 0; i < table.rowCount(); ++i) {
+                    if (table.data(table.index(i, 0)).toString() == targetBankNameOverride) {
+                        QCOMPARE(table.data(table.index(i, 1)).toString(), QString("OVERRIDE_ACC"));
+                        foundOverride = true;
+                    }
+                }
+                QVERIFY(foundOverride);
+            }
+        }
+
+        // 5. UI Behavior
+        {
+            BookAccountBankTable table(dir);
+            if (table.rowCount() > 0) {
+                QModelIndex idxBank = table.index(0, 0);
+                QModelIndex idxAccount = table.index(0, 1);
+                QModelIndex idxFees = table.index(0, 2);
+                
+                // Bank Name (0) -> Not Editable
+                QVERIFY(!(table.flags(idxBank) & Qt::ItemIsEditable));
+                QVERIFY(!table.setData(idxBank, "New Name", Qt::EditRole));
+                
+                // Account (1) -> Editable
+                QVERIFY(table.flags(idxAccount) & Qt::ItemIsEditable);
+                QVERIFY(table.flags(idxFees) & Qt::ItemIsEditable);
+                
+                // Signals
+                QSignalSpy spy(&table, &BookAccountBankTable::dataChanged);
+                table.setData(idxAccount, "NEW_ACC_2", Qt::EditRole);
+                QCOMPARE(spy.count(), 1);
+            }
+        }
+    }
+
+    void test_BookAccountAmzBalanceTable() {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        QDir dir(tempDir.path());
+
+        // 1. Initialization - defaults should be present
+        {
+            BookAccountAmzBalanceTable table(dir);
+            QVERIFY(table.rowCount() > 0);
+            QVERIFY(table.data(table.index(0, 0)).isValid()); // Amazon site
+        }
+
+        // 2. getAccount success (if we edit it)
+        {
+            BookAccountAmzBalanceTable table(dir);
+            // Manually set an account for amazon.fr
+            int frRow = -1;
+            for(int i=0; i<table.rowCount(); ++i) {
+                if (table.data(table.index(i, 0)).toString() == "amazon.fr") {
+                    frRow = i;
+                    break;
+                }
+            }
+            if (frRow == -1) {
+                // Should exist ideally, but let's add if not
+                table.addAmazon("amazon.fr");
+                frRow = table.rowCount() - 1;
+            }
+
+            table.setData(table.index(frRow, 1), "512AMZ", Qt::EditRole); // Balance
+            table.setData(table.index(frRow, 2), "411AMZ", Qt::EditRole); // Account
+            
+            auto accounts = syncWait(table.getAccount("amazon.fr"));
+            QCOMPARE(accounts.balanceAccount, "512AMZ");
+            QCOMPARE(accounts.account, "411AMZ");
+        }
+
+        // 3. getAccount missing & auto-add scenario
+        {
+             BookAccountAmzBalanceTable table(dir);
+             QString unknownSite = "amazon.mars";
+             
+             // First call without callback - throws
+             QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccount(unknownSite)), ExceptionAccountMissing);
+             QVERIFY(!table.data(table.index(table.rowCount()-1, 0)).toString().contains(unknownSite));
+
+             // Call with callback that adds it
+             auto cbAdd = [&](const QString&, const QString&) -> QCoro::Task<bool> {
+                 // Simulate user adding it via UI
+                 const_cast<BookAccountAmzBalanceTable&>(table).addAmazon(unknownSite);
+                 // And setting some values
+                 int row = table.rowCount() - 1;
+                 const_cast<BookAccountAmzBalanceTable&>(table).setData(table.index(row, 1), "512MARS", Qt::EditRole);
+                 const_cast<BookAccountAmzBalanceTable&>(table).setData(table.index(row, 2), "411MARS", Qt::EditRole);
+                 co_return true;
+             };
+
+             auto accounts = syncWait(table.getAccount(unknownSite, cbAdd));
+             QCOMPARE(accounts.balanceAccount, "512MARS");
+             QCOMPARE(accounts.account, "411MARS");
+             
+             // Verify it persists
+             BookAccountAmzBalanceTable table2(dir); // New instance
+             auto accounts2 = syncWait(table2.getAccount(unknownSite)); // Should work now
+             QCOMPARE(accounts2.balanceAccount, "512MARS");
+        }
+        
+        // 4. Test Restricted Removal
+        {
+            BookAccountAmzBalanceTable table(dir);
+            
+            // Try removing amazon.fr (default) -> Should fail
+            int frRow = -1;
+            for(int i=0; i<table.rowCount(); ++i) {
+                if (table.data(table.index(i, 0)).toString() == "amazon.fr") {
+                    frRow = i;
+                    break;
+                }
+            }
+            QVERIFY(frRow != -1);
+            QVERIFY(table.removeRow(frRow) == false); // Should fail
+            
+            // Try removing custom (amazon.mars) -> Should succeed
+            int marsRow = -1;
+            for(int i=0; i<table.rowCount(); ++i) {
+                if (table.data(table.index(i, 0)).toString() == "amazon.mars") {
+                    marsRow = i;
+                    break;
+                }
+            }
+            if (marsRow != -1) { // It was added in step 3
+                QVERIFY(table.removeRow(marsRow)); // Should succeed
+            }
         }
     }
 

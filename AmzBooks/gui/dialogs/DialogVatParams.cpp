@@ -1,9 +1,9 @@
 #include "DialogVatParams.h"
 #include "ui_DialogVatParams.h"
 
-#include "../panes/PaneSettingsVatRates.h"
-#include "../panes/PaneSaleAccounts.h"
-#include "../panes/PaneFbaCenters.h"
+#include "gui/panes/PaneSettingsVatRates.h"
+#include "gui/panes/PaneSettingsSaleAccounts.h"
+#include "gui/panes/PaneSettingsFbaCenters.h"
 
 DialogVatParams::DialogVatParams(const QString &errorTitle,
                                  const QString &errorText,
@@ -18,8 +18,8 @@ DialogVatParams::DialogVatParams(const QString &errorTitle,
     
     // Add panes to stacked widget
     auto *paneVatRates = new PaneSettingsVatRates(this);
-    auto *paneSaleAccounts = new PaneSaleAccounts(this);
-    auto *paneFbaCenters = new PaneFbaCenters(this);
+    auto *paneSaleAccounts = new PaneSettingsSaleAccounts(this);
+    auto *paneFbaCenters = new PaneSettingsFbaCenters(this);
     
     ui->stackedWidget->addWidget(paneVatRates);
     ui->stackedWidget->addWidget(paneSaleAccounts);

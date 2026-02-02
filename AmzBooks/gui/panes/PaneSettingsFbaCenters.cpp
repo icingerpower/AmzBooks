@@ -5,12 +5,12 @@
 #include "books/FbaCentersTable.h"
 #include "gui/dialogs/DialogAddFbaCenter.h"
 
-#include "PaneFbaCenters.h"
-#include "ui_PaneFbaCenters.h"
+#include "PaneSettingsFbaCenters.h"
+#include "ui_PaneSettingsFbaCenters.h"
 
-PaneFbaCenters::PaneFbaCenters(QWidget *parent)
+PaneSettingsFbaCenters::PaneSettingsFbaCenters(QWidget *parent)
     : QWidget(parent)
-    , ui(new Ui::PaneFbaCenters)
+    , ui(new Ui::PaneSettingsFbaCenters)
 {
     ui->setupUi(this);
 
@@ -23,24 +23,24 @@ PaneFbaCenters::PaneFbaCenters(QWidget *parent)
     _connectSlots();
 }
 
-void PaneFbaCenters::_connectSlots()
+void PaneSettingsFbaCenters::_connectSlots()
 {
     connect(ui->buttonAdd,
             &QPushButton::clicked,
             this,
-            &PaneFbaCenters::addCenter);
+            &PaneSettingsFbaCenters::addCenter);
     connect(ui->buttonRemove,
             &QPushButton::clicked,
             this,
-            &PaneFbaCenters::removeCenter);
+            &PaneSettingsFbaCenters::removeCenter);
 }
 
-PaneFbaCenters::~PaneFbaCenters()
+PaneSettingsFbaCenters::~PaneSettingsFbaCenters()
 {
     delete ui;
 }
 
-void PaneFbaCenters::addCenter()
+void PaneSettingsFbaCenters::addCenter()
 {
     DialogAddFbaCenter dialog(this);
     if (dialog.exec() == QDialog::Accepted) {
@@ -61,7 +61,7 @@ void PaneFbaCenters::addCenter()
     }
 }
 
-void PaneFbaCenters::removeCenter()
+void PaneSettingsFbaCenters::removeCenter()
 {
     const auto &selIndexes = ui->tableCenters->selectionModel()->selectedIndexes();
     if (selIndexes.isEmpty()) {

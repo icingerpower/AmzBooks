@@ -8,18 +8,24 @@ SET(PANES_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsVatRates.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsVatRates.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsVatRates.ui
-    ${CMAKE_CURRENT_LIST_DIR}/PaneSaleAccounts.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/PaneSaleAccounts.h
-    ${CMAKE_CURRENT_LIST_DIR}/PaneSaleAccounts.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsSaleAccounts.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsSaleAccounts.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsSaleAccounts.ui
     ${CMAKE_CURRENT_LIST_DIR}/PanePurchaseAccount.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PanePurchaseAccount.h
     ${CMAKE_CURRENT_LIST_DIR}/PanePurchaseAccount.ui
-    ${CMAKE_CURRENT_LIST_DIR}/PaneJournals.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/PaneJournals.h
-    ${CMAKE_CURRENT_LIST_DIR}/PaneJournals.ui
-    ${CMAKE_CURRENT_LIST_DIR}/PaneFbaCenters.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/PaneFbaCenters.h
-    ${CMAKE_CURRENT_LIST_DIR}/PaneFbaCenters.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsBankAccounts.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsBankAccounts.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsBankAccounts.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsAmzBalanceAccounts.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsAmzBalanceAccounts.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsAmzBalanceAccounts.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsJournal.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsJournal.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsJournal.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsFbaCenters.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsFbaCenters.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsFbaCenters.ui
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrderFiles.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrderFiles.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrderFiles.ui

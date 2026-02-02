@@ -2,7 +2,7 @@
 
 #include "../../common/workingdirectory/WorkingDirectoryManager.h"
 
-#include "books/PurchaseBookAccountsTable.h"
+#include "books/BookAccountPurchaseTable.h"
 #include "books/CompanyInfosTable.h"
 #include "books/ExceptionTaxSchemeInvalid.h"
 #include "PanePurchaseAccount.h"
@@ -20,7 +20,7 @@ PanePurchaseAccount::PanePurchaseAccount(QWidget *parent) :
     CompanyInfosTable companyInfosTable{workingDir};
 
     auto *purchaseAccountTable
-        = new PurchaseBookAccountsTable{
+        = new BookAccountPurchaseTable{
             workingDir, companyInfosTable.getCompanyCountryCode(), ui->tableAccounts};
     ui->tableAccounts->setModel(purchaseAccountTable);
 
@@ -36,7 +36,7 @@ void PanePurchaseAccount::addRate()
 {
     DialogAddPurchaseAccount dialog(this);
     if (dialog.exec() == QDialog::Accepted) {
-        auto *model = qobject_cast<PurchaseBookAccountsTable*>(ui->tableAccounts->model());
+        auto *model = qobject_cast<BookAccountPurchaseTable*>(ui->tableAccounts->model());
         if (model) {
             try {
                 model->addAccount(dialog.getCountry(),
@@ -76,7 +76,7 @@ void PanePurchaseAccount::removeRate()
         QList<int> sortedRows = rows.values();
         std::sort(sortedRows.begin(), sortedRows.end(), std::greater<int>());
         
-        auto *model = qobject_cast<PurchaseBookAccountsTable*>(ui->tableAccounts->model());
+        auto *model = qobject_cast<BookAccountPurchaseTable*>(ui->tableAccounts->model());
         if (model) {
             for (int row : sortedRows) {
                 model->removeRow(row);

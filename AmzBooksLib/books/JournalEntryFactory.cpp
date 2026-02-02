@@ -1,8 +1,8 @@
 #include "JournalEntryFactory.h"
 #include "CurrencyRateManager.h"
 #include "CompanyInfosTable.h"
-#include "SaleBookAccountsTable.h"
-#include "PurchaseBookAccountsTable.h"
+#include "BooksAccountsSalesTable.h"
+#include "BookAccountPurchaseTable.h"
 #include "JournalTable.h"
 #include "orders/ActivitySource.h"
 #include "orders/Shipment.h"
@@ -11,8 +11,8 @@
 JournalEntryFactory::JournalEntryFactory(
     const CurrencyRateManager *currencyRateManager,
     const CompanyInfosTable *companyInfos,
-    const SaleBookAccountsTable *saleBookAccounts,
-    const PurchaseBookAccountsTable *purchaseBookAccounts,
+    const BooksAccountsSalesTable *saleBookAccounts,
+    const BookAccountPurchaseTable *purchaseBookAccounts,
     const JournalTable *journalTable)
     : m_currencyRateManager(currencyRateManager)
     , m_companyInfos(companyInfos)
@@ -74,17 +74,41 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
                                purchaseInformation.label,
                                currencyInfo);
     
+    // Subtract extra amounts (subUntaxedAmount) from main expense
+    double totalExtra = 0.0;
+    for (double amt : purchaseInformation.subUntaxedAmount) {
+        totalExtra += amt;
+    }
+    double mainHT = totalHT - totalExtra;
+    
     // Main expense entry line (Class 6 account)
     JournalEntry::EntryLine expenseLine;
     expenseLine.title = commonTitle;
     expenseLine.account = purchaseInformation.account;
-    expenseLine.currency_amount[purchaseInformation.currency] = totalHT;
+    expenseLine.currency_amount[purchaseInformation.currency] = mainHT;
     
-    // Add expense to appropriate side
+    // Add main expense to appropriate side
     if (isRefund) {
         entry->addCreditRight(expenseLine, purchaseInformation.currency, currencyRate);
     } else {
         entry->addDebitLeft(expenseLine, purchaseInformation.currency, currencyRate);
+    }
+
+    // Add entries for extra untaxed amounts
+    for (auto it = purchaseInformation.subUntaxedAmount.constBegin(); it != purchaseInformation.subUntaxedAmount.constEnd(); ++it) {
+        QString extraAccount = it.key();
+        double extraAmount = it.value();
+        
+        JournalEntry::EntryLine extraLine;
+        extraLine.title = commonTitle; // Use same title? Or append info? Requirement says "addDebitLeft per extra line".
+        extraLine.account = extraAccount;
+        extraLine.currency_amount[purchaseInformation.currency] = extraAmount;
+        
+        if (isRefund) {
+            entry->addCreditRight(extraLine, purchaseInformation.currency, currencyRate);
+        } else {
+            entry->addDebitLeft(extraLine, purchaseInformation.currency, currencyRate);
+        }
     }
     
     // VAT entries for each country/rate combination
@@ -243,7 +267,7 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
             key.countryTo
         );
         
-        SaleBookAccountsTable::Accounts accounts = co_await m_saleBookAccounts->getAccounts(vc, key.vatRate, callbackAddIfMissing);
+        BooksAccountsSalesTable::Accounts accounts = co_await m_saleBookAccounts->getAccounts(vc, key.vatRate, callbackAddIfMissing);
         
         revenueByAccount[accounts.saleAccount][key.currency] += revenueAmount;
         vatByAccount[accounts.vatAccount][key.currency] += vatAmount;

@@ -1,5 +1,5 @@
-#ifndef SALEBOOKACCOUNTSTABLE_H
-#define SALEBOOKACCOUNTSTABLE_H
+#ifndef BOOKSACCOUNTSSALESTABLE_H
+#define BOOKSACCOUNTSSALESTABLE_H
 
 #include <QAbstractTableModel>
 #include <QDir>
@@ -30,7 +30,7 @@
 // Avoids account explosion (one account per route) while staying consistent for VAT reporting.
 
 
-class SaleBookAccountsTable : public QAbstractTableModel
+class BooksAccountsSalesTable : public QAbstractTableModel
 {
     Q_OBJECT
 
@@ -40,11 +40,11 @@ public:
         QString vatAccount;
         QString vatAccountToPay;
     };
-    explicit SaleBookAccountsTable(const QDir &workingDir, QObject *parent = nullptr);
+    explicit BooksAccountsSalesTable(const QDir &workingDir, QObject *parent = nullptr);
     VatCountries resolveVatCountries(TaxScheme taxScheme, const QString &companyCountryFrom, const QString &countryFrom, const QString &countryCodeTo) const;
 
-    QCoro::Task<SaleBookAccountsTable::Accounts> getAccounts(const VatCountries &vatCountries, double vatRate, std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
-    void addAccount(const VatCountries &vatCountries, double vatRate, const SaleBookAccountsTable::Accounts &accounts);
+    QCoro::Task<BooksAccountsSalesTable::Accounts> getAccounts(const VatCountries &vatCountries, double vatRate, std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
+    void addAccount(const VatCountries &vatCountries, double vatRate, const BooksAccountsSalesTable::Accounts &accounts);
     
     // Header:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
@@ -74,4 +74,4 @@ private:
     QString m_filePath;
 };
 
-#endif // SALEBOOKACCOUNTSTABLE_H
+#endif // BOOKSACCOUNTSSALESTABLE_H

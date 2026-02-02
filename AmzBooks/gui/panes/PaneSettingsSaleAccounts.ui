@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <ui version="4.0">
- <class>PaneSaleAccounts</class>
- <widget class="QWidget" name="PaneSaleAccounts">
+ <class>PaneSettingsSaleAccounts</class>
+ <widget class="QWidget" name="PaneSettingsSaleAccounts">
   <property name="geometry">
    <rect>
     <x>0</x>
@@ -47,6 +47,9 @@
    </item>
    <item>
     <widget class="QTableView" name="tableAccounts">
+     <property name="alternatingRowColors">
+      <bool>true</bool>
+     </property>
      <property name="selectionBehavior">
       <enum>QAbstractItemView::SelectRows</enum>
      </property>

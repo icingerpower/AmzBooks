@@ -1,12 +1,12 @@
 #include "../../common/workingdirectory/WorkingDirectoryManager.h"
 
 #include "books/JournalTable.h"
-#include "PaneJournals.h"
-#include "ui_PaneJournals.h"
+#include "PaneSettingsJournal.h"
+#include "ui_PaneSettingsJournal.h"
 
-PaneJournals::PaneJournals(QWidget *parent) :
+PaneSettingsJournal::PaneSettingsJournal(QWidget *parent) :
     QWidget(parent),
-    ui(new Ui::PaneJournals)
+    ui(new Ui::PaneSettingsJournal)
 {
     ui->setupUi(this);
 
@@ -16,7 +16,7 @@ PaneJournals::PaneJournals(QWidget *parent) :
     ui->tableJournals->setModel(journalTable);
 }
 
-PaneJournals::~PaneJournals()
+PaneSettingsJournal::~PaneSettingsJournal()
 {
     delete ui;
 }

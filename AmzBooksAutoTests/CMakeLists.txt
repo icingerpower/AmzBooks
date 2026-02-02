@@ -69,7 +69,7 @@ add_custom_command(TARGET TestOrderManager POST_BUILD
 
 add_executable(TestBookAccounts test_book_accounts.cpp)
 add_test(NAME TestBookAccounts COMMAND TestBookAccounts)
-target_link_libraries(TestBookAccounts PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_link_libraries(TestBookAccounts PRIVATE Qt${QT_VERSION_MAJOR}::Test -Wl,--whole-archive AmzBooksLib -Wl,--no-whole-archive)
 target_include_directories(TestBookAccounts PRIVATE ../AmzBooksLib)
 
 add_custom_command(TARGET TestBookAccounts POST_BUILD
@@ -98,6 +98,7 @@ add_executable(TestJournalTable tst_journal_table.cpp)
 add_test(NAME TestJournalTable COMMAND TestJournalTable)
 target_link_libraries(TestJournalTable PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(TestJournalTable PRIVATE ../AmzBooksLib)
+
 
 add_executable(TestFileImportAmazonTransactions test_file_import_amazon_transactions.cpp)
 add_test(NAME TestFileImportAmazonTransactions COMMAND TestFileImportAmazonTransactions)
@@ -168,4 +169,10 @@ add_custom_command(TARGET TestFileImportTemuOrders POST_BUILD
     ${CMAKE_CURRENT_SOURCE_DIR}/../data/temu-orders
     $<TARGET_FILE_DIR:TestFileImportTemuOrders>/data/temu-orders
 )
+
+
+add_executable(TestBooksConnection test_books_connections.cpp)
+add_test(NAME TestBooksConnection COMMAND TestBooksConnection)
+target_link_libraries(TestBooksConnection PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestBooksConnection PRIVATE ../AmzBooksLib)
 

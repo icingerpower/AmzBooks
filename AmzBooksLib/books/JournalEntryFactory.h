@@ -11,8 +11,8 @@
 
 class CurrencyRateManager;
 class CompanyInfosTable;
-class SaleBookAccountsTable;
-class PurchaseBookAccountsTable;
+class BooksAccountsSalesTable;
+class BookAccountPurchaseTable;
 class JournalTable;
 class ActivitySource;
 class Shipment;
@@ -22,8 +22,8 @@ class JournalEntryFactory
 public:
     JournalEntryFactory(const CurrencyRateManager *currencyRateManager,
                         const CompanyInfosTable *companyInfos,
-                        const SaleBookAccountsTable *saleBookAccounts,
-                        const PurchaseBookAccountsTable *purchaseBookAccounts,
+                        const BooksAccountsSalesTable *saleBookAccounts,
+                        const BookAccountPurchaseTable *purchaseBookAccounts,
                         const JournalTable *journalTable);
 
     // Create journal entry for purchase invoice
@@ -41,8 +41,8 @@ public:
 private:
     const CurrencyRateManager *m_currencyRateManager;
     const CompanyInfosTable *m_companyInfos;
-    const SaleBookAccountsTable *m_saleBookAccounts;
-    const PurchaseBookAccountsTable *m_purchaseBookAccounts;
+    const BooksAccountsSalesTable *m_saleBookAccounts;
+    const BookAccountPurchaseTable *m_purchaseBookAccounts;
     const JournalTable *m_journalTable;
 };
 

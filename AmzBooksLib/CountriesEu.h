@@ -56,6 +56,8 @@ public:
     
     // Returns list of currencies for GB and EU countries
     static QStringList getCurrencies();
+
+    static const QStringList DEFAULT_AMAZON_SITES;
 };
 
 #endif // COUNTRIESEU_H

@@ -45,6 +45,16 @@
       </item>
       <item>
        <property name="text">
+        <string>Bank accounts</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
+        <string>Amazon accounts</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
         <string>Journals</string>
        </property>
       </item>
@@ -57,10 +67,12 @@
      <widget class="QStackedWidget" name="stackedWidget">
       <widget class="PaneSettingsCompany" name="pageCompanyInfos"/>
       <widget class="PaneSettingsVatRates" name="pageVatRates"/>
-      <widget class="PaneSaleAccounts" name="pageSaleAccounts"/>
+      <widget class="PaneSettingsSaleAccounts" name="pageSaleAccounts"/>
       <widget class="PanePurchaseAccount" name="pagePurchaseAccounts"/>
-      <widget class="PaneJournals" name="pageJournals"/>
-      <widget class="PaneFbaCenters" name="pageFbaCenters"/>
+      <widget class="PaneSettingsBankAccounts" name="pageBankAccounts"/>
+      <widget class="PaneSettingsAmzBalanceAccounts" name="pageAmzBalanceAccounts"/>
+      <widget class="PaneSettingsJournal" name="pageJournals"/>
+      <widget class="PaneSettingsFbaCenters" name="pageFbaCenters"/>
      </widget>
     </widget>
    </item>
@@ -80,9 +92,9 @@
    <container>1</container>
   </customwidget>
   <customwidget>
-   <class>PaneSaleAccounts</class>
+   <class>PaneSettingsSaleAccounts</class>
    <extends>QWidget</extends>
-   <header>gui/panes/PaneSaleAccounts.h</header>
+   <header>gui/panes/PaneSettingsSaleAccounts.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
@@ -91,18 +103,30 @@
    <header>gui/panes/PanePurchaseAccount.h</header>
    <container>1</container>
   </customwidget>
-  <customwidget>
-   <class>PaneJournals</class>
-   <extends>QWidget</extends>
-   <header>gui/panes/PaneJournals.h</header>
-   <container>1</container>
-  </customwidget>
-  <customwidget>
-   <class>PaneFbaCenters</class>
-   <extends>QWidget</extends>
-   <header>gui/panes/PaneFbaCenters.h</header>
-   <container>1</container>
-  </customwidget>
+   <customwidget>
+    <class>PaneSettingsBankAccounts</class>
+    <extends>QWidget</extends>
+    <header>gui/panes/PaneSettingsBankAccounts.h</header>
+    <container>1</container>
+   </customwidget>
+   <customwidget>
+    <class>PaneSettingsAmzBalanceAccounts</class>
+    <extends>QWidget</extends>
+    <header>gui/panes/PaneSettingsAmzBalanceAccounts.h</header>
+    <container>1</container>
+   </customwidget>
+   <customwidget>
+    <class>PaneSettingsJournal</class>
+    <extends>QWidget</extends>
+    <header>gui/panes/PaneSettingsJournal.h</header>
+    <container>1</container>
+   </customwidget>
+   <customwidget>
+    <class>PaneSettingsFbaCenters</class>
+    <extends>QWidget</extends>
+    <header>gui/panes/PaneSettingsFbaCenters.h</header>
+    <container>1</container>
+   </customwidget>
  </customwidgets>
  <resources/>
  <connections>

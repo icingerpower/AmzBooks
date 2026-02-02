@@ -24,6 +24,7 @@ struct PurchaseInformation {
     bool isDDP = false; // if DDP in file name
     QString countryCodeFrom; // If ends with 2 country code we fill countryCodeFrom and countryCodeTo
     QString countryCodeTo;
+    QHash<QString, double> subUntaxedAmount; // Extra untaxed amounts per account
 };
 
 class PurchaseInvoiceManager : public QAbstractTableModel

@@ -1,4 +1,4 @@
-#include "SaleBookAccountsTable.h"
+#include "BooksAccountsSalesTable.h"
 #include "CountriesEu.h"
 #include <QFile>
 #include <QTextStream>
@@ -8,7 +8,7 @@
 #include "ExceptionVatAccount.h"
 #include <optional>
 
-const QStringList SaleBookAccountsTable::HEADER{
+const QStringList BooksAccountsSalesTable::HEADER{
     QObject::tr("Tax Scheme")
     , QObject::tr("Country From")
     , QObject::tr("Country To")
@@ -17,7 +17,7 @@ const QStringList SaleBookAccountsTable::HEADER{
     , QObject::tr("VAT Account")
 };
 
-SaleBookAccountsTable::SaleBookAccountsTable(const QDir &workingDir, QObject *parent)
+BooksAccountsSalesTable::BooksAccountsSalesTable(const QDir &workingDir, QObject *parent)
     : QAbstractTableModel(parent)
 {
     m_filePath = workingDir.absoluteFilePath("saleBookAccounts.csv");
@@ -25,7 +25,7 @@ SaleBookAccountsTable::SaleBookAccountsTable(const QDir &workingDir, QObject *pa
     _fillIfEmpty();
 }
 
-VatCountries SaleBookAccountsTable::resolveVatCountries(
+VatCountries BooksAccountsSalesTable::resolveVatCountries(
         TaxScheme taxScheme
         , const QString &companyCountryFrom
         , const QString &countryFrom
@@ -64,7 +64,7 @@ VatCountries SaleBookAccountsTable::resolveVatCountries(
     }
 }
 
-QCoro::Task<SaleBookAccountsTable::Accounts> SaleBookAccountsTable::getAccounts(
+QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccounts(
         const VatCountries &vatCountries
         , double vatRate
         , std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing) const
@@ -147,8 +147,8 @@ QCoro::Task<SaleBookAccountsTable::Accounts> SaleBookAccountsTable::getAccounts(
 
 // ... existing code ...
 
-void SaleBookAccountsTable::addAccount(
-        const VatCountries &vatCountries, double vatRate, const SaleBookAccountsTable::Accounts &accounts)
+void BooksAccountsSalesTable::addAccount(
+        const VatCountries &vatCountries, double vatRate, const BooksAccountsSalesTable::Accounts &accounts)
 {
     QString schemeStr = taxSchemeToString(vatCountries.taxScheme);
     QString rateStr = QString::number(vatRate);
@@ -180,7 +180,7 @@ void SaleBookAccountsTable::addAccount(
     _save();
 }
 
-QVariant SaleBookAccountsTable::headerData(int section, Qt::Orientation orientation, int role) const
+QVariant BooksAccountsSalesTable::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (role == Qt::DisplayRole) {
         if (orientation == Qt::Horizontal) {
@@ -192,21 +192,21 @@ QVariant SaleBookAccountsTable::headerData(int section, Qt::Orientation orientat
     return QVariant();
 }
 
-int SaleBookAccountsTable::rowCount(const QModelIndex &parent) const
+int BooksAccountsSalesTable::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid())
         return 0;
     return m_listOfStringList.size();
 }
 
-int SaleBookAccountsTable::columnCount(const QModelIndex &parent) const
+int BooksAccountsSalesTable::columnCount(const QModelIndex &parent) const
 {
     if (parent.isValid())
         return 0;
     return HEADER.size();
 }
 
-QVariant SaleBookAccountsTable::data(const QModelIndex &index, int role) const
+QVariant BooksAccountsSalesTable::data(const QModelIndex &index, int role) const
 {
     if (!index.isValid())
         return QVariant();
@@ -220,7 +220,7 @@ QVariant SaleBookAccountsTable::data(const QModelIndex &index, int role) const
     return QVariant();
 }
 
-bool SaleBookAccountsTable::setData(const QModelIndex &index, const QVariant &value, int role)
+bool BooksAccountsSalesTable::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     if (index.isValid() && role == Qt::EditRole) {
         if (index.row() >= 0 && index.row() < m_listOfStringList.size() &&
@@ -238,7 +238,7 @@ bool SaleBookAccountsTable::setData(const QModelIndex &index, const QVariant &va
     return false;
 }
 
-Qt::ItemFlags SaleBookAccountsTable::flags(const QModelIndex &index) const
+Qt::ItemFlags BooksAccountsSalesTable::flags(const QModelIndex &index) const
 {
     if (!index.isValid()) {
         return Qt::NoItemFlags;
@@ -248,7 +248,7 @@ Qt::ItemFlags SaleBookAccountsTable::flags(const QModelIndex &index) const
 
 #include "books/VatResolver.h"
 
-void SaleBookAccountsTable::_fillIfEmpty()
+void BooksAccountsSalesTable::_fillIfEmpty()
 {
     if (m_listOfStringList.isEmpty()) {
         // Use VatResolver for default rates (today's rates)
@@ -375,7 +375,7 @@ const QStringList HEADER_IDS = {
 
 // ...
 
-void SaleBookAccountsTable::_rebuildCache()
+void BooksAccountsSalesTable::_rebuildCache()
 {
     m_vatCountries_vatRate_accountsCache.clear();
     
@@ -419,7 +419,7 @@ void SaleBookAccountsTable::_rebuildCache()
     }
 }
 
-void SaleBookAccountsTable::_sort()
+void BooksAccountsSalesTable::_sort()
 {
     std::sort(m_listOfStringList.begin(), m_listOfStringList.end(), [](const QStringList &a, const QStringList &b) {
         // 0: TaxScheme
@@ -433,11 +433,11 @@ void SaleBookAccountsTable::_sort()
     });
 }
 
-void SaleBookAccountsTable::_save()
+void BooksAccountsSalesTable::_save()
 {
     QFile file(m_filePath);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-        qWarning() << "Failed to save SaleBookAccountsTable:" << file.errorString();
+        qWarning() << "Failed to save BooksAccountsSalesTable:" << file.errorString();
         return;
     }
     
@@ -453,7 +453,7 @@ void SaleBookAccountsTable::_save()
     }
 }
 
-void SaleBookAccountsTable::_load()
+void BooksAccountsSalesTable::_load()
 {
     m_listOfStringList.clear();
     QFile file(m_filePath);
