@@ -28,6 +28,9 @@ public:
 private:
     AbstractImporter *m_importer;
     QStringList m_keys;
+
+signals:
+    void exceptionOccurred(const QString &title, const QString &message);
 };
 
 #endif // PARAMSTABLE_H

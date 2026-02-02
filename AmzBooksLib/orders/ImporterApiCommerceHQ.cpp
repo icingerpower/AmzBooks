@@ -33,24 +33,60 @@ QMap<QString, AbstractImporter::ParamInfo> ImporterApiCommerceHQ::getRequiredPar
 {
     QMap<QString, ParamInfo> params;
     
-    params["stores"] = ParamInfo {
-        .key = "stores",
-        .label = "Stores Configuration (JSON)",
-        .description = "List of stores in JSON format: [{\"name\":\"Store1\", \"storeId\":\"...\", \"apiKey\":\"...\", \"apiPassword\":\"...\"}, ...]",
+    auto arrayValidator = [](const QVariant& v) -> std::pair<bool, QString> {
+        QString str = v.toString();
+        QJsonParseError error;
+        QJsonDocument doc = QJsonDocument::fromJson(str.toUtf8(), &error);
+        if (error.error != QJsonParseError::NoError) {
+            return {false, "Invalid JSON: " + error.errorString()};
+        }
+        if (!doc.isArray()) {
+            return {false, "Value must be a JSON array of strings"};
+        }
+         // Check if all elements are strings
+        QJsonArray arr = doc.array();
+        for (const auto& kv : arr) {
+            if (!kv.isString()) {
+                return {false, "All elements in the array must be strings"};
+            }
+        }
+        return {true, ""};
+    };
+
+    params["storeNames"] = ParamInfo {
+        .key = "storeNames",
+        .label = "Store Names (JSON Array)",
+        .description = "List of names: [\"Store1\", \"Store2\"]",
         .defaultValue = "[]",
         .value = QVariant(),
-        .validator = [](const QVariant& v) -> std::pair<bool, QString> {
-            QString str = v.toString();
-            QJsonParseError error;
-            QJsonDocument doc = QJsonDocument::fromJson(str.toUtf8(), &error);
-            if (error.error != QJsonParseError::NoError) {
-                return {false, "Invalid JSON: " + error.errorString()};
-            }
-            if (!doc.isArray()) {
-                return {false, "JSON must be an array of store objects"};
-            }
-            return {true, ""};
-        }
+        .validator = arrayValidator
+    };
+
+    params["storeIds"] = ParamInfo {
+        .key = "storeIds",
+        .label = "Store IDs (JSON Array)",
+        .description = "List of Store IDs: [\"999\", \"888\"]",
+        .defaultValue = "[]",
+        .value = QVariant(),
+        .validator = arrayValidator
+    };
+
+    params["apiKeys"] = ParamInfo {
+        .key = "apiKeys",
+        .label = "API Keys (JSON Array)",
+        .description = "List of Keys: [\"abc\", \"def\"]",
+        .defaultValue = "[]",
+        .value = QVariant(),
+        .validator = arrayValidator
+    };
+
+    params["apiPasswords"] = ParamInfo {
+        .key = "apiPasswords",
+        .label = "API Passwords (JSON Array)",
+        .description = "List of Passwords: [\"pass1\", \"pass2\"]",
+        .defaultValue = "[]",
+        .value = QVariant(),
+        .validator = arrayValidator
     };
     
     return params;
@@ -59,22 +95,36 @@ QMap<QString, AbstractImporter::ParamInfo> ImporterApiCommerceHQ::getRequiredPar
 QList<ImporterApiCommerceHQ::StoreConfig> ImporterApiCommerceHQ::getStores() const
 {
     QList<StoreConfig> stores;
-    QString jsonStr = getParam("stores").toString();
-    QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8());
     
-    if (doc.isArray()) {
-        QJsonArray array = doc.array();
-        for (const auto& val : array) {
-            QJsonObject obj = val.toObject();
-            StoreConfig store;
-            store.name = obj["name"].toString();
-            store.storeId = obj["storeId"].toString();
-            store.apiKey = obj["apiKey"].toString();
-            store.apiPassword = obj["apiPassword"].toString();
-            
-            if (!store.name.isEmpty() && !store.apiKey.isEmpty()) {
-                stores.append(store);
+    auto parseArray = [this](const QString& key) -> QStringList {
+        QString jsonStr = getParam(key).toString();
+        QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8());
+        QStringList list;
+        if (doc.isArray()) {
+            QJsonArray arr = doc.array();
+            for (const auto& val : arr) {
+                list.append(val.toString());
             }
+        }
+        return list;
+    };
+
+    QStringList names = parseArray("storeNames");
+    QStringList storeIds = parseArray("storeIds");
+    QStringList apiKeys = parseArray("apiKeys");
+    QStringList apiPasswords = parseArray("apiPasswords");
+
+    qsizetype count = std::min({names.size(), storeIds.size(), apiKeys.size(), apiPasswords.size()});
+
+    for (qsizetype i = 0; i < count; ++i) {
+        StoreConfig store;
+        store.name = names[i];
+        store.storeId = storeIds[i];
+        store.apiKey = apiKeys[i];
+        store.apiPassword = apiPasswords[i];
+        
+        if (!store.name.isEmpty() && !store.apiKey.isEmpty()) {
+            stores.append(store);
         }
     }
     return stores;

@@ -97,6 +97,9 @@ void PaneOrderFiles::onImporterSelected(const QModelIndex &current, const QModel
     // Note: We create a new model each time selection changes.
     auto *oldModel = m_paramsModel;
     m_paramsModel = new ParamsTable(importer, this);
+    connect(m_paramsModel, &ParamsTable::exceptionOccurred, this, [this](const QString &title, const QString &message) {
+        QMessageBox::warning(this, title, message);
+    });
     ui->tableParams->setModel(m_paramsModel);
     ui->tableParams->setVisible(m_paramsModel->rowCount() > 0);
     

@@ -7,6 +7,7 @@
 - **Cross-Thread Safety**: They must implement `raise()` and `clone()` methods to be compatible with Qt's cross-thread exception transport.
 - **Detail**: Always provide a title and detailed error text.
 - **Catching**: Do not catch `const std::exception &e` if the exception inherits from `QException`. Catch `const QException &e` (or the specific type) first.
+- **UI Reporting**: Exceptions caught in UI models or logic **MUST** be reported to the user via specific signals (e.g. `exceptionOccurred`) connected to UI elements (like `QMessageBox`), and **NOT** hidden via `qWarning` or `qDebug`.
 
 ## QAbstractTableModel Implementations
 - **Robust Loading**:
@@ -26,3 +27,8 @@
 - **If Statements**:
     - Never write `if` instructions on the same row.
     - **Brackets**: Always use brackets `{}` for `if`/`else` blocks, even for single instructions.
+
+## API & Importer Configuration
+- **Parameter Structure**: functionality that requires list configuration (e.g. list of shops, list of accounts) **MUST** use parallel arrays (e.g. `shopNames`, `appIds`) instead of a single parameter containing a list of complex JSON objects.
+    - **Reasoning**: This simplifies validation and UI generation.
+- **Validation**: Validators for these parameters **MUST** strictly check that the input is a valid JSON array and that all elements are of the expected type (e.g. strings).

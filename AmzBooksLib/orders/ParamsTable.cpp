@@ -68,7 +68,7 @@ bool ParamsTable::setData(const QModelIndex &index, const QVariant &value, int r
                 emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
                 return true;
             } catch (const ExceptionParamValue &e) {
-                qWarning() << "Failed to set param" << key << ":" << e.errorTitle() << "-" << e.errorText();
+                emit exceptionOccurred(e.errorTitle(), e.errorText());
                 return false;
             }
         }

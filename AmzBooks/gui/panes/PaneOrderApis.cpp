@@ -83,6 +83,9 @@ void PaneOrderApis::onImporterSelected(const QModelIndex &current, const QModelI
     // Create new ParamsTable
     auto *oldModel = m_paramsModel;
     m_paramsModel = new ParamsTable(importer, this);
+    connect(m_paramsModel, &ParamsTable::exceptionOccurred, this, [this](const QString &title, const QString &message) {
+        QMessageBox::warning(this, title, message);
+    });
     ui->tableParams->setModel(m_paramsModel);
     ui->tableParams->setVisible(m_paramsModel->rowCount() > 0);
 
