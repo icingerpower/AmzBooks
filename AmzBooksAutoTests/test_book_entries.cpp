@@ -369,7 +369,7 @@ void TestBookEntries::test_invoice_encoding()
     QCOMPARE(info.date, QDate(2025, 2, 18));
     QCOMPARE(info.account, QString("622600"));
     QCOMPARE(info.label, QString("compta"));
-    QCOMPARE(info.supplier, QString("SOCIC-FR"));
+    QCOMPARE(info.accountSupplier, QString("SOCIC-FR"));
     QCOMPARE(info.vatTokens.size(), 1);
     QCOMPARE(info.vatTokens.first(), QString("FR-TVA-13.6EUR"));
     
@@ -576,7 +576,7 @@ void TestBookEntries::test_invoice_add()
     info.date = QDate(2024, 3, 15);
     info.account = "611";
     info.label = "supplies";
-    info.supplier = "OfficeDepot";
+    info.accountSupplier = "OfficeDepot";
     info.totalAmount = 45.50;
     info.currency = "EUR";
     // originalExtension is empty, should be picked up from source
@@ -672,7 +672,7 @@ void TestBookEntries::test_factory_purchase_no_conversion()
     purchase.date = QDate(2024, 3, 15);
     purchase.account = "607000";
     purchase.label = "Software license";
-    purchase.supplier = "SoftCorp";
+    purchase.accountSupplier = "SoftCorp";
     purchase.totalAmount = 120.0; // 100 HT + 20 VAT
     purchase.currency = "EUR";
     purchase.country_vatRate_vat["FR"]["20.00"] = 20.0;
@@ -748,7 +748,7 @@ void TestBookEntries::test_factory_purchase_with_conversion()
     purchase.date = QDate(2024, 3, 15);
     purchase.account = "607000";
     purchase.label = "Cloud services";
-    purchase.supplier = "AWS";
+    purchase.accountSupplier = "AWS";
     purchase.totalAmount = 120.0; // USD
     purchase.currency = "USD";
     purchase.country_vatRate_vat["FR"]["20.00"] = 20.0;
@@ -817,7 +817,7 @@ void TestBookEntries::test_factory_purchase_refund()
     purchase.date = QDate(2024, 3, 15);
     purchase.account = "607000";
     purchase.label = "Returned item";
-    purchase.supplier = "RetailCorp";
+    purchase.accountSupplier = "RetailCorp";
     purchase.totalAmount = -120.0; // Negative = refund
     purchase.currency = "EUR";
     purchase.country_vatRate_vat["FR"]["20.00"] = 20.0;
@@ -896,7 +896,7 @@ void TestBookEntries::test_factory_purchase_with_extra()
     purchase.date = QDate(2024, 6, 1);
     purchase.account = "607000"; // Main Account
     purchase.label = "Mixed Purchase";
-    purchase.supplier = "Vendor";
+    purchase.accountSupplier = "Vendor";
     purchase.totalAmount = 200.0;
     purchase.currency = "EUR";
     purchase.countryCodeFrom = "FR";

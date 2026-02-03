@@ -282,6 +282,20 @@ void OrderManager::recordShipmentUpdated(const QString &orderId,
     qUpd.exec();
 }
 
+void OrderManager::removeOrder(const QString &orderId)
+{
+    // TODO if not published, remove the order and also all of its shipment / refund
+    // If published, it create refunds if not
+
+}
+
+void OrderManager::removeShipmenOrRefund(const QString &shipmentOrRefundId)
+{
+    // TODO
+    // If only shipment/refund of the orderId call removeOrder on the orderId
+    // Otherwise if not published, remove it. If published and not a refund, create a refund
+}
+
 void OrderManager::recordAddressTo(const QString &orderId, const Address &addressTo)
 {
     {

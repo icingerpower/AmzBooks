@@ -60,6 +60,8 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/BooksConnections.cpp
     ${CMAKE_CURRENT_LIST_DIR}/EntrySelfTable.h
     ${CMAKE_CURRENT_LIST_DIR}/EntrySelfTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PurchaseInvoiceTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/PurchaseInvoiceTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTable.h
     ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTable.cpp

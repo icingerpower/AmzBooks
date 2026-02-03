@@ -39,7 +39,9 @@ protected:
 
 #define DECLARE_BOOKS_TABLE_BANK(NEW_CLASS) \
     AbstractBooksTableBank *create##NEW_CLASS(const BooksConnections *bc, const QDir &wd, QObject *p) { \
-        return new NEW_CLASS(bc, wd, p); \
+        auto *ptr = new NEW_CLASS(bc, wd, p); \
+        ptr->init(); \
+        return ptr; \
     } \
     NEW_CLASS prototype##NEW_CLASS{nullptr, QDir(), nullptr}; \
     AbstractBooksTableBank::Recorder recorder##NEW_CLASS{prototype##NEW_CLASS.getId(), create##NEW_CLASS};

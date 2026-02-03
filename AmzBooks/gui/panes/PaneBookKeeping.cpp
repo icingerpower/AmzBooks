@@ -5,6 +5,7 @@
 #include "books/AbstractBooksTableBank.h"
 #include "books/BooksConnections.h"
 #include "banks/AbstractBankStatement.h"
+#include "books/PurchaseInvoiceTable.h"
 
 #include <QTableView>
 #include <QHeaderView>
@@ -19,6 +20,10 @@
 
 #include "../../common/utils/CsvHeader.h"
 #include "books/ExceptionFileError.h"
+#include "../dialogs/DialogPurchaseInvoices.h"
+
+// For confirmation message box
+#include <QMessageBox>
 
 PaneBookKeeping::PaneBookKeeping(QWidget *parent) :
     QWidget(parent),
@@ -29,7 +34,7 @@ PaneBookKeeping::PaneBookKeeping(QWidget *parent) :
             WorkingDirectoryManager::instance()->workingDir()};
 
     _initYears();
-    _createBanks();
+    _createBooksTables();
     _setSubButtonsEnabled(false);
     _connectSlots();
 }
@@ -67,6 +72,137 @@ void PaneBookKeeping::associate()
 void PaneBookKeeping::dissociate()
 {
 
+}
+
+void PaneBookKeeping::purchaseAdd()
+{
+    QSettings settings;
+    QString lastDir = settings.value("lastPurchaseDir", QDir::homePath()).toString();
+    
+    QString fileName = QFileDialog::getOpenFileName(this, 
+                                                    tr("Select Purchase Invoice"), 
+                                                    lastDir, 
+                                                    tr("Invoice Files (*.pdf *.png *.jpg *.jpeg)"));
+    
+    if (fileName.isEmpty()) {
+        return;
+    }
+    
+    settings.setValue("lastPurchaseDir", QFileInfo(fileName).absolutePath());
+    
+    auto purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
+    
+    try {
+        QFileInfo fi(fileName);
+        PurchaseInformation info = PurchaseInvoiceManager::decode(fi.fileName());
+        // We pass the full path so that add() can copy it.
+        // But add() takes sourceFilePath and info.
+        // Info.filePath might be set by decode() if we passed full path but decode() only looks at fileName usually.
+        // Let's rely on info structure from decode, and add just needs correct info date/etc.
+        
+        purchaseTable->manager().add(fileName, info);
+        // Reload table for the year of the invoice
+        purchaseTable->load(info.date.year());
+        
+        // Also ensure UI year is correct? Or just warn if added to a different year?
+        if (ui->comboBoxYear->currentText().toInt() != info.date.year()) {
+            QMessageBox::information(this, tr("Invoice Added"), 
+                tr("Invoice added to year %1 (Current view is %2). Switch year to view it.")
+                .arg(info.date.year())
+                .arg(ui->comboBoxYear->currentText()));
+        } else {
+             // Refresh current view
+             purchaseTable->load(info.date.year());
+        }
+
+    } catch (const ExceptionFileError &e) {
+        QMessageBox::warning(this, e.errorTitle(), e.errorText());
+    } catch (...) {
+        QMessageBox::warning(this, tr("Error"), tr("Unknown error adding invoice."));
+    }
+}
+
+void PaneBookKeeping::purchaseAddMany()
+{
+    QSettings settings;
+    QString lastDir = settings.value("lastPurchaseDir", QDir::homePath()).toString();
+    
+    QStringList fileNames = QFileDialog::getOpenFileNames(this, 
+                                                          tr("Select Purchase Invoices"), 
+                                                          lastDir, 
+                                                          tr("Invoice Files (*.pdf *.png *.jpg *.jpeg)"));
+    
+    if (fileNames.isEmpty()) {
+        return;
+    }
+    
+    settings.setValue("lastPurchaseDir", QFileInfo(fileNames.first()).absolutePath());
+    
+    DialogPurchaseInvoices dialog(fileNames, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        auto purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
+        QList<PurchaseInformation> invoicesToAdd = dialog.selectedInvoices();
+        
+        int count = 0;
+        int errCount = 0;
+        
+        for (PurchaseInformation info : invoicesToAdd) {
+            try {
+                // Here info.filePath is the source file path (set in dialog)
+                purchaseTable->manager().add(info.filePath, info);
+                count++;
+            } catch (...) {
+                errCount++;
+            }
+        }
+        
+        // Reload current view
+        purchaseTable->load(ui->comboBoxYear->currentText().toInt());
+        
+        QString msg = tr("Added %1 invoices.").arg(count);
+        if (errCount > 0) {
+            msg += tr("\n%1 errors occurred.").arg(errCount);
+        }
+        QMessageBox::information(this, tr("Import Result"), msg);
+    }
+}
+
+void PaneBookKeeping::purchaseRemove()
+{
+    auto purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
+    QModelIndexList selection = ui->tableInvoices->selectionModel()->selectedRows();
+    
+    if (selection.isEmpty()) {
+        QMessageBox::warning(this, tr("No Selection"), tr("Please select invoices to remove."));
+        return;
+    }
+    
+    if (QMessageBox::question(this, tr("Confirm Removal"), 
+                              tr("Are you sure you want to remove %1 invoices? "
+                                 "This will delete the files from disk.")
+                              .arg(selection.size())) 
+        != QMessageBox::Yes) {
+        return;
+    }
+    
+    // Sort selection reverse to remove safely? 
+    // removeInvoice uses rowId and manager removal, so index validity changes are tricky if we rely on indices.
+    // However, PurchaseInvoiceTable::removeInvoice takes a QModelIndex.
+    // If we remove one, indices shift.
+    // Better strategy: Collect Row IDs first.
+    
+    QStringList rowIds;
+    for (const QModelIndex &idx : selection) {
+        rowIds << purchaseTable->getRowId(idx);
+    }
+    
+    for (const QString &id : rowIds) {
+        purchaseTable->manager().remove(id);
+    }
+    
+    // Reload to refresh view properly (or trust manager remove logic if it was robust enough for batch)
+    // PurchaseInvoiceTable::load clears and reloads.
+    purchaseTable->load(ui->comboBoxYear->currentText().toInt());
 }
 
 void PaneBookKeeping::bankAdd()
@@ -175,6 +311,14 @@ void PaneBookKeeping::_createBanks()
     }
 }
 
+void PaneBookKeeping::_createBooksTables()
+{
+    _createBanks();
+    QDir workingDir{WorkingDirectoryManager::instance()->workingDir()};
+    auto purchaseTable = new PurchaseInvoiceTable(m_booksConnections, workingDir, ui->tableInvoices);
+    ui->tableInvoices->setModel(purchaseTable);
+}
+
 void PaneBookKeeping::_initYears()
 {
     int currentYear = QDate::currentDate().year();
@@ -197,6 +341,29 @@ void PaneBookKeeping::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneBookKeeping::unselectAll);
+
+    connect(ui->buttonAssociate,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::associate);
+    connect(ui->buttonDissociate,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::dissociate);
+
+    connect(ui->buttonInvoiceAdd,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::purchaseAdd);
+    connect(ui->buttonInvoiceAddMany,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::purchaseAddMany);
+    connect(ui->buttonInvoiceRemove,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::purchaseRemove);
+
     connect(ui->buttonBankAddStatement,
             &QPushButton::clicked,
             this,

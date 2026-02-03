@@ -22,6 +22,7 @@ public:
 private:
     Ui::PaneBookKeeping *ui;
     void _createBanks();
+    void _createBooksTables();
     void _initYears();
     void _connectSlots();
     void _setSubButtonsEnabled(bool enable);
@@ -33,6 +34,10 @@ public slots:
     void unselectAll();
     void associate();
     void dissociate();
+
+    void purchaseAdd();
+    void purchaseAddMany();
+    void purchaseRemove();
 
     void bankAdd();
     void bankRemove();

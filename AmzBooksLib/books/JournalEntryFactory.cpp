@@ -70,7 +70,7 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
                           .arg(prefix,
                                flagDDP,
                                countries,
-                               purchaseInformation.supplier,
+                               purchaseInformation.accountSupplier,
                                purchaseInformation.label,
                                currencyInfo);
     
@@ -171,7 +171,7 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
     // Supplier account (Class 4 - Fournisseurs)
     JournalEntry::EntryLine supplierLine;
     supplierLine.title = commonTitle;
-    supplierLine.account = purchaseInformation.supplier; // Generic supplier account
+    supplierLine.account = purchaseInformation.accountSupplier; // Generic supplier account
     supplierLine.currency_amount[purchaseInformation.currency] = totalAmountAbs;
     
     if (isRefund) {

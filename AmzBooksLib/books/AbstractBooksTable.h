@@ -13,10 +13,20 @@ class AbstractBooksTable : public QAbstractTableModel
 
 public:
     static const QVariantList COL_NAMES;
+    static const QString KEY_AMOUNT_FULL_ORIG;
+    static const QString KEY_AMOUNT_FULL_CONVERTED;
+    static const QString KEY_CURRENCY_AMOUNT;
+    static const QString KEY_VAT_CONVERTED;
+    static const QString KEY_VAT_ORIG;
+    static const QString KEY_VAT_COUNTRY;
+    static const QString KEY_VAT_CURRENCY;
+
     explicit AbstractBooksTable(
             const BooksConnections *bookConnections,
             const QDir &workingDir,
             QObject *parent = nullptr);
+    
+    void init();
 
     QString getRowId(const QModelIndex &index) const;
 

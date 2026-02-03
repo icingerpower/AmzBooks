@@ -27,5 +27,8 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogVatParams.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogVatParams.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogVatParams.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogPurchaseInvoices.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogPurchaseInvoices.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogPurchaseInvoices.ui
     ${PANES_FILES}
 )

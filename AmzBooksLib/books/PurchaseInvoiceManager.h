@@ -12,7 +12,7 @@ struct PurchaseInformation {
     QDate date;
     QString account;
     QString label;
-    QString supplier;
+    QString accountSupplier;
     QStringList vatTokens;
     QHash<QString, QHash<QString, double>> country_vatRate_vat;
     double totalAmount = 0.0;
@@ -40,6 +40,7 @@ public:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 
     void add(const QString &sourceFilePath, PurchaseInformation &info);
+    bool remove(const QString &fileName);
 
     QList<PurchaseInformation> getInvoices(const QDate &from, const QDate &to) const;
 

@@ -294,7 +294,7 @@
          </item>
         </layout>
        </widget>
-       <widget class="QTableView" name="tableAmzPayments_2">
+       <widget class="QTableView" name="tableServices">
         <property name="geometry">
          <rect>
           <x>0</x>

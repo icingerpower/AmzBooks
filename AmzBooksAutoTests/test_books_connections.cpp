@@ -437,10 +437,15 @@ void TestBooksConnection::test_tryToConnect_more2()
     CurrencyRateManager rateManager(dir, "DUMMY");
     
     // Create multiple tables
+    // Create multiple tables
     ConcreteBooksTable bookTableA(&connections, dir);
+    bookTableA.init();
     ConcreteBooksTable bookTableB(&connections, dir);
+    bookTableB.init();
     ConcreteBooksTableBank bankTableA(&connections, dir);
+    bankTableA.init();
     ConcreteBooksTableBank bankTableB(&connections, dir);
+    bankTableB.init();
     // Maybe SelfTable too if needed, but Bank/Book focus is main.
 
     // ID Helper

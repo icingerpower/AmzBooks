@@ -43,6 +43,8 @@ public:
                                const ActivitySource *activitySource
                                , const Shipment *shipmentOrRefund
                                , const QDate &newDateIfConflict); // Will record without erasing the original shipment (exception if shipment doesn't exist). // Save if new. Replace if not published OR not Activity::isDifferentTaxese. Otherwise create double entry (refund / re-invoicing).
+    void removeOrder(const QString &orderId);
+    void removeShipmenOrRefund(const QString &shipmentOrRefundId);
     void recordOrder(const QString &orderId,
                          const QString &store); // Replace if exists
     void recordAddressTo(const QString &orderId,

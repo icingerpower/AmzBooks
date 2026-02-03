@@ -52,7 +52,7 @@ QVariant PurchaseInvoiceManager::data(const QModelIndex &index, int role) const
         case 0: return item.date;
         case 1: return item.account;
         case 2: return item.label;
-        case 3: return item.supplier;
+        case 3: return item.accountSupplier;
         case 4: return item.vatTokens.join(", ");
         case 5: return item.totalAmount;
         case 6: return item.currency;
@@ -105,6 +105,37 @@ void PurchaseInvoiceManager::add(const QString &sourceFilePath, PurchaseInformat
     
     // Refresh model
     _load();
+    // Refresh model
+    _load();
+}
+
+bool PurchaseInvoiceManager::remove(const QString &fileName)
+{
+    // Search in current data to find the file path
+    QString filePath;
+    for (const auto &info : m_data) {
+        QFileInfo fi(info.filePath);
+        if (fi.fileName() == fileName) {
+            filePath = info.filePath;
+            break;
+        }
+    }
+
+    if (filePath.isEmpty()) {
+        // Maybe the user passed the full path?
+        if (QFile::exists(fileName)) {
+            filePath = fileName;
+        } else {
+            return false;
+        }
+    }
+
+    if (!QFile::remove(filePath)) {
+        return false;
+    }
+
+    _load();
+    return true;
 }
 
 void PurchaseInvoiceManager::_load()
@@ -184,11 +215,11 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
 
     info.account = parts[1];
     info.label = parts[2];
-    info.supplier = parts[3];
+    info.accountSupplier = parts[3];
     
     // Check for Route in Supplier (Ends with 4 caps, e.g. CNFR)
     static QRegularExpression regexRoute("([A-Z]{2})([A-Z]{2})$");
-    QRegularExpressionMatch matchRoute = regexRoute.match(info.supplier);
+    QRegularExpressionMatch matchRoute = regexRoute.match(info.accountSupplier);
     if (matchRoute.hasMatch()) {
         info.countryCodeFrom = matchRoute.captured(1);
         info.countryCodeTo = matchRoute.captured(2);
@@ -277,7 +308,7 @@ QString PurchaseInvoiceManager::encode(const PurchaseInformation &info)
     parts << info.date.toString(Qt::ISODate);
     parts << info.account;
     parts << info.label;
-    parts << info.supplier;
+    parts << info.accountSupplier;
     
     parts.append(info.vatTokens);
     

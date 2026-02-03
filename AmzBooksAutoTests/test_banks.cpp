@@ -23,6 +23,7 @@ private slots:
     void testQontoTheoretical();
     void testRealData();
     void test_fileManagement();
+    void test_persistence();
 };
 
 void TestBanks::testPaypalTheoretical()
@@ -344,7 +345,57 @@ void TestBanks::test_fileManagement()
          QCOMPARE(table.rowCount(), 0);
          QVERIFY(!QFile::exists(path1));
     }
+}
 
+void TestBanks::test_persistence()
+{
+    QTemporaryDir tempDir;
+    QDir dir(tempDir.path());
+
+    class TestBankTable : public AbstractBooksTableBank {
+    public:
+         TestBankTable(const QDir &wd) : AbstractBooksTableBank(nullptr, wd, nullptr) {
+             m_stmt = QSharedPointer<BankPaypalEUR>::create();
+         }
+         const AbstractBankStatement *getBankStatement() const override { return m_stmt.data(); }
+         QString getId() const override { return "TestBankTablePersistence"; }
+         
+         QSharedPointer<AbstractBankStatement> m_stmt;
+    };
+    
+    QString rowId = "test_row_1";
+    
+    // 1. Create table, add row, update data
+    {
+        TestBankTable table(dir);
+        table.init(); // Initialize tables
+        table.add(rowId, QDate(2025, 1, 1), 100.0, "EUR", "Label", "", "", 0.0, "", "");
+        
+        QCOMPARE(table.data(table.index(0, 1)).toDouble(), 100.0);
+        QCOMPARE(table.data(table.index(0, 7)).toString(), ""); // Vat Country
+        
+        // Update data (set VAT)
+        table.updateData(rowId, 100.0, 100.0, "EUR", 20.0, 20.0, "FR", "EUR");
+        
+        // Verify update in model
+        QCOMPARE(table.data(table.index(0, 1)).toDouble(), 100.0);
+        QCOMPARE(table.data(table.index(0, 7)).toString(), "FR");
+    }
+    
+    // 2. Re-create table (should load from settings)
+    {
+        TestBankTable table(dir);
+        table.init();
+        // Table is empty initially as add() is not called automatically from settings,
+        // but settings should be loaded into m_fixedData.
+        
+        // When we add the SAME row again (e.g. loading from file)
+        table.add(rowId, QDate(2025, 1, 1), 100.0, "EUR", "Label", "", "", 0.0, "", "");
+        
+        // It should have picked up the "FR" from settings
+        QCOMPARE(table.data(table.index(0, 7)).toString(), "FR");
+        QCOMPARE(table.data(table.index(0, 6)).toDouble(), 20.0);
+    }
 }
 
 QTEST_MAIN(TestBanks)
