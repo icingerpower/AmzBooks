@@ -114,6 +114,22 @@ QDateTime OrderManager::getBeginDateTime(ActivitySource *activitySource) const
     return QDateTime();
 }
 
+bool OrderManager::containsOrder(const QString &orderId) const
+{
+    QSqlQuery q;
+    q.prepare("SELECT 1 FROM orders WHERE id = ?");
+    q.addBindValue(orderId);
+    return q.exec() && q.next();
+}
+
+bool OrderManager::containsShipmentOrRefund(const QString &shipmentOrRefundId) const
+{
+    QSqlQuery q;
+    q.prepare("SELECT 1 FROM shipments WHERE id = ?");
+    q.addBindValue(shipmentOrRefundId);
+    return q.exec() && q.next();
+}
+
 void OrderManager::recordShipmentFromSource(const QString &orderId,
                                             const ActivitySource *activitySource,
                                             const Shipment *shipmentOrRefund,
@@ -284,16 +300,112 @@ void OrderManager::recordShipmentUpdated(const QString &orderId,
 
 void OrderManager::removeOrder(const QString &orderId)
 {
-    // TODO if not published, remove the order and also all of its shipment / refund
-    // If published, it create refunds if not
+    m_db.transaction();
 
+    // 1. Check if any shipment is Published
+    {
+        QSqlQuery qCheck;
+        qCheck.prepare("SELECT COUNT(*) FROM shipments WHERE order_id = ? AND status = 'Published'");
+        qCheck.addBindValue(orderId);
+        if (qCheck.exec() && qCheck.next()) {
+            if (qCheck.value(0).toInt() > 0) {
+                // Determine if we should create revisions? 
+                // Requirement says "doesn't work if done again but order were published".
+                // This implies we simply do NOT delete.
+                // TODO: Possibly implement cancellation via Reversals here in the future if requested.
+                m_db.commit(); 
+                return;
+            }
+        }
+    }
+
+    // 2. Delete Invoicing Info
+    // We delete where shipment_root_id corresponds to any shipment of this order.
+    {
+        QSqlQuery qDelInv;
+        qDelInv.prepare("DELETE FROM invoicing_infos WHERE shipment_root_id IN (SELECT id FROM shipments WHERE order_id = ?)");
+        qDelInv.addBindValue(orderId);
+        qDelInv.exec();
+    }
+    
+    // 3. Delete Shipments (and refunds which are stored in shipments table)
+    {
+        QSqlQuery qDelShip;
+        qDelShip.prepare("DELETE FROM shipments WHERE order_id = ?");
+        qDelShip.addBindValue(orderId);
+        qDelShip.exec();
+    }
+
+    // 4. Delete Order
+    {
+        QSqlQuery qDelOrd;
+        qDelOrd.prepare("DELETE FROM orders WHERE id = ?");
+        qDelOrd.addBindValue(orderId);
+        qDelOrd.exec();
+    }
+
+    m_db.commit();
 }
 
 void OrderManager::removeShipmenOrRefund(const QString &shipmentOrRefundId)
 {
-    // TODO
-    // If only shipment/refund of the orderId call removeOrder on the orderId
-    // Otherwise if not published, remove it. If published and not a refund, create a refund
+    // 1. Resolve Root ID, Order ID, and verify status
+    QString rootId;
+    QString orderId;
+    bool isPublished = false;
+
+    {
+        QSqlQuery q;
+        q.prepare("SELECT COALESCE(root_id, id), order_id, status FROM shipments WHERE id = ?");
+        q.addBindValue(shipmentOrRefundId);
+        if (q.exec() && q.next()) {
+            rootId = q.value(0).toString();
+            orderId = q.value(1).toString();
+            if (q.value(2).toString() == "Published") {
+                isPublished = true;
+            }
+        } else {
+            return; // Not found
+        }
+    }
+
+    if (isPublished) return;
+
+    // 2. Check if this is the only logical shipment (root) for the order
+    int count = 0;
+    {
+        QSqlQuery q;
+        q.prepare("SELECT COUNT(DISTINCT COALESCE(root_id, id)) FROM shipments WHERE order_id = ?");
+        q.addBindValue(orderId);
+        if (q.exec() && q.next()) {
+            count = q.value(0).toInt();
+        }
+    }
+
+    if (count <= 1) {
+        // If it's the only one, remove the entire order (which handles cleanup and published checks for the whole order)
+        removeOrder(orderId);
+    } else {
+        // Delete only this shipment/refund logical entity (all revisions)
+        m_db.transaction();
+        
+        {
+            QSqlQuery qDelInv;
+            qDelInv.prepare("DELETE FROM invoicing_infos WHERE shipment_root_id = ?");
+            qDelInv.addBindValue(rootId);
+            qDelInv.exec();
+        }
+        
+        {
+            QSqlQuery qDelShip;
+            qDelShip.prepare("DELETE FROM shipments WHERE root_id = ? OR id = ?");
+            qDelShip.addBindValue(rootId);
+            qDelShip.addBindValue(rootId);
+            qDelShip.exec();
+        }
+        
+        m_db.commit();
+    }
 }
 
 void OrderManager::recordAddressTo(const QString &orderId, const Address &addressTo)
