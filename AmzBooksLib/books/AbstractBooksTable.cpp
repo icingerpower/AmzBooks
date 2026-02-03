@@ -93,7 +93,28 @@ void AbstractBooksTable::updateData(
 {
     // TODO fill m_fixedData[rowId] = …
     // You need to create static const QString for each key of the QHash
+    // You need to create static const QString for each key of the QHash
     _saveInSettings();
+}
+
+void AbstractBooksTable::clear()
+{
+    beginResetModel();
+    m_listOfVariantList.clear();
+    endResetModel();
+}
+
+bool AbstractBooksTable::remove(const QString &rowId)
+{
+    for (int i = 0; i < m_listOfVariantList.size(); ++i) {
+        if (m_listOfVariantList[i].last().toString() == rowId) {
+            beginRemoveRows(QModelIndex(), i, i);
+            m_listOfVariantList.removeAt(i);
+            endRemoveRows();
+            return true;
+        }
+    }
+    return false;
 }
 
 QVariant AbstractBooksTable::headerData(

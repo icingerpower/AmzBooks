@@ -3,18 +3,19 @@
 
 // QMap<QString, const AbstractBankStatement *> AbstractBankStatement::_BANKS;
 
-QMap<QString, const AbstractBankStatement *> &AbstractBankStatement::getBanks()
+QMap<QString, AbstractBankStatement *> &AbstractBankStatement::getBanks()
 {
-    static QMap<QString, const AbstractBankStatement *> banks;
+    static QMap<QString, AbstractBankStatement *> banks;
     return banks;
 }
 
-const QMap<QString, const AbstractBankStatement *> &AbstractBankStatement::ALL_BANKS()
+const QMap<QString, AbstractBankStatement *> &AbstractBankStatement::ALL_BANKS()
 {
     return getBanks();
 }
 
-AbstractBankStatement::AbstractBankStatement()
+AbstractBankStatement::AbstractBankStatement(QObject *parent)
+    : QObject(parent)
 {
 
 }
@@ -24,7 +25,12 @@ QStringList AbstractBankStatement::fileFilters() const
     return QStringList{"*.csv", "*.CSV"};
 }
 
-AbstractBankStatement::Recorder::Recorder(const AbstractBankStatement *dataGetter)
+QString AbstractBankStatement::defaultJournal() const
 {
-    getBanks()[dataGetter->getName()] = dataGetter;
+    return "BQ";
+}
+
+AbstractBankStatement::Recorder::Recorder(const QString& id, AbstractBankStatement* statement)
+{
+    getBanks()[id] = statement;
 }

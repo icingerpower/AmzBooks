@@ -1,7 +1,8 @@
 #include <QtTest>
 #include <QCoreApplication>
-#include "orders/AbstractImporterFile.h"
 #include "orders/AbstractImporterApi.h"
+#include "orders/AbstractImporterFile.h"
+#include "banks/AbstractBankStatement.h"
 
 class TestRecorders : public QObject
 {
@@ -16,6 +17,8 @@ private slots:
     void cleanupTestCase();
     void test_AbstractImporterFile_recorders();
     void test_AbstractImporterApi_recorders();
+    void test_AbstractBankStatement_factories();
+    void test_AbstractBooksTableBank_factories();
     void test_FileImportersTable();
     void test_ApiImportersTable();
     void test_ParamsTable();
@@ -96,6 +99,50 @@ void TestRecorders::test_AbstractImporterApi_recorders()
         qDebug() << "  -" << it.key();
     }
 }
+
+
+#include "books/AbstractBooksTableBank.h"
+
+void TestRecorders::test_AbstractBankStatement_factories()
+{
+    // Get all registered bank prototypes
+    const auto& banks = AbstractBankStatement::ALL_BANKS();
+
+    // Verify that at least one bank is registered
+    QVERIFY(banks.size() > 0);
+
+    // We expect at least the ones we converted:
+    // Paypal EUR, Paypal USD, Stripe EUR, Stripe USD, Wise EUR, GBP, USD, Qonto
+    QVERIFY(banks.size() >= 8);
+
+    qDebug() << "AbstractBankStatement registered banks:" << banks.size();
+    for (auto it = banks.begin(); it != banks.end(); ++it) {
+        qDebug() << "  -" << it.key();
+        QVERIFY(!it.key().isEmpty());
+        QVERIFY(it.value() != nullptr);
+        // Verify we can get Name/Id from prototype
+        QCOMPARE(it.value()->getId(), it.key());
+        QVERIFY(!it.value()->getName().isEmpty());
+    }
+}
+
+void TestRecorders::test_AbstractBooksTableBank_factories()
+{
+    // Get all registered bank table factories
+    const auto& tables = AbstractBooksTableBank::ALL_TABLES();
+    
+    QVERIFY(tables.size() > 0);
+    // Should verify correct number of tables (matching banks mostly)
+    QVERIFY(tables.size() >= 8);
+    
+    qDebug() << "AbstractBooksTableBank registered tables:" << tables.size();
+    for (auto it = tables.begin(); it != tables.end(); ++it) {
+         qDebug() << "  -" << it.key();
+         QVERIFY(!it.key().isEmpty());
+         QVERIFY(it.value() != nullptr); // Factory function is valid
+    }
+}
+
 
 #include "orders/FileImportersTable.h"
 

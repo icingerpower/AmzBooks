@@ -7,6 +7,8 @@
 #include "EntrySelfTable.h"
 #include "ExceptionBookEquality.h"
 
+#include "CurrencyRateManager.h"
+
 #include "BooksConnections.h"
 
 BooksConnections::BooksConnections(const QDir &workingDir)
@@ -52,81 +54,133 @@ void BooksConnections::_load()
         }
         while (!in.atEnd()) {
             QString line = in.readLine().trimmed();
-            if (line.isEmpty()) continue;
+            if (line.isEmpty())
+            {
+                continue;
+            }
             QStringList parts = line.split(";");
             if (parts.size() >= 2) {
                 QString id1 = parts[0];
                 QString id2 = parts[1];
-                m_id_id[id1] = id2;
-                m_id_id[id2] = id1;
+                m_id_id.insert(id1, id2);
+                m_id_id.insert(id2, id1);
             }
         }
     }
 }
 
 void BooksConnections::tryToConnect(
-        AbstractBooksTable *left
-        , const QModelIndex &indexLeft
-        , AbstractBooksTableBank *right
-        , const QModelIndex &indexRight
-        , double currencyRate)
+        QHash<AbstractBooksTable *, QModelIndexList> &table_indexes
+        , CurrencyRateManager *currencyRateManager)
 {
-    // Convert amount if needed. If currency is different, 1% difference is acceptable to be considered equals.
+    // Identify types and order
+    // Support multiple tables/rows.
+    // Group into Left (Book) and Right (Bank/Self).
     
-    // Left: AbstractBooksTable. Amount is at index 1 (Original Amount) or 2 (Converted Amount).
-    // Let's rely on column names or fixed indices. 
-    // From AbstractBooksTable.cpp:
-    // 0: Date
-    // 1: Amount (Original)
-    // 2: Currency (Original) - Wait, in recent user edit:
-    // COL_NAMES: Date, Amount, Currency, ... (Size reduced)
-    // Let's check the file content again or assume indices based on recent diffs.
-    // User change Step 67:
-    // tr("Amount"), tr("Currency"), tr("Label")...
-    // So Index 1 is Amount, Index 2 is Currency.
+    QList<std::tuple<AbstractBooksTable*, QModelIndex>> leftItems;
+    QList<std::tuple<AbstractBooksTable*, QModelIndex>> rightItems;
     
-    // Right: AbstractBooksTableBank -> AbstractBooksTable. Same columns.
-    
-    double amountLeft = left->data(left->index(indexLeft.row(), 1)).toDouble();
-    QString currencyLeft = left->data(left->index(indexLeft.row(), 2)).toString();
-    
-    double amountRight = right->data(right->index(indexRight.row(), 1)).toDouble();
-    QString currencyRight = right->data(right->index(indexRight.row(), 2)).toString();
-
-    double amountDiff = 0.0;
-    
-    if (currencyLeft == currencyRight) {
-        amountDiff = std::abs(amountLeft) - std::abs(amountRight);
-    } else {
-        // Convert Right to Left currency (or check equivalence)
-        // If we have rate, we assume AmountLeft ~ AmountRight * Rate (if Rate is Right->Left)
-        // Or AmountLeft * Rate ~ AmountRight...
-        // The parameter is just "currencyRate". 
-        // Standard convention? 
-        // Let's try: abs(AmountLeft) - abs(AmountRight * currencyRate)
-        // Depending on Rate definition.
-        // If Rate is 1.0, same as equals.
-        // We will assume Rate converts Right to Left.
-        amountDiff = std::abs(amountLeft) - std::abs(amountRight * currencyRate);
+    // Iterate all inputs
+    for (auto it = table_indexes.begin(); it != table_indexes.end(); ++it) {
+        AbstractBooksTable* table = it.key();
+        QModelIndexList indices = it.value();
+        
+        // Determine type
+        bool isBank = qobject_cast<AbstractBooksTableBank*>(table) != nullptr;
+        bool isSelf = qobject_cast<EntrySelfTable*>(table) != nullptr;
+        
+        if (isBank || isSelf) {
+            for (const auto& idx : indices) rightItems.append({table, idx});
+        } else {
+            // Assume strict Book table (not Bank/Self)
+            for (const auto& idx : indices) leftItems.append({table, idx});
+        }
     }
 
-    if (std::abs(amountDiff) > 0.01 * std::max(std::abs(amountLeft), std::abs(amountRight))) { 
-        // > 1% difference (relative) or just absolute? 
-        // "1% difference is acceptable" -> Relative check.
-        // But for small amounts, absolute is safer?
-        // Let's use 1% of the target amount.
-         throw ExceptionBookEquality(QObject::tr("Amounts do not match: %1 (%3) vs %2 (%4) with rate %5")
-                                    .arg(amountLeft).arg(amountRight)
-                                    .arg(currencyLeft).arg(currencyRight)
-                                    .arg(currencyRate));
+    if (leftItems.isEmpty() || rightItems.isEmpty())
+    {
+        return;
+    }
+
+    // We use the first item of Left as the "Target Currency" source?
+    // Or we need a reference currency.
+    // Usually Book Currency is the reference.
+    // If multiple Books have different currencies? That's weird. Assume single currency for Book side usually.
+    // But let's take the first Book item's currency as Ref.
+    
+    auto [firstLeftTable, firstLeftIdx] = leftItems.first();
+    QString refCurrency = firstLeftTable->data(firstLeftTable->index(firstLeftIdx.row(), 2)).toString();
+    QDate refDate = firstLeftTable->data(firstLeftTable->index(firstLeftIdx.row(), 0)).toDate();
+    
+    double sumLeft = 0.0;
+    double sumRight = 0.0;
+    
+    // Sum Left
+    for (const auto& item : leftItems) {
+        auto [tbl, idx] = item;
+        double amt = tbl->data(tbl->index(idx.row(), 1)).toDouble();
+        QString curr = tbl->data(tbl->index(idx.row(), 2)).toString();
+        
+        if (curr != refCurrency) {
+             // Convert Left items to RefCurrency too? 
+             // If allow mixed Book currencies.
+             if (currencyRateManager) {
+                 double r = currencyRateManager->rate(curr, refCurrency, refDate);
+                 sumLeft += amt * r;
+             } else {
+                 // Fallback or error? Assume 1:1
+                 sumLeft += amt;
+             }
+        } else {
+            sumLeft += amt;
+        }
     }
     
-    // Proceed to connect
-    QString idLeft = _getId(left->getId(), left->getRowId(indexLeft));
-    QString idRight = _getId(right->getId(), right->getRowId(indexRight));
+    // Sum Right (Convert to RefCurrency)
+    for (const auto& item : rightItems) {
+        auto [tbl, idx] = item;
+        double amt = tbl->data(tbl->index(idx.row(), 1)).toDouble();
+        QString curr = tbl->data(tbl->index(idx.row(), 2)).toString();
+        
+        if (curr != refCurrency) {
+             if (currencyRateManager) {
+                 double r = currencyRateManager->rate(curr, refCurrency, refDate);
+                 sumRight += amt * r;
+             } else {
+                 sumRight += amt;
+             }
+        } else {
+            sumRight += amt;
+        }
+    }
+    
+    // Check Equality
+    double amountDiff = std::abs(sumLeft) - std::abs(sumRight);
+    double maxAbs = std::max(std::abs(sumLeft), std::abs(sumRight));
+    double tolerance = std::max(0.005, 0.01 * maxAbs);
 
-    m_id_id[idLeft] = idRight;
-    m_id_id[idRight] = idLeft;
+    if (std::abs(amountDiff) > tolerance) {
+         throw ExceptionBookEquality(QObject::tr("Amounts do not match: %1 vs %2 (Ref Currency: %3) (Diff %4 > Tol %5)")
+                                    .arg(sumLeft).arg(sumRight)
+                                    .arg(refCurrency)
+                                    .arg(amountDiff).arg(tolerance));
+    }
+    
+    // Connect Cartesian Product
+    for (const auto& lItem : leftItems) {
+        auto [lTbl, lIdx] = lItem;
+        QString lId = _getId(lTbl->getId(), lTbl->getRowId(lIdx));
+        
+        for (const auto& rItem : rightItems) {
+            auto [rTbl, rIdx] = rItem;
+            QString rId = _getId(rTbl->getId(), rTbl->getRowId(rIdx));
+            
+            if (!m_id_id.contains(lId, rId)) {
+                m_id_id.insert(lId, rId);
+                m_id_id.insert(rId, lId);
+            }
+        }
+    }
     _save();
 }
 
@@ -141,8 +195,8 @@ void BooksConnections::tryToConnect(
     QString idLeft = _getId(left->getId(), left->getRowId(indexLeft));
     QString idRight = _getId(right->getId(), right->getRowId(indexRight));
 
-    m_id_id[idLeft] = idRight;
-    m_id_id[idRight] = idLeft;
+    m_id_id.insert(idLeft, idRight);
+    m_id_id.insert(idRight, idLeft);
     _save();
 }
 
@@ -154,9 +208,14 @@ void BooksConnections::disconnect(AbstractBooksTable *booksTable, const QModelIn
                 rowId);
     if (m_id_id.contains(firstId))
     {
-        const auto &secondId = m_id_id[firstId];
-        m_id_id.remove(secondId);
+        // Get all connected IDs
+        QStringList values = m_id_id.values(firstId);
         m_id_id.remove(firstId);
+        
+        // For each connected ID, remove the backlink to firstId
+        for (const QString &v : values) {
+            m_id_id.remove(v, firstId);
+        }
         _save();
     }
 }

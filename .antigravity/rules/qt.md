@@ -9,6 +9,9 @@
 - **Catching**: Do not catch `const std::exception &e` if the exception inherits from `QException`. Catch `const QException &e` (or the specific type) first.
 - **UI Reporting**: Exceptions caught in UI models or logic **MUST** be reported to the user via specific signals (e.g. `exceptionOccurred`) connected to UI elements (like `QMessageBox`), and **NOT** hidden via `qWarning` or `qDebug`.
 
+- **CsvHeaderException**: use `columnValuesError()` to retrieve the list of missing columns instead of using `what()`.
+- **ExceptionFileError**: use `errorTitle()` and `errorText()` to display the error message.
+
 ## QAbstractTableModel Implementations
 - **Robust Loading**:
     - Loading logic **MUST** be robust to schema changes. It should handle added, deleted, or re-ordered columns gracefully.

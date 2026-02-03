@@ -4,20 +4,19 @@
 #include <QDir>
 #include <QString>
 #include <QModelIndex>
+#include <QMultiHash>
 
 class AbstractBooksTable;
 class AbstractBooksTableBank;
 class EntrySelfTable;
+class CurrencyRateManager;
 
 class BooksConnections
 {
 public:
     BooksConnections(const QDir &workingDir);
-    void tryToConnect(AbstractBooksTable *left
-                      , const QModelIndex &indexLeft
-                      , AbstractBooksTableBank *right
-                      , const QModelIndex &indexRight
-                      , double currencyRate = 1.0);
+    void tryToConnect(QHash<AbstractBooksTable *, QModelIndexList> &table_indexes
+                      , CurrencyRateManager *currencyRateManager);
     void tryToConnect(AbstractBooksTable *left
                       , const QModelIndex &indexLeft
                       , EntrySelfTable *right
@@ -28,7 +27,7 @@ public:
 
 private:
     QString m_filePathCsv;
-    QHash<QString, QString> m_id_id; // Contains in both way
+    QMultiHash<QString, QString> m_id_id; // Contains in both way
     QString _getId(const QString &booksTableId, const QString &rowId) const;
     void _save();
     void _load();

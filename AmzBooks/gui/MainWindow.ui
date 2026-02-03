@@ -45,7 +45,7 @@
         <string>Inventaire</string>
        </attribute>
       </widget>
-      <widget class="QWidget" name="tabBookkeeping">
+      <widget class="PaneBookKeeping" name="tabBookkeeping">
        <attribute name="title">
         <string>Books</string>
        </attribute>
@@ -93,6 +93,12 @@
    <class>PaneOrderApis</class>
    <extends>QWidget</extends>
    <header>gui/panes/PaneOrderApis.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneBookKeeping</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneBookKeeping.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

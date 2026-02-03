@@ -42,6 +42,9 @@ public:
             const QString &vatCountry,
             const QString &vatCurrency);
 
+    void clear();
+    bool remove(const QString &rowId);
+
     // Header:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 

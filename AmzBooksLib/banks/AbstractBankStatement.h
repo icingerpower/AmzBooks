@@ -4,9 +4,11 @@
 #include <QMap>
 #include <QString>
 #include <QDate>
+#include <QObject>
 
-class AbstractBankStatement
+class AbstractBankStatement : public QObject
 {
+    Q_OBJECT
 public:
     struct BankRow{
         QDate date;
@@ -15,28 +17,29 @@ public:
         double fees = 0.;
         QString currency;
     };
-    static const QMap<QString, const AbstractBankStatement *> &ALL_BANKS();
+    static const QMap<QString, AbstractBankStatement *> &ALL_BANKS();
 
-    AbstractBankStatement();
-    virtual ~AbstractBankStatement() = default;
+    AbstractBankStatement(QObject *parent = nullptr);
+    virtual ~AbstractBankStatement() override = default;
     virtual QString getId() const = 0;
     virtual QString getName() const = 0;
     virtual QStringList fileFilters() const;
     virtual QString defaultAccount() const = 0;
     virtual QString defaultAccountFees() const = 0;
-    virtual QString defaultJournal() const = 0;
+    virtual QString defaultJournal() const; // Default BQ (Bank Q)
     virtual QSharedPointer<QList<BankRow>> readRows(const QString &filePath) const = 0;
+
+    static QMap<QString, AbstractBankStatement *> &getBanks();
 
     class Recorder{
     public:
-        Recorder(const AbstractBankStatement *dataGetter);
+        Recorder(const QString& id, AbstractBankStatement* statement);
     };
 protected:
-    static QMap<QString, const AbstractBankStatement *> &getBanks();
 };
 
 #define DECLARE_BANK_STATEMENT(NEW_CLASS) \
-NEW_CLASS instance##NEW_CLASS; \
-    AbstractBankStatement::Recorder recorder##NEW_CLASS{&instance##NEW_CLASS};
+    NEW_CLASS prototype##NEW_CLASS; \
+    AbstractBankStatement::Recorder recorder##NEW_CLASS{prototype##NEW_CLASS.getId(), &prototype##NEW_CLASS};
 
 #endif // ABSTRACTBANKSTATEMENT_H

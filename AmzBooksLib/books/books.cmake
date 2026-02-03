@@ -62,10 +62,27 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/EntrySelfTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTable.h
     ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTable.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTableBank.h
-    ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTableBank.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountBankTable.h
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountBankTable.cpp
+    books/AbstractBooksTableBank.h
+    books/AbstractBooksTableBank.cpp
+    books/BankPaypalEURTable.h
+    books/BankPaypalEURTable.cpp
+    books/BankPaypalUSDTable.h
+    books/BankPaypalUSDTable.cpp
+    books/BankStripeEURTable.h
+    books/BankStripeEURTable.cpp
+    books/BankStripeUSDTable.h
+    books/BankStripeUSDTable.cpp
+    books/BankWiseEURTable.h
+    books/BankWiseEURTable.cpp
+    books/BankWiseGBPTable.h
+    books/BankWiseGBPTable.cpp
+    books/BankWiseUSDTable.h
+    books/BankWiseUSDTable.cpp
+    books/BankQontoTable.h
+    books/BankQontoTable.cpp
 )
 
 
