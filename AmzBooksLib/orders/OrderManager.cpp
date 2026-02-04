@@ -28,6 +28,19 @@ namespace {
     }
 }
 
+OrderManager *OrderManager::s_instance = nullptr;
+
+OrderManager *OrderManager::instance(const QDir &workingDirectory)
+{
+    if (!s_instance) {
+        if (workingDirectory == QDir()) {
+            qFatal("OrderManager instance not created and no working directory provided");
+        }
+        s_instance = new OrderManager(workingDirectory);
+    }
+    return s_instance;
+}
+
 OrderManager::OrderManager(const QDir &workingDirectory)
 {
     m_filePathDb = workingDirectory.absoluteFilePath("Orders.db");
@@ -929,4 +942,12 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
     }
 
     return results;
+}
+
+void OrderManager::deleteDatabase()
+{
+    m_db.close();
+    QSqlDatabase::removeDatabase(m_db.connectionName());
+    QFile::remove(m_filePathDb);
+    initDb();
 }

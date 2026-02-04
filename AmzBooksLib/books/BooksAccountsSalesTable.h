@@ -39,6 +39,7 @@ public:
         QString saleAccount;
         QString vatAccount;
         QString vatAccountToPay;
+        QString customerAccount;
     };
     explicit BooksAccountsSalesTable(const QDir &workingDir, QObject *parent = nullptr);
     VatCountries resolveVatCountries(TaxScheme taxScheme, const QString &companyCountryFrom, const QString &countryFrom, const QString &countryCodeTo) const;

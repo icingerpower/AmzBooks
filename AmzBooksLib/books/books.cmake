@@ -67,24 +67,28 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountBankTable.h
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountBankTable.cpp
-    books/AbstractBooksTableBank.h
-    books/AbstractBooksTableBank.cpp
-    books/BankPaypalEURTable.h
-    books/BankPaypalEURTable.cpp
-    books/BankPaypalUSDTable.h
-    books/BankPaypalUSDTable.cpp
-    books/BankStripeEURTable.h
-    books/BankStripeEURTable.cpp
-    books/BankStripeUSDTable.h
-    books/BankStripeUSDTable.cpp
-    books/BankWiseEURTable.h
-    books/BankWiseEURTable.cpp
-    books/BankWiseGBPTable.h
-    books/BankWiseGBPTable.cpp
-    books/BankWiseUSDTable.h
-    books/BankWiseUSDTable.cpp
-    books/BankQontoTable.h
-    books/BankQontoTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTableBank.h
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractBooksTableBank.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankPaypalEURTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankPaypalEURTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankPaypalUSDTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankPaypalUSDTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankStripeEURTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankStripeEURTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankStripeUSDTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankStripeUSDTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseEURTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseEURTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseGBPTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseGBPTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseUSDTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankWiseUSDTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BankQontoTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BankQontoTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ServiceClientManager.h
+    ${CMAKE_CURRENT_LIST_DIR}/ServiceClientManager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ServiceSalesBooksTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/ServiceSalesBooksTable.cpp
 )
 
 

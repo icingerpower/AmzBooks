@@ -16,7 +16,7 @@ public:
     virtual const AbstractBankStatement *getBankStatement() const = 0;
 
     void addFilePaths(const QStringList &filePaths, bool saveToDisk = true);
-    void load(int year);
+    void load(int year) override;
     void removeFile(const QString &filePath);
     void remove(const QList<QModelIndex> &indices);
 

@@ -1,5 +1,6 @@
 SET(ORDERS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/ActivitySource.h
+    ${CMAKE_CURRENT_LIST_DIR}/ActivitySource.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ActivitySourceType.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ActivitySourceType.h
     ${CMAKE_CURRENT_LIST_DIR}/SaleType.cpp

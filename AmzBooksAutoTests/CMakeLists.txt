@@ -176,3 +176,8 @@ add_test(NAME TestBooksConnection COMMAND TestBooksConnection)
 target_link_libraries(TestBooksConnection PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(TestBooksConnection PRIVATE ../AmzBooksLib)
 
+
+add_executable(TestServiceSales test_service_sales.cpp)
+add_test(NAME TestServiceSales COMMAND TestServiceSales)
+target_link_libraries(TestServiceSales PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestServiceSales PRIVATE ../AmzBooksLib)

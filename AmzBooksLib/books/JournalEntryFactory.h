@@ -16,6 +16,8 @@ class BookAccountPurchaseTable;
 class JournalTable;
 class ActivitySource;
 class Shipment;
+class AbstractBooksTableBank;
+class BooksConnections;
 
 class JournalEntryFactory
 {
@@ -34,9 +36,19 @@ public:
     // Each entry needs a French label very well detailed for a French accountant
     // Create journal entry for shipment/sales activities
     // Each entry needs a French label very well detailed for a French accountant
-    QCoro::Task<QSharedPointer<JournalEntry>> createEntry(ActivitySource *source,
-                                             const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
-                                             std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr);
+    QCoro::Task<QSharedPointer<JournalEntry>> createEntry(
+            ActivitySource *source,
+            const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
+            std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr);
+
+    QCoro::Task<QSharedPointer<JournalEntry>> createEntry( // Create entry for one sale only with one shipment
+            QSharedPointer<Shipment> shipmentOrRefund,
+            std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr);
+
+    QSharedPointer<JournalEntry> createEntry(// Create entry for one sale only with one shipment
+            const AbstractBooksTableBank *bankTable,
+            const QString &nonBankAccount,
+            int row);
 
 private:
     const CurrencyRateManager *m_currencyRateManager;

@@ -12,6 +12,7 @@ public:
     ConcreteBooksTable(const BooksConnections *connections, const QDir &workingDir) 
         : AbstractBooksTable(connections, workingDir, nullptr) {}
     QString getId() const override { return "Concrete"; }
+    void load(int) override {} // Test class, no-op
 };
 
 #include "books/AbstractBooksTableBank.h"
@@ -153,7 +154,7 @@ void TestBooksConnection::test_connect_disconnect()
     // 1. Setup tables
     BooksConnections connections(dir);
     ConcreteBooksTable booksTable(&connections, dir);
-    booksTable.add("BOOK_ID_1", QDate::currentDate(), 100.0, "EUR", "Label", "Acc1", "Acc2", 0, "", "");
+    booksTable.add("BOOK_ID_1", "", QDate::currentDate(), 100.0, "EUR", "Label", "Acc1", "Acc2", 0, "", "");
     
     EntrySelfTable selfTable(dir);
     selfTable.addRow({"SelfLabel", "SelfAccount"});
@@ -257,8 +258,8 @@ void TestBooksConnection::test_tryToConnect_overload()
         QString bankId = "BANK_" + caseName;
         QDate date = QDate::currentDate();
 
-        bookTable.add(bookId, date, bookAmount, bookCurr, "Label", "", "", 0, "", "");
-        bankTable.add(bankId, date, bankAmount, bankCurr, "Label", "", "", 0, "", "");
+        bookTable.add(bookId, "", date, bookAmount, bookCurr, "Label", "", "", 0, "", "");
+        bankTable.add(bankId, "", date, bankAmount, bankCurr, "Label", "", "", 0, "", "");
 
         // Inject rate
         // We need rate(from=BankCurr, to=BookCurr)
@@ -464,7 +465,7 @@ void TestBooksConnection::test_tryToConnect_more2()
         for (int i=0; i<lefts.size(); ++i) {
             auto [tbl, amt, curr] = lefts[i];
             QString id = QString("L_%1_%2").arg(caseName).arg(i);
-            tbl->add(id, date, amt, curr, "Desc", "", "", 0, "", "");
+            tbl->add(id, "", date, amt, curr, "Desc", "", "", 0, "", "");
             QModelIndex idx = tbl->index(tbl->rowCount()-1, 0);
             selection[tbl].append(idx);
         }
@@ -473,7 +474,7 @@ void TestBooksConnection::test_tryToConnect_more2()
         for (int i=0; i<rights.size(); ++i) {
             auto [tbl, amt, curr] = rights[i];
             QString id = QString("R_%1_%2").arg(caseName).arg(i);
-            tbl->add(id, date, amt, curr, "Desc", "", "", 0, "", "");
+            tbl->add(id, "", date, amt, curr, "Desc", "", "", 0, "", "");
             QModelIndex idx = tbl->index(tbl->rowCount()-1, 0);
             selection[tbl].append(idx);
         }

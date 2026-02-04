@@ -16,7 +16,7 @@ public:
 
     virtual QString getId() const override;
 
-    void load(int year);
+    void load(int year) override;
 
     PurchaseInvoiceManager &manager() const;
 

@@ -185,7 +185,7 @@ void PaneOrderFiles::importFile()
                 // We instantiate OrderManager here. 
                 // CAUTION: Ensure DB connection doesn't conflict if app uses shared connection.
                 // Assuming OrderManager handles its own connection or default connection is safe.
-                OrderManager manager(WorkingDirectoryManager::instance()->workingDir());
+                OrderManager *manager = OrderManager::instance(WorkingDirectoryManager::instance()->workingDir());
                 
                 int importedCount = 0;
                 if (result.orderInfos) {
@@ -195,7 +195,7 @@ void PaneOrderFiles::importFile()
 
                    // Process Shipments
                    for (const auto &shipment : result.orderInfos->shipments) {
-                       manager.recordShipmentFromSource(
+                       manager->recordShipmentFromSource(
                            shipment.getId(),
                            &source,
                            &shipment,
@@ -205,7 +205,7 @@ void PaneOrderFiles::importFile()
                    
                    // Process Refunds
                    for (const auto &refund : result.orderInfos->refunds) {
-                       manager.recordShipmentFromSource(
+                       manager->recordShipmentFromSource(
                            refund.getId(),
                            &source,
                            &refund,
@@ -215,12 +215,12 @@ void PaneOrderFiles::importFile()
                    
                    // Process Addresses
                    for (const auto &addr : result.orderInfos->orderAddresses) {
-                       manager.recordAddressTo(addr.orderId, addr.address);
+                       manager->recordAddressTo(addr.orderId, addr.address);
                    }
                    
                    // Process InvoicingInfos
                    for (const auto &inv : result.orderInfos->invoicingInfos) {
-                       manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
+                       manager->recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
                    }
                    
                    importedCount = result.orderInfos->shipments.size() + result.orderInfos->refunds.size();

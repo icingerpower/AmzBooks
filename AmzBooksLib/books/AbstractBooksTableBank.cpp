@@ -40,7 +40,7 @@ void AbstractBooksTableBank::addFilePaths(const QStringList &filePaths, bool sav
                 bool hasFees = qAbs(row.fees) > 0.001;
 
                 if (hasAmount) {
-                    add(id, row.date, row.amount, row.currency, row.label,
+                    add(id, "", row.date, row.amount, row.currency, row.label,
                         bank->defaultAccount(), "", 0.0, "", "");
                     m_rowId_filePath[id] = finalPath;
                 }
@@ -48,7 +48,7 @@ void AbstractBooksTableBank::addFilePaths(const QStringList &filePaths, bool sav
                 if (hasFees) {
                     QString feeId = id + "_fees";
                     QString feeLabel = "Fees " + row.label;
-                    add(feeId, row.date, row.fees, row.currency, feeLabel,
+                    add(feeId, "", row.date, row.fees, row.currency, feeLabel,
                         bank->defaultAccount(), bank->defaultAccountFees(), 0.0, "", "");
                     m_rowId_filePath[feeId] = finalPath;
                 }

@@ -369,7 +369,7 @@ void TestBanks::test_persistence()
     {
         TestBankTable table(dir);
         table.init(); // Initialize tables
-        table.add(rowId, QDate(2025, 1, 1), 100.0, "EUR", "Label", "", "", 0.0, "", "");
+        table.add(rowId, "", QDate(2025, 1, 1), 100.0, "EUR", "Label", "", "", 0.0, "", "");
         
         QCOMPARE(table.data(table.index(0, 1)).toDouble(), 100.0);
         QCOMPARE(table.data(table.index(0, 7)).toString(), ""); // Vat Country
@@ -390,7 +390,7 @@ void TestBanks::test_persistence()
         // but settings should be loaded into m_fixedData.
         
         // When we add the SAME row again (e.g. loading from file)
-        table.add(rowId, QDate(2025, 1, 1), 100.0, "EUR", "Label", "", "", 0.0, "", "");
+        table.add(rowId, "", QDate(2025, 1, 1), 100.0, "EUR", "Label", "", "", 0.0, "", "");
         
         // It should have picked up the "FR" from settings
         QCOMPARE(table.data(table.index(0, 7)).toString(), "FR");

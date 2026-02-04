@@ -41,7 +41,7 @@ void PurchaseInvoiceTable::load(int year)
             }
         }
         
-        add(rowId,
+        add(rowId, "",
             info.date,
             info.totalAmount,
             info.currency,

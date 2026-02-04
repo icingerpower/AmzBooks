@@ -8,6 +8,14 @@
 #include "orders/AbstractImporterFile.h"
 #include "banks/AbstractBankStatement.h"
 
+const QString JournalTable::ID_PURCHASES{"purchase"};
+const QString JournalTable::ID_AMZ_PAYMENTS{"amz_payments"};
+const QString JournalTable::ID_SERVICE_SALES{"service_sales"};
+const QHash<QString, JournalItem> JournalTable::DEFAULT_JOURNALS{
+    {JournalTable::ID_PURCHASES, JournalItem{QObject::tr("Purchase"), QObject::tr("AC"), JournalTable::ID_PURCHASES }}
+    , {JournalTable::ID_SERVICE_SALES, JournalItem{QObject::tr("Service sales"), QObject::tr("VTSERVICE"), JournalTable::ID_SERVICE_SALES }}
+    , {JournalTable::ID_AMZ_PAYMENTS, JournalItem{QObject::tr("Amazon Payments"), QObject::tr("AC"), JournalTable::ID_AMZ_PAYMENTS }}
+};
 
 JournalTable::JournalTable(const QDir &workingDir, QObject *parent)
     : QAbstractTableModel(parent)
@@ -47,8 +55,8 @@ QVariant JournalTable::data(const QModelIndex &index, int role) const
 QVariant JournalTable::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (role == Qt::DisplayRole && orientation == Qt::Horizontal) {
-        if (section == 0) return tr("Journal"); // "Journal" (Code)
-        if (section == 1) return tr("Name");    // "Name" (Description)
+        if (section == 0) return tr("Journal"); // Code
+        if (section == 1) return tr("Name");    // Name
     }
     return QVariant();
 }
@@ -65,17 +73,6 @@ bool JournalTable::setData(const QModelIndex &index, const QVariant &value, int 
                     m_data[row].name = value.toString();
                     changed = true;
                 }
-            } else if (index.column() == 0) {
-                 // Column 0 (Code) is NOT editable per user request ("only second column")
-                 // Although inserting new rows might require setting code?
-                 // User: "We can edit only the second column to change journal names"
-                 // If we create a new row, it starts empty. If we can't edit Col 0, how do we set the Code?
-                 // Maybe "Journal" column is fixed/preset or managed elsewhere? 
-                 // OR maybe user meant "Modify existing". 
-                 // For now I strictly follow "Edit only second column".
-                 // But for `insertRows`, I might need to allow setting it programmatically? 
-                 // `setData` is used by View. Programmatic access can modify m_data directly or use a specific method.
-                 // But I'll stick to view restriction.
             }
             
             if (changed) {
@@ -120,27 +117,54 @@ bool JournalTable::removeRows(int row, int count, const QModelIndex &parent)
     return true;
 }
 
-QString JournalTable::getCustomerAccount(const ActivitySource *activitySource) const
-{
-    Q_UNUSED(activitySource);
-    return "CAMAZON";
-}
-
 QString JournalTable::getJournal(const ActivitySource *activitySource) const
 {
-    Q_UNUSED(activitySource);
-    return "AMZTODO";
+    if (!activitySource) return QString();
+    return getJournal(activitySource->channel);
+}
+
+QString JournalTable::getJournal(const QString &id) const
+{
+    for (const auto &item : m_data) {
+        if (item.id == id) {
+            return item.code;
+        }
+    }
+    return QString();
 }
 
 JournalItem JournalTable::getJournalPurchaseInvoice() const
 {
     // Return the one with id "purchase"
     for (const auto &item : m_data) {
-        if (item.id == "purchase") {
+        if (item.id == ID_PURCHASES) {
             return item;
         }
     }
-    return { tr("Purchase"), tr("AC"), "purchase" };
+    Q_ASSERT(false); // Should not happens
+    return { "TODO", "TODOACBUG", "TODO" };
+}
+
+JournalItem JournalTable::getJournalServiceSale() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == ID_SERVICE_SALES) {
+            return item;
+        }
+    }
+    Q_ASSERT(false); // Should not happens
+    return { "TODO", "TODOSERVICEBUG", "TODO" };
+}
+
+JournalItem JournalTable::getJournalAmzPayment() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == ID_AMZ_PAYMENTS) {
+            return item;
+        }
+    }
+    Q_ASSERT(false); // Should not happens
+    return { "TODO", "TODOAMZPBUG", "TODO" };
 }
 
 void JournalTable::_load()
@@ -223,8 +247,11 @@ void JournalTable::_init()
         }
     }
     
-    // Add "purchase" journal if not already present
-    if (!existingIds.contains("purchase")) {
-        m_data.append({ tr("Purchase"), tr("AC"), "purchase" });
+    // Add default journals if not already present
+    for (auto it = DEFAULT_JOURNALS.constBegin(); it != DEFAULT_JOURNALS.constEnd(); ++it) {
+        if (!existingIds.contains(it.key())) {
+            m_data.append(it.value());
+            existingIds.insert(it.key());
+        }
     }
 }

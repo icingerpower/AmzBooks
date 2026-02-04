@@ -29,12 +29,15 @@ class ActivityUpdate;
 class OrderManager
 {
     friend class TestOrderManager;
+    friend class TestServiceSales;
+    friend class TestFileImportAmazonFbaInvoicing;
 public:
-    OrderManager(const QDir &workingDirectory);
+    static OrderManager *instance(const QDir &workingDirectory = QDir());
+
     ~OrderManager();
-    // TODO add source (SourceType such as report or API, main channel / subchannel, reportOrMethodType
     QDateTime getLastDateTime(ActivitySource *activitySource) const;
     QDateTime getBeginDateTime(ActivitySource *activitySource) const;
+
     void recordShipmentFromSource(const QString &orderId,
                                   const ActivitySource *activitySource
                                   , const Shipment *shipmentOrRefund
@@ -88,6 +91,9 @@ public:
                                                             , const Shipment *shipmentOrRefund) const;
 
 private:
+    OrderManager(const QDir &workingDirectory);
+    static OrderManager *s_instance;
+
     void initDb();
     
     QString m_filePathDb;

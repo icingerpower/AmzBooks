@@ -34,7 +34,8 @@ public:
                                    TaxJurisdictionLevel taxJurisdictionLevel, // usually Country in EU
                                    SaleType saleType,
                                    QString vatTerritoryFrom = QString{},
-                                   QString vatTerritoryTo   = QString{});
+                                   QString vatTerritoryTo   = QString{},
+                                   QString invoiceId        = QString{});
 
     static Activity fromJson(const QJsonObject &json);
     QJsonObject toJson() const;
@@ -57,6 +58,7 @@ public:
     double getAmountTaxes() const noexcept;
     double getAmountTaxesSource() const noexcept;
     double getAmountTaxesComputed() const noexcept;
+    const QString& getInvoiceId() const noexcept;
     TaxSource getTaxSource() const noexcept;
     const QString& getTaxDeclaringCountryCode() const noexcept;
     TaxScheme getTaxScheme() const noexcept;
@@ -86,7 +88,8 @@ private:
              SaleType saleType,
              QString vatTerritoryFrom,
              QString vatTerritoryTo,
-             double taxesComputed);
+             double taxesComputed,
+             QString invoiceId);
 
     QString m_eventId;
     QString m_activityId;
@@ -109,6 +112,7 @@ private:
 
     QString m_vatTerritoryFrom;
     QString m_vatTerritoryTo;
+    QString m_invoiceId;
 };
 
 

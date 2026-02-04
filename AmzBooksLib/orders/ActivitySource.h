@@ -6,6 +6,7 @@
 #include "ActivitySourceType.h"
 
 struct ActivitySource {
+    static const QString METHOD_USER_ENTRY;
     ActivitySourceType type;
     QString channel; // Exemple Amazon or Temu
     QString subchannel; // Exemple Europe

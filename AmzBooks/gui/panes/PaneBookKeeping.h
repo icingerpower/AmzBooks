@@ -42,8 +42,14 @@ public slots:
     void bankAdd();
     void bankRemove();
 
+    void serviceAddSale();
+    void serviceRemoveSale();
+    void serviceEditClients();
+    void serviceCreateFromSelection();
+
 private:
     BooksConnections *m_booksConnections;
+    class OrderManager *m_orderManager;
 };
 
 #endif // PANEBOOKKEEPING_H

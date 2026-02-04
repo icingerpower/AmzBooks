@@ -20,7 +20,13 @@ include(gui/gui.cmake)
 
 set(PROJECT_SOURCES
         main.cpp
-        "../../common/types/types.h"
+        gui/dialogs/DialogEditServiceClients.h
+    gui/dialogs/DialogEditServiceClients.cpp
+    gui/dialogs/DialogEditServiceClients.ui
+    gui/dialogs/DialogAddSaleService.h
+    gui/dialogs/DialogAddSaleService.cpp
+    gui/dialogs/DialogAddSaleService.ui
+    "../../common/types/types.h"
         "../../common/types/types.cpp"
         ${WORKING_DIR_FILES}
         ${GUI_FILES}

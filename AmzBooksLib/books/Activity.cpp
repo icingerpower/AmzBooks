@@ -15,7 +15,8 @@ Result<Activity> Activity::create(QString eventId,
                                   TaxJurisdictionLevel taxJurisdictionLevel,
                                   SaleType saleType,
                                   QString vatTerritoryFrom,
-                                  QString vatTerritoryTo)
+                                  QString vatTerritoryTo,
+                                  QString invoiceId)
 {
     Result<Activity> result;
 
@@ -56,7 +57,8 @@ Result<Activity> Activity::create(QString eventId,
                                       saleType,
                                       std::move(vatTerritoryFrom),
                                       std::move(vatTerritoryTo),
-                                      0.0));
+                                      0.0,
+                                      std::move(invoiceId)));
     }
 
     return result;
@@ -74,7 +76,8 @@ bool Activity::isDifferentTaxes(const Activity &other) const
             || m_taxScheme != other.m_taxScheme
             || m_saleType != other.m_saleType
             || m_vatTerritoryFrom != other.m_vatTerritoryFrom
-            || m_vatTerritoryTo != other.m_vatTerritoryTo;
+            || m_vatTerritoryTo != other.m_vatTerritoryTo
+            || m_invoiceId != other.m_invoiceId;
 }
 
 Activity::Activity(QString eventId,
@@ -93,7 +96,8 @@ Activity::Activity(QString eventId,
                    SaleType saleType,
                    QString vatTerritoryFrom,
                    QString vatTerritoryTo,
-                   double taxesComputed)
+                   double taxesComputed,
+                   QString invoiceId)
     : m_eventId(std::move(eventId))
     , m_activityId(std::move(activityId))
     , m_subActivityId(std::move(subActivityId))
@@ -111,6 +115,7 @@ Activity::Activity(QString eventId,
     , m_vatTerritoryFrom(std::move(vatTerritoryFrom))
     , m_vatTerritoryTo(std::move(vatTerritoryTo))
     , m_AmountTaxesComputed(taxesComputed)
+    , m_invoiceId(std::move(invoiceId))
 {
 }
 
@@ -126,6 +131,11 @@ void Activity::setTaxes(double taxes)
     }
 
     m_AmountTaxesComputed = taxes;
+}
+
+const QString& Activity::getInvoiceId() const noexcept
+{
+    return m_invoiceId;
 }
 
 const QString& Activity::getEventId() const noexcept
@@ -275,7 +285,8 @@ QJsonObject Activity::toJson() const
         {"saleType", static_cast<int>(m_saleType)},
         {"vatTerritoryFrom", m_vatTerritoryFrom},
         {"vatTerritoryTo", m_vatTerritoryTo},
-        {"taxesComputed", m_AmountTaxesComputed}
+        {"taxesComputed", m_AmountTaxesComputed},
+        {"invoiceId", m_invoiceId}
     };
 }
 
@@ -298,6 +309,7 @@ Activity Activity::fromJson(const QJsonObject &json)
         static_cast<SaleType>(json["saleType"].toInt()),
         json["vatTerritoryFrom"].toString(),
         json["vatTerritoryTo"].toString(),
-        json["taxesComputed"].toDouble()
+        json["taxesComputed"].toDouble(),
+        json["invoiceId"].toString()
     );
 }

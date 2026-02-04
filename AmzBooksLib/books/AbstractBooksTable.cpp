@@ -47,6 +47,30 @@ QString AbstractBooksTable::getRowId(const QModelIndex &index) const
     return m_listOfVariantList[index.row()].last().toString();
 }
 
+QDate AbstractBooksTable::getDate(int row) const
+{
+    if (row < 0 || row >= m_listOfVariantList.size()) return QDate();
+    return m_listOfVariantList[row][IND_DATE].toDate();
+}
+
+double AbstractBooksTable::getAmount(int row) const
+{
+    if (row < 0 || row >= m_listOfVariantList.size()) return 0.0;
+    return m_listOfVariantList[row][IND_AMOUNT].toDouble();
+}
+
+QString AbstractBooksTable::getCurrency(int row) const
+{
+    if (row < 0 || row >= m_listOfVariantList.size()) return QString();
+    return m_listOfVariantList[row][IND_CURRENCY].toString();
+}
+
+QString AbstractBooksTable::getLabel(int row) const
+{
+    if (row < 0 || row >= m_listOfVariantList.size()) return QString();
+    return m_listOfVariantList[row][IND_LABEL].toString();
+}
+
 void AbstractBooksTable::_saveInSettings()
 {
     QSettings settings(m_settingsFilePath, QSettings::IniFormat);
@@ -87,6 +111,7 @@ void AbstractBooksTable::_loadFromSettings()
 
 void AbstractBooksTable::add(
         const QString &rowId,
+        const QString &bookId,
         const QDate &date
         , double amountFullOrig
         , const QString &currencyAmount

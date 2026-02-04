@@ -19,6 +19,10 @@ class JournalTable : public QAbstractTableModel
     Q_OBJECT
 
 public:
+    static const QString ID_PURCHASES;
+    static const QString ID_AMZ_PAYMENTS;
+    static const QString ID_SERVICE_SALES;
+    static const QHash<QString, JournalItem> DEFAULT_JOURNALS;
     explicit JournalTable(const QDir &workingDir, QObject *parent = nullptr);
 
     // QAbstractItemModel interface
@@ -32,9 +36,11 @@ public:
     bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
 
     // Specific methods
-    QString getCustomerAccount(const ActivitySource *activitySource) const;
     QString getJournal(const ActivitySource *activitySource) const;
+    QString getJournal(const QString &id) const;
     JournalItem getJournalPurchaseInvoice() const;
+    JournalItem getJournalServiceSale() const;
+    JournalItem getJournalAmzPayment() const;
 
 private:
     QDir m_workingDir;

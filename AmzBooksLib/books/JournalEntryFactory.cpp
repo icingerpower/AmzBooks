@@ -7,6 +7,9 @@
 #include "orders/ActivitySource.h"
 #include "orders/Shipment.h"
 #include "books/Activity.h"
+#include "orders/ExceptionParamValue.h"
+#include "books/AbstractBooksTableBank.h"
+#include "banks/AbstractBankStatement.h"
 
 JournalEntryFactory::JournalEntryFactory(
     const CurrencyRateManager *currencyRateManager,
@@ -200,7 +203,7 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
     
     // Get journal code for this activity source
     QString journalCode = m_journalTable->getJournal(source);
-    QString customerAccount = m_journalTable->getCustomerAccount(source);
+    // QString customerAccount = m_journalTable->getCustomerAccount(source); // Removed
     
     // Aggregate all activities by TaxScheme, Country Routes, VAT rate and Currency
     struct VatKey {
@@ -221,7 +224,7 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
     
     QMap<VatKey, double> revenueByVat;
     QMap<VatKey, double> vatByVat;
-    QMap<QString, double> totalByCurrency;
+    // QMap<QString, double> totalByCurrency; // Removed, now per Account
     
     // Process all shipments
     for (const auto &shipment : shipmentAndRefunds.values()) {
@@ -232,16 +235,16 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
             key.scheme = activity.getTaxScheme();
             key.countryFrom = activity.getCountryCodeFrom();
             key.countryTo = activity.getCountryCodeTo();
-            key.vatRate = activity.getVatRate() * 100.0;
+            key.vatRate = activity.getVatRate() * 100.0; // Use percentage
             key.currency = activity.getCurrency();
             
             double amountUntaxed = activity.getAmountUntaxed();
             double amountTaxes = activity.getAmountTaxes();
-            double amountTotal = activity.getAmountTaxed();
+            // double amountTotal = activity.getAmountTaxed();
             
             revenueByVat[key] += amountUntaxed;
             vatByVat[key] += amountTaxes;
-            totalByCurrency[key.currency] += amountTotal;
+            // totalByCurrency[key.currency] += amountTotal;
         }
     }
     
@@ -252,6 +255,9 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
 
     QMap<QString, QMap<QString, double>> revenueByAccount;
     QMap<QString, QMap<QString, double>> vatByAccount;
+    // Customer Account (Receivable) Aggregation: Account -> Currency -> Amount
+    QMap<QString, QMap<QString, double>> receivableByAccount;
+
 
     // Resolve accounts and aggregate by Account ID
     for (auto it = revenueByVat.constBegin(); it != revenueByVat.constEnd(); ++it) {
@@ -271,10 +277,20 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
         
         revenueByAccount[accounts.saleAccount][key.currency] += revenueAmount;
         vatByAccount[accounts.vatAccount][key.currency] += vatAmount;
+        
+        // Add total (Revenue + VAT) to Customer Account
+        QString custAcc = accounts.customerAccount;
+        if (custAcc.isEmpty()) {
+            throw ExceptionParamValue(QObject::tr("Missing Customer Account"), 
+                QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
+                .arg(taxSchemeToString(key.scheme)).arg(key.vatRate));
+        }
+        
+        receivableByAccount[custAcc][key.currency] += (revenueAmount + vatAmount);
     }
     
     // Helper to add lines
-    auto addLines = [&](const QMap<QString, QMap<QString, double>> &map, bool checkThreshold) {
+    auto addLines = [&](const QMap<QString, QMap<QString, double>> &map, bool isCredit) {
         for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
             const QString &account = it.key();
             const auto &currencyMap = it.value();
@@ -283,7 +299,7 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
                 const QString &currency = itCurr.key();
                 double amount = itCurr.value();
                 
-                if (checkThreshold && qAbs(amount) <= 0.01) continue;
+                if (qAbs(amount) <= 0.01) continue;
                 
                 double currencyRate = 1.0;
                 if (currency != companyCurrency) {
@@ -295,31 +311,176 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
                 line.account = account;
                 line.currency_amount[currency] = amount;
                 
-                entry->addCreditRight(line, currency, currencyRate);
+                if (isCredit) {
+                     entry->addCreditRight(line, currency, currencyRate);
+                } else {
+                     entry->addDebitLeft(line, currency, currencyRate);
+                }
             }
         }
     };
     
-    addLines(revenueByAccount, false);
-    addLines(vatByAccount, true);
-    
-    // Customer receivable entry (Debit - Class 4)
-    for (auto it = totalByCurrency.constBegin(); it != totalByCurrency.constEnd(); ++it) {
-        const QString &currency = it.key();
-        double totalAmount = it.value();
-        
-        double currencyRate = 1.0;
-        if (currency != companyCurrency) {
-            currencyRate = m_currencyRateManager->rate(currency, companyCurrency, entryDate);
-        }
-        
-        JournalEntry::EntryLine customerLine;
-        customerLine.title = commonTitle;
-        customerLine.account = customerAccount.isEmpty() ? "411000" : customerAccount; // Fallback if empty, though getCustomerAccount should return something
-        customerLine.currency_amount[currency] = totalAmount;
-        
-        entry->addDebitLeft(customerLine, currency, currencyRate);
-    }
+    addLines(revenueByAccount, true); // Credit Revenue
+    addLines(vatByAccount, true);     // Credit VAT
+    addLines(receivableByAccount, false); // Debit Customer
     
     co_return entry;
+}
+
+QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
+        QSharedPointer<Shipment> shipmentOrRefund
+        , std::function<QCoro::Task<bool> (const QString &, const QString &)> callbackAddIfMissing)
+{
+    if (!shipmentOrRefund) {
+        co_return nullptr;
+    }
+    
+    const QList<Activity> &activities = shipmentOrRefund->getActivities();
+    if (activities.isEmpty()) {
+        co_return nullptr;
+    }
+    
+    QString companyCurrency = m_companyInfos->getCurrency();
+    QString companyCountry = m_companyInfos->getCompanyCountryCode();
+    QDate entryDate = activities.first().getDateTime().date();
+    QString shipmentId = shipmentOrRefund->getId();
+    
+    auto entry = QSharedPointer<JournalEntry>::create(entryDate, companyCurrency);
+    
+    // Aggregate by account
+    QMap<QString, QMap<QString, double>> revenueByAccount;  // account -> currency -> amount
+    QMap<QString, QMap<QString, double>> vatByAccount;
+    QMap<QString, QMap<QString, double>> receivableByAccount;
+    
+    for (const Activity &activity : activities) {
+        QString currency = activity.getCurrency();
+        double amountUntaxed = activity.getAmountUntaxed();
+        double amountTaxes = activity.getAmountTaxes();
+        double vatRate = activity.getVatRate() * 100.0;
+        
+        // Resolve accounts
+        VatCountries vc = m_saleBookAccounts->resolveVatCountries(
+            activity.getTaxScheme(),
+            companyCountry,
+            activity.getCountryCodeFrom(),
+            activity.getCountryCodeTo()
+        );
+        
+        BooksAccountsSalesTable::Accounts accounts = co_await m_saleBookAccounts->getAccounts(vc, vatRate, callbackAddIfMissing);
+        
+        revenueByAccount[accounts.saleAccount][currency] += amountUntaxed;
+        vatByAccount[accounts.vatAccount][currency] += amountTaxes;
+        
+        QString custAcc = accounts.customerAccount.isEmpty() ? "411000" : accounts.customerAccount;
+        receivableByAccount[custAcc][currency] += (amountUntaxed + amountTaxes);
+    }
+    
+    // Common title with shipment ID
+    QString commonTitle = QString("Vente Service %1").arg(shipmentId);
+    
+    // Helper to add lines
+    auto addLines = [&](const QMap<QString, QMap<QString, double>> &map, bool isCredit) {
+        for (auto it = map.constBegin(); it != map.constEnd(); ++it) {
+            const QString &account = it.key();
+            const auto &currencyMap = it.value();
+            
+            for (auto itCurr = currencyMap.constBegin(); itCurr != currencyMap.constEnd(); ++itCurr) {
+                const QString &currency = itCurr.key();
+                double amount = itCurr.value();
+                
+                if (qAbs(amount) <= 0.01) continue;
+                
+                double currencyRate = 1.0;
+                if (currency != companyCurrency) {
+                    currencyRate = m_currencyRateManager->rate(currency, companyCurrency, entryDate);
+                }
+                
+                JournalEntry::EntryLine line;
+                line.title = commonTitle;
+                line.account = account;
+                line.currency_amount[currency] = amount;
+                
+                if (isCredit) {
+                     entry->addCreditRight(line, currency, currencyRate);
+                } else {
+                     entry->addDebitLeft(line, currency, currencyRate);
+                }
+            }
+        }
+    };
+    
+    addLines(revenueByAccount, true);    // Credit Revenue
+    addLines(vatByAccount, true);        // Credit VAT
+    addLines(receivableByAccount, false); // Debit Customer
+    
+    co_return entry;
+}
+
+QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
+        const AbstractBooksTableBank *bankTable
+        , const QString &nonBankAccount
+        , int row)
+{
+    if (!bankTable || row < 0) {
+        return nullptr;
+    }
+    
+    // Get data from bank table using helper methods
+    QDate date = bankTable->getDate(row);
+    double amount = bankTable->getAmount(row);
+    QString currency = bankTable->getCurrency(row);
+    QString label = bankTable->getLabel(row);
+    
+    if (!date.isValid() || qAbs(amount) < 0.001) {
+        return nullptr;
+    }
+    
+    QString companyCurrency = m_companyInfos->getCurrency();
+    auto entry = QSharedPointer<JournalEntry>::create(date, companyCurrency);
+    
+    // Get bank account from bank statement
+    const AbstractBankStatement *bankStatement = bankTable->getBankStatement();
+    QString bankAccount = bankStatement ? bankStatement->defaultAccount() : "512000";
+    QString journalCode = bankStatement ? bankStatement->defaultJournal() : "BQ";
+    
+    // Get currency conversion rate if needed
+    double currencyRate = 1.0;
+    if (currency != companyCurrency) {
+        currencyRate = m_currencyRateManager->rate(currency, companyCurrency, date);
+    }
+    
+    double amountAbs = qAbs(amount);
+    bool isCredit = amount > 0; // Positive = money coming in (credit to bank)
+    
+    // Build common title
+    QString currencyInfo = "";
+    if (currency != companyCurrency) {
+        currencyInfo = QString(" (%1 %2)")
+                       .arg(QString::number(amount, 'f', 2), currency);
+    }
+    QString commonTitle = QString("%1 - %2%3").arg(journalCode, label, currencyInfo);
+    
+    // Bank account line
+    JournalEntry::EntryLine bankLine;
+    bankLine.title = commonTitle;
+    bankLine.account = bankAccount;
+    bankLine.currency_amount[currency] = amountAbs;
+    
+    // Non-bank account line (counterpart)
+    JournalEntry::EntryLine nonBankLine;
+    nonBankLine.title = commonTitle;
+    nonBankLine.account = nonBankAccount;
+    nonBankLine.currency_amount[currency] = amountAbs;
+    
+    if (isCredit) {
+        // Money coming in: Debit Bank, Credit Non-Bank (e.g., Revenue)
+        entry->addDebitLeft(bankLine, currency, currencyRate);
+        entry->addCreditRight(nonBankLine, currency, currencyRate);
+    } else {
+        // Money going out: Credit Bank, Debit Non-Bank (e.g., Expense)
+        entry->addCreditRight(bankLine, currency, currencyRate);
+        entry->addDebitLeft(nonBankLine, currency, currencyRate);
+    }
+    
+    return entry;
 }

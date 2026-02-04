@@ -15,6 +15,8 @@ const QStringList BooksAccountsSalesTable::HEADER{
     , QObject::tr("VAT Rate")
     , QObject::tr("Sale Account")
     , QObject::tr("VAT Account")
+    , QObject::tr("VAT Account To Pay")
+    , QObject::tr("Customer Account")
 };
 
 BooksAccountsSalesTable::BooksAccountsSalesTable(const QDir &workingDir, QObject *parent)
@@ -171,7 +173,9 @@ void BooksAccountsSalesTable::addAccount(
         << vatCountries.countryCodeTo
         << QString::number(vatRate)
         << accounts.saleAccount
-        << accounts.vatAccount;
+        << accounts.vatAccount
+        << accounts.vatAccountToPay
+        << accounts.customerAccount;
         
     beginInsertRows(QModelIndex(), m_listOfStringList.size(), m_listOfStringList.size());
     m_listOfStringList.insert(0, row);
@@ -286,7 +290,8 @@ void BooksAccountsSalesTable::_fillIfEmpty()
                  // So we store "20".
                  << saleAcc
                  << vatAcc
-                 << vatPayAcc; // Accounts struct has 3 fields now
+                 << vatPayAcc // Accounts struct has 3 fields now
+                 << QString("411%1").arg(to.isEmpty() ? from : to); // Default Customer Account: 411 + Country Code
              m_listOfStringList.append(row);
         };
 
@@ -369,8 +374,10 @@ void BooksAccountsSalesTable::_fillIfEmpty()
 // ... (skip save/load)
 // ... (Header definition updates if needed, but I'll add HEADER_IDS locally or static)
 
+
+
 const QStringList HEADER_IDS = {
-    "TaxScheme", "CountryFrom", "CountryTo", "VatRate", "SaleAccount", "VatAccount"
+    "TaxScheme", "CountryFrom", "CountryTo", "VatRate", "SaleAccount", "VatAccount", "VatAccountToPay", "CustomerAccount"
 };
 
 // ...
@@ -392,7 +399,7 @@ void BooksAccountsSalesTable::_rebuildCache()
     // Best approach: Normalize on load. m_listOfStringList ALWAYS strictly follows 0..5 index of HEADER_IDS.
     
     for (const auto &row : m_listOfStringList) {
-        if (row.size() < 6) {
+        if (row.size() < 8) {
             continue;
         }
         
@@ -414,6 +421,8 @@ void BooksAccountsSalesTable::_rebuildCache()
         Accounts acc;
         acc.saleAccount = row[4];
         acc.vatAccount = row[5];
+        acc.vatAccountToPay = row[6];
+        acc.customerAccount = row[7];
         
         m_vatCountries_vatRate_accountsCache[vc][rate] = acc;
     }
@@ -486,6 +495,7 @@ void BooksAccountsSalesTable::_load()
         columnMap["VatRate"] = 3;
         columnMap["SaleAccount"] = 4;
         columnMap["VatAccount"] = 5;
+        columnMap["CustomerAccount"] = 6;
     }
     
     // Canonical Indices
@@ -495,14 +505,16 @@ void BooksAccountsSalesTable::_load()
     int idxRate = columnMap.value("VatRate", -1);
     int idxSale = columnMap.value("SaleAccount", -1);
     int idxVat = columnMap.value("VatAccount", -1);
+    int idxVatPay = columnMap.value("VatAccountToPay", -1);
+    int idxCustomer = columnMap.value("CustomerAccount", -1);
 
     auto processLine = [&](const QString &line) {
         if (line.trimmed().isEmpty()) return;
         QStringList parts = line.split(";");
         
         QStringList normalizedRow;
-        // Init with empty
-        for(int k=0; k<6; ++k) normalizedRow << "";
+        // Init with empty. Size 8 now.
+        for(int k=0; k<8; ++k) normalizedRow << "";
         
         if (idxScheme != -1 && idxScheme < parts.size()) normalizedRow[0] = parts[idxScheme];
         if (idxFrom != -1 && idxFrom < parts.size()) normalizedRow[1] = parts[idxFrom];
@@ -510,6 +522,8 @@ void BooksAccountsSalesTable::_load()
         if (idxRate != -1 && idxRate < parts.size()) normalizedRow[3] = parts[idxRate];
         if (idxSale != -1 && idxSale < parts.size()) normalizedRow[4] = parts[idxSale];
         if (idxVat != -1 && idxVat < parts.size()) normalizedRow[5] = parts[idxVat];
+        if (idxVatPay != -1 && idxVatPay < parts.size()) normalizedRow[6] = parts[idxVatPay];
+        if (idxCustomer != -1 && idxCustomer < parts.size()) normalizedRow[7] = parts[idxCustomer];
         
         // Skip if empty scheme (invalid row)?
         if (normalizedRow[0].isEmpty()) return;
