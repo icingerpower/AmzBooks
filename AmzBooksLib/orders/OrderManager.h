@@ -19,6 +19,7 @@
 #include <QJsonObject>
 
 #include "ActivitySource.h"
+#include "books/TaxResolver.h"
 
 class Address;
 class ActivitySource;
@@ -64,6 +65,22 @@ public:
     void publish(QDate &dateUntil); //Shipment updated are published and the original from source are ignored (when replaced) except if they were published already
     void clearUnpublished(); // Usefull if data were loaded with a bug. It will clear all unpublished
     void deleteDatabase(); // Usefull to reset + also for unit tests
+
+    struct ShipmentRefundsWithUpdates{
+        QSharedPointer<ActivityUpdate> activityUpdate;
+        QList<QSharedPointer<Shipment>> shipmentsRefundsSameActivity;
+        QSharedPointer<InvoicingInfo> invoicingInfo;
+        QSharedPointer<Address> addressTo;
+    };
+
+    QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, ShipmentRefundsWithUpdates>>>> get_channel_site_ShipmentAndRefundsNoInvoices(
+            const QDate &dateFrom
+            , const QDate &dateTo) const;
+
+    QSharedPointer<QList<OrderManager::ShipmentRefundsWithUpdates>> getShipmentAndRefundsNoInvoices(
+            const QDate &dateFrom
+            , const QDate &dateTo) const;
+
     QMultiMap<QDateTime, QSharedPointer<Shipment>> getShipmentAndRefunds(
             const QDate &dateFrom
             , const QDate &dateTo

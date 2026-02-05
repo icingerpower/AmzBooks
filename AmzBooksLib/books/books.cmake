@@ -89,6 +89,10 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/ServiceClientManager.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ServiceSalesBooksTable.h
     ${CMAKE_CURRENT_LIST_DIR}/ServiceSalesBooksTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractBookSaver.h
+    ${CMAKE_CURRENT_LIST_DIR}/AbstractBookSaver.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BookSaverFull.h
+    ${CMAKE_CURRENT_LIST_DIR}/BookSaverFull.cpp
 )
 
 

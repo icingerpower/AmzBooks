@@ -184,19 +184,21 @@ void BooksConnections::tryToConnect(
     _save();
 }
 
-void BooksConnections::tryToConnect(
-        AbstractBooksTable *left
-        , const QModelIndex &indexLeft
-        , EntrySelfTable *right
-        , const QModelIndex &indexRight)
+void BooksConnections::tryToConnect(AbstractBooksTableBank *left
+                                    , const QModelIndexList &indexesLeft
+                                    , EntrySelfTable *right
+                                    , const QModelIndex &indexRight)
 {
-    disconnect(left, indexLeft);
+    for (const auto &indexLeft : indexesLeft)
+    {
+        disconnect(left, indexLeft);
 
-    QString idLeft = _getId(left->getId(), left->getRowId(indexLeft));
-    QString idRight = _getId(right->getId(), right->getRowId(indexRight));
+        QString idLeft = _getId(left->getId(), left->getRowId(indexLeft));
+        QString idRight = _getId(right->getId(), right->getRowId(indexRight));
 
-    m_id_id.insert(idLeft, idRight);
-    m_id_id.insert(idRight, idLeft);
+        m_id_id.insert(idLeft, idRight);
+        m_id_id.insert(idRight, idLeft);
+    }
     _save();
 }
 
@@ -224,6 +226,53 @@ bool BooksConnections::contains(const QString &booksTableId, const QString &rowI
 {
     const auto &id = _getId(booksTableId, rowId);
     return m_id_id.contains(id);
+}
+
+void BooksConnections::associateTablesToIds(
+        QList<const AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable)
+{
+    m_cacheId_table.clear();
+    const auto &selfTableId = selfEntryTable->getId();
+    for (const AbstractBooksTable *table : bookTables) {
+        int nRows = table->rowCount();
+        const auto &tableId = table->getId();
+        for (int i=0; i<nRows; ++i)
+        {
+            const auto &indexRow = table->index(i, 0);
+            const auto &rowId = table->getRowId(indexRow);
+            const auto &id = _getId(tableId, rowId);
+            const auto &otherId = m_id_id[id];
+            if (selfTableId.startsWith(selfTableId))
+            {
+                m_cacheId_tableSelf.insert(id, selfEntryTable);
+            }
+            else
+            {
+                m_cacheId_table.insert(id, table);
+            }
+        }
+    }
+}
+
+QString BooksConnections::getAccount2(AbstractBooksTableBank *tableBank, int row) const
+{
+    const auto &tableId = tableBank->getId();
+    const auto &indexRow = tableBank->index(row, 0);
+    const auto &rowId = tableBank->getRowId(indexRow);
+    const auto &id = _getId(tableId, rowId);
+    const auto &otherId = m_id_id[id];
+    if (m_cacheId_table.contains(otherId))
+    {
+        auto otherTable = m_cacheId_table[otherId];
+        return otherTable->getAccount2(row);
+    }
+    else if (m_cacheId_tableSelf.contains(otherId))
+    {
+        auto selfTable = m_cacheId_tableSelf[otherId];
+        return selfTable->getAccount(row);
+    }
+    Q_ASSERT(false); // Should not happen
+    return QString{};
 }
 
 QString BooksConnections::_getId(const QString &booksTableId, const QString &rowId) const

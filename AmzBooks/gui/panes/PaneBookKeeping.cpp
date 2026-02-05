@@ -3,6 +3,7 @@
 #include "../../common/workingdirectory/WorkingDirectoryManager.h"
 
 #include "books/AbstractBooksTableBank.h"
+#include "books/EntrySelfTable.h"
 #include "books/BooksConnections.h"
 #include "banks/AbstractBankStatement.h"
 #include "books/PurchaseInvoiceTable.h"
@@ -55,11 +56,18 @@ PaneBookKeeping::~PaneBookKeeping()
 void PaneBookKeeping::loadYearSelected()
 {
     _setSubButtonsEnabled(true);
+    // TODO AbstractBooksTable::load for all getAllBankTables and getAllNonBankTables
 }
 
 void PaneBookKeeping::generateBookKeeping()
 {
-
+    // TODO ask for a save folder (suggesting the last folder choose according QSettings{})
+    // TODO call BooksConnections::associateTablesToIds for all getAllBookTables
+    // TODO then using JournalTable / JournalEntryFactory create const QHash<QString, QMultiMap<QDate, QSharedPointer<JournalEntry>>> &journal_date_entries
+    // TODO then with BookSaverFull save in the choosen folder
+    // TODO with InvoiceGenerator save also in the choosen folder, oll of the invoices into invoices folder (one folder per year / month)
+    // TODO catch excetpion or display a QMessageBox confirmation message if successful
+    // TODO if needed a callback create DialogVatParams and returning true if dialog is accepted
 }
 
 void PaneBookKeeping::unselectAll()
@@ -535,6 +543,44 @@ void PaneBookKeeping::_setSubButtonsEnabled(bool enabled)
             btn->setEnabled(enabled);
         }
     }
+}
+
+const EntrySelfTable *PaneBookKeeping::getSeflEntryTable() const
+{
+    return static_cast<const EntrySelfTable *>(ui->tableSelfEntry->model());
+}
+
+QList<const AbstractBooksTable *> PaneBookKeeping::getAllBookTables() const
+{
+    auto allBookTables = getAllNonBankTables();
+    auto allBankTables = getAllBankTables();
+    for (auto bankTable : allBankTables)
+    {
+        allBookTables << bankTable;
+    }
+    return allBookTables;
+}
+
+QList<const AbstractBooksTableBank *> PaneBookKeeping::getAllBankTables() const
+{
+    QList<const AbstractBooksTableBank *> bankTables;
+    QList<QTableView *> allViews = ui->toolBoxBanks->findChildren<QTableView *>();
+    for (auto view : allViews)
+    {
+        bankTables << static_cast<const AbstractBooksTableBank *>(view->model());
+    }
+    return bankTables;
+}
+
+QList<const AbstractBooksTable *> PaneBookKeeping::getAllNonBankTables() const
+{
+    QList<const AbstractBooksTable *> nonBankTables;
+    QList<QTableView *> allViews = ui->toolBoxSalePurchases->findChildren<QTableView *>();
+    for (auto view : allViews)
+    {
+        nonBankTables << static_cast<const AbstractBooksTable *>(view->model());
+    }
+    return nonBankTables;
 }
 
 AbstractBooksTableBank *PaneBookKeeping::getVisibleBankTable() const

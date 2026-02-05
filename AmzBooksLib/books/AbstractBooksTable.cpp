@@ -49,26 +49,50 @@ QString AbstractBooksTable::getRowId(const QModelIndex &index) const
 
 QDate AbstractBooksTable::getDate(int row) const
 {
-    if (row < 0 || row >= m_listOfVariantList.size()) return QDate();
+    if (row < 0 || row >= m_listOfVariantList.size()) {
+        return QDate{};
+    }
     return m_listOfVariantList[row][IND_DATE].toDate();
 }
 
 double AbstractBooksTable::getAmount(int row) const
 {
-    if (row < 0 || row >= m_listOfVariantList.size()) return 0.0;
+    if (row < 0 || row >= m_listOfVariantList.size()) {
+        return 0.0;
+    }
     return m_listOfVariantList[row][IND_AMOUNT].toDouble();
 }
 
 QString AbstractBooksTable::getCurrency(int row) const
 {
-    if (row < 0 || row >= m_listOfVariantList.size()) return QString();
+    if (row < 0 || row >= m_listOfVariantList.size()) {
+        return QString{};
+    }
     return m_listOfVariantList[row][IND_CURRENCY].toString();
 }
 
 QString AbstractBooksTable::getLabel(int row) const
 {
-    if (row < 0 || row >= m_listOfVariantList.size()) return QString();
+    if (row < 0 || row >= m_listOfVariantList.size()) {
+        return QString{};
+    }
     return m_listOfVariantList[row][IND_LABEL].toString();
+}
+
+QString AbstractBooksTable::getAccount1(int row) const
+{
+    if (row < 0 || row >= m_listOfVariantList.size()) {
+        return QString{};
+    }
+    return m_listOfVariantList[row][IND_ACCOUNT1].toString();
+}
+
+QString AbstractBooksTable::getAccount2(int row) const
+{
+    if (row < 0 || row >= m_listOfVariantList.size()) {
+        return QString{};
+    }
+    return m_listOfVariantList[row][IND_ACCOUNT2].toString();
 }
 
 void AbstractBooksTable::_saveInSettings()

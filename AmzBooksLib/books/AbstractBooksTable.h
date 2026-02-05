@@ -25,6 +25,8 @@ public:
     static const int IND_AMOUNT = 1;
     static const int IND_CURRENCY = 2;
     static const int IND_LABEL = 3;
+    static const int IND_ACCOUNT1 = 4;
+    static const int IND_ACCOUNT2 = 5;
 
     explicit AbstractBooksTable(
             const BooksConnections *bookConnections,
@@ -40,6 +42,8 @@ public:
     double getAmount(int row) const;
     QString getCurrency(int row) const;
     QString getLabel(int row) const;
+    QString getAccount1(int row) const;
+    QString getAccount2(int row) const;
 
     virtual QString getId() const = 0;
     virtual void load(int year) = 0;

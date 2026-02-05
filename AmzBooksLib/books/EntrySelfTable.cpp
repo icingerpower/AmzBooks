@@ -32,6 +32,11 @@ QString EntrySelfTable::getId() const
     return "EntrySelfTable";
 }
 
+QString EntrySelfTable::getAccount(int row) const
+{
+    return m_listeOfStringList[row][1];
+}
+
 QString EntrySelfTable::getRowId(const QModelIndex &index) const
 {
     if (index.row() < 0 || index.row() >= m_listeOfStringList.size()) {

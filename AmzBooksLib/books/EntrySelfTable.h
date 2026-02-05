@@ -19,6 +19,7 @@ public:
     void remove(const QModelIndex &index);
     QString getRowId(const QModelIndex &index) const;
     QString getId() const;
+    QString getAccount(int row) const;
 
     // Header:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
