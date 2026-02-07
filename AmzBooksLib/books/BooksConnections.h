@@ -23,6 +23,8 @@ public:
                       , const QModelIndex &indexRight);
     void disconnect(AbstractBooksTable *booksTable
                     , const QModelIndex &index);
+    void disconnect(EntrySelfTable *selfTable
+                    , const QModelIndex &index);
     bool contains(const QString &booksTableId, const QString &rowId) const;
     void associateTablesToIds(QList<const AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable);
     QString getAccount2(AbstractBooksTableBank *tableBank, int row) const;

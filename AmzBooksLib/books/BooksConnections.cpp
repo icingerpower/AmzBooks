@@ -222,6 +222,26 @@ void BooksConnections::disconnect(AbstractBooksTable *booksTable, const QModelIn
     }
 }
 
+void BooksConnections::disconnect(EntrySelfTable *selfTable, const QModelIndex &index)
+{
+    const auto &rowId = selfTable->getRowId(index);
+    const auto &firstId = _getId(
+                selfTable->getId(),
+                rowId);
+    if (m_id_id.contains(firstId))
+    {
+        // Get all connected IDs
+        QStringList values = m_id_id.values(firstId);
+        m_id_id.remove(firstId);
+        
+        // For each connected ID, remove the backlink to firstId
+        for (const QString &v : values) {
+            m_id_id.remove(v, firstId);
+        }
+        _save();
+    }
+}
+
 bool BooksConnections::contains(const QString &booksTableId, const QString &rowId) const
 {
     const auto &id = _getId(booksTableId, rowId);

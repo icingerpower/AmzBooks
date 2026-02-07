@@ -151,32 +151,202 @@ void TestBooksConnection::test_connect_disconnect()
     QTemporaryDir tempDir;
     QDir dir(tempDir.path());
 
-    // 1. Setup tables
-    BooksConnections connections(dir);
-    ConcreteBooksTable booksTable(&connections, dir);
-    booksTable.add("BOOK_ID_1", "", QDate::currentDate(), 100.0, "EUR", "Label", "Acc1", "Acc2", 0, "", "");
-    
-    EntrySelfTable selfTable(dir);
-    selfTable.addRow({"SelfLabel", "SelfAccount"});
-    
-    // 2. Connect
-    QModelIndex bookIdx = booksTable.index(0, 0);
-    QModelIndex selfIdx = selfTable.index(0, 0);
-    
-    connections.tryToConnect(&booksTable, bookIdx, &selfTable, selfIdx);
-    
-    // 3. Reload
+    // Test 1: Basic connection and disconnection with bank and self-entry
     {
-        BooksConnections connections2(dir);
-        connections2.disconnect(&booksTable, bookIdx);
+        BooksConnections connections(dir);
+        ConcreteBooksTableBank bankTable(&connections, dir);
+        bankTable.add("BANK_ID_1", "", QDate::currentDate(), 100.0, "EUR", "BankLabel", "Acc1", "Acc2", 0, "", "");
+        
+        EntrySelfTable selfTable(dir);
+        selfTable.addRow({"SelfLabel", "SelfAccount"});
+        
+        QModelIndexList bankIndexes = {bankTable.index(0, 0)};
+        QModelIndex selfIdx = selfTable.index(0, 0);
+        
+        // Connect
+        connections.tryToConnect(&bankTable, bankIndexes, &selfTable, selfIdx);
+        
+        // Verify connection exists
+        QVERIFY(connections.contains("ConcreteBankTable", "BANK_ID_1"));
+        
+        // Disconnect
+        connections.disconnect(&bankTable, bankTable.index(0, 0));
+        
+        // Verify connection removed
+        QVERIFY(!connections.contains("ConcreteBankTable", "BANK_ID_1"));
     }
     
-     // 4. Check if disconnected
-     QFile file(dir.absoluteFilePath("booksConnections.csv"));
-     QVERIFY(file.exists());
-     if (file.open(QIODevice::ReadOnly)) {
-         auto content = file.readAll();
-     }
+    // Test 2: Multiple rows with same currency - Success
+    {
+        BooksConnections connections(dir);
+        ConcreteBooksTable booksTable(&connections, dir);
+        ConcreteBooksTableBank bankTable(&connections, dir);
+        CurrencyRateManager rateManager(dir, "DUMMY_KEY");
+        
+        // Add 4 book entries
+        booksTable.add("BOOK_1", "", QDate::currentDate(), 50.0, "EUR", "Book1", "", "", 0, "", "");
+        booksTable.add("BOOK_2", "", QDate::currentDate(), 30.0, "EUR", "Book2", "", "", 0, "", "");
+        booksTable.add("BOOK_3", "", QDate::currentDate(), 15.0, "EUR", "Book3", "", "", 0, "", "");
+        booksTable.add("BOOK_4", "", QDate::currentDate(), 5.0, "EUR", "Book4", "", "", 0, "", "");
+        
+        // Add 1 bank entry with matching total
+        bankTable.add("BANK_1", "", QDate::currentDate(), 100.0, "EUR", "BankTotal", "", "", 0, "", "");
+        
+        QHash<AbstractBooksTable *, QModelIndexList> selection;
+        selection[&booksTable] = {
+            booksTable.index(0, 0),
+            booksTable.index(1, 0),
+            booksTable.index(2, 0),
+            booksTable.index(3, 0)
+        };
+        selection[&bankTable] = {bankTable.index(0, 0)};
+        
+        // Should succeed - amounts match
+        connections.tryToConnect(selection, &rateManager);
+        
+        // Verify all connections exist
+        QVERIFY(connections.contains("Concrete", "BOOK_1"));
+        QVERIFY(connections.contains("Concrete", "BOOK_2"));
+        QVERIFY(connections.contains("Concrete", "BOOK_3"));
+        QVERIFY(connections.contains("Concrete", "BOOK_4"));
+        QVERIFY(connections.contains("ConcreteBankTable", "BANK_1"));
+    }
+    
+    // Test 3: Multiple rows with 3 different currencies - Success
+    {
+        BooksConnections connections(dir);
+        ConcreteBooksTable booksTable(&connections, dir);
+        ConcreteBooksTableBank bankTable(&connections, dir);
+        CurrencyRateManager rateManager(dir, "DUMMY_KEY");
+        
+        QDate date = QDate::currentDate();
+        
+        // Add book entries in EUR (reference currency)
+        booksTable.add("BOOK_EUR_1", "", date, 50.0, "EUR", "BookEUR1", "", "", 0, "", "");
+        booksTable.add("BOOK_EUR_2", "", date, 30.0, "EUR", "BookEUR2", "", "", 0, "", "");
+        
+        // Add bank entries in different currencies
+        // USD: 55.55 USD * 0.9 = 50 EUR
+        // GBP: 25 GBP * 1.2 = 30 EUR
+        // Total: 50 + 30 = 80 EUR
+        bankTable.add("BANK_USD", "", date, 55.555, "USD", "BankUSD", "", "", 0, "", "");
+        bankTable.add("BANK_GBP", "", date, 25.0, "GBP", "BankGBP", "", "", 0, "", "");
+        
+        // Inject currency rates
+        rateManager.importRate(date.toString("yyyy-MM-dd"), "USD", "EUR", 0.9);
+        rateManager.importRate(date.toString("yyyy-MM-dd"), "GBP", "EUR", 1.2);
+        
+        QHash<AbstractBooksTable *, QModelIndexList> selection;
+        selection[&booksTable] = {
+            booksTable.index(0, 0),
+            booksTable.index(1, 0)
+        };
+        selection[&bankTable] = {
+            bankTable.index(0, 0),
+            bankTable.index(1, 0)
+        };
+        
+        // Should succeed - converted amounts match (80 EUR total)
+        connections.tryToConnect(selection, &rateManager);
+        
+        // Verify connections
+        QVERIFY(connections.contains("Concrete", "BOOK_EUR_1"));
+        QVERIFY(connections.contains("Concrete", "BOOK_EUR_2"));
+        QVERIFY(connections.contains("ConcreteBankTable", "BANK_USD"));
+        QVERIFY(connections.contains("ConcreteBankTable", "BANK_GBP"));
+        
+        // Test disconnection of one entry
+        connections.disconnect(&booksTable, booksTable.index(0, 0));
+        QVERIFY(!connections.contains("Concrete", "BOOK_EUR_1"));
+        // Others should still be connected
+        QVERIFY(connections.contains("Concrete", "BOOK_EUR_2"));
+        QVERIFY(connections.contains("ConcreteBankTable", "BANK_USD"));
+    }
+    
+    // Test 4: Exception case - Mismatched amounts with multiple currencies
+    {
+        BooksConnections connections(dir);
+        ConcreteBooksTable booksTable(&connections, dir);
+        ConcreteBooksTableBank bankTable(&connections, dir);
+        CurrencyRateManager rateManager(dir, "DUMMY_KEY");
+        
+        QDate date = QDate::currentDate();
+        
+        // Add book entries totaling 100 EUR
+        booksTable.add("BOOK_MISMATCH_1", "", date, 60.0, "EUR", "Book1", "", "", 0, "", "");
+        booksTable.add("BOOK_MISMATCH_2", "", date, 40.0, "EUR", "Book2", "", "", 0, "", "");
+        
+        // Add bank entries totaling ~90 EUR (mismatch)
+        // 50 USD * 0.9 = 45 EUR
+        // 37.5 GBP * 1.2 = 45 EUR
+        // Total: 90 EUR (10 EUR difference, > 1% tolerance)
+        bankTable.add("BANK_MISMATCH_USD", "", date, 50.0, "USD", "BankUSD", "", "", 0, "", "");
+        bankTable.add("BANK_MISMATCH_GBP", "", date, 37.5, "GBP", "BankGBP", "", "", 0, "", "");
+        
+        rateManager.importRate(date.toString("yyyy-MM-dd"), "USD", "EUR", 0.9);
+        rateManager.importRate(date.toString("yyyy-MM-dd"), "GBP", "EUR", 1.2);
+        
+        QHash<AbstractBooksTable *, QModelIndexList> selection;
+        selection[&booksTable] = {
+            booksTable.index(0, 0),
+            booksTable.index(1, 0)
+        };
+        selection[&bankTable] = {
+            bankTable.index(0, 0),
+            bankTable.index(1, 0)
+        };
+        
+        // Should throw exception - amounts don't match
+        bool exceptionThrown = false;
+        try {
+            connections.tryToConnect(selection, &rateManager);
+        } catch (const ExceptionBookEquality &) {
+            exceptionThrown = true;
+        }
+        
+        QVERIFY(exceptionThrown);
+        
+        // Verify NO connections were created
+        QVERIFY(!connections.contains("Concrete", "BOOK_MISMATCH_1"));
+        QVERIFY(!connections.contains("Concrete", "BOOK_MISMATCH_2"));
+        QVERIFY(!connections.contains("ConcreteBankTable", "BANK_MISMATCH_USD"));
+        QVERIFY(!connections.contains("ConcreteBankTable", "BANK_MISMATCH_GBP"));
+    }
+    
+    // Test 5: Persistence - Verify connections survive reload
+    {
+        BooksConnections connections(dir);
+        ConcreteBooksTable booksTable(&connections, dir);
+        ConcreteBooksTableBank bankTable(&connections, dir);
+        CurrencyRateManager rateManager(dir, "DUMMY_KEY");
+        
+        booksTable.add("PERSIST_1", "", QDate::currentDate(), 100.0, "EUR", "Persist", "", "", 0, "", "");
+        bankTable.add("PERSIST_BANK", "", QDate::currentDate(), 100.0, "EUR", "PersistBank", "", "", 0, "", "");
+        
+        QHash<AbstractBooksTable *, QModelIndexList> selection;
+        selection[&booksTable] = {booksTable.index(0, 0)};
+        selection[&bankTable] = {bankTable.index(0, 0)};
+        
+        connections.tryToConnect(selection, &rateManager);
+        QVERIFY(connections.contains("Concrete", "PERSIST_1"));
+        QVERIFY(connections.contains("ConcreteBankTable", "PERSIST_BANK"));
+        
+        // Reload connections from file
+        BooksConnections connections2(dir);
+        QVERIFY(connections2.contains("Concrete", "PERSIST_1"));
+        QVERIFY(connections2.contains("ConcreteBankTable", "PERSIST_BANK"));
+        
+        // Disconnect book entry - this removes all connections for this entry
+        connections2.disconnect(&booksTable, booksTable.index(0, 0));
+        QVERIFY(!connections2.contains("Concrete", "PERSIST_1"));
+        // Bank entry is also disconnected because disconnect removes all links
+        QVERIFY(!connections2.contains("ConcreteBankTable", "PERSIST_BANK"));
+        
+        // Reload again to verify disconnection was saved
+        BooksConnections connections3(dir);
+        QVERIFY(!connections3.contains("Concrete", "PERSIST_1"));
+        QVERIFY(!connections3.contains("ConcreteBankTable", "PERSIST_BANK"));
+    }
 }
 
 // ... (existing test methods) ...

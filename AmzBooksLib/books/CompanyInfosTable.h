@@ -14,9 +14,11 @@ public:
     static const QStringList HEADER_IDS;
     static const QString ID_COUNTRY;
     static const QString ID_CURRENCY;
+    static const QString ID_FIXER_API_KEY;
     explicit CompanyInfosTable(const QDir &workingDir, QObject *parent = nullptr);
     const QString &getCompanyCountryCode() const;
     const QString &getCurrency() const;
+    const QString &getApiKeyFixer() const;
     bool hadData() const;
     int getRowById(const QString &id) const;
 
@@ -33,11 +35,14 @@ private:
         QString id;
         QString parameter;
         QString value;
+        bool encrypt = false;
     };
 
     void _load();
     void _save();
     void _ensureDefaults();
+    QString _encrypt(const QString &value) const;
+    QString _decrypt(const QString &value) const;
 
     QString m_filePath;
     QList<InfoItem> m_data;

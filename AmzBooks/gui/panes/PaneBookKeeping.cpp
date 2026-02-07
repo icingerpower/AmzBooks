@@ -11,6 +11,8 @@
 #include <QTableView>
 #include <QHeaderView>
 
+#include "CurrencyRateManager.h"
+
 #include "PaneBookKeeping.h"
 #include "ui_PaneBookKeeping.h"
 
@@ -27,6 +29,7 @@
 #include "gui/dialogs/DialogAddSaleService.h"
 #include "books/ServiceSalesBooksTable.h"
 #include "books/ServiceClientManager.h"
+#include "books/CompanyInfosTable.h"
 #include "orders/OrderManager.h"
 
 // For confirmation message box
@@ -81,12 +84,269 @@ void PaneBookKeeping::unselectAll()
 
 void PaneBookKeeping::associate()
 {
+    // Get the visible bank table
+    AbstractBooksTableBank *bankTable = getVisibleBankTable();
+    if (!bankTable) {
+        QMessageBox::warning(this, tr("No Bank Selected"), 
+            tr("Please select a bank account tab first."));
+        return;
+    }
 
+    // Get the bank table view
+    QTableView *bankView = qobject_cast<QTableView*>(ui->toolBoxBanks->currentWidget());
+    if (!bankView) {
+        QMessageBox::warning(this, tr("No Bank View"), 
+            tr("Unable to access the bank table view."));
+        return;
+    }
+
+    // Get selection from bank table
+    QModelIndexList bankSelection = bankView->selectionModel()->selectedRows();
+    if (bankSelection.isEmpty()) {
+        QMessageBox::warning(this, tr("No Bank Selection"), 
+            tr("Please select at least one row from the bank table."));
+        return;
+    }
+
+    // Get selection from self-entry table
+    QModelIndexList selfSelection = ui->tableSelfEntry->selectionModel()->selectedRows();
+
+    // If self-selection is NOT empty, use the specialized self-entry association
+    if (!selfSelection.isEmpty()) {
+        // Get the self-entry table
+        EntrySelfTable *selfTable = const_cast<EntrySelfTable*>(getSeflEntryTable());
+        if (!selfTable) {
+            QMessageBox::warning(this, tr("No Self Entry Table"), 
+                tr("Unable to access the self-entry table."));
+            return;
+        }
+
+        // According to the task: "Associate EntrySelfTable only one row to AbstractBooksTableBank"
+        // This means each bank row can only be associated with ONE self-entry row
+        // But several rows of same bank instance possible (one self-entry to multiple bank rows)
+
+        // For each selected bank row, associate with the first selected self-entry row
+        // (This enforces the "one row" constraint from self-entry to bank)
+        if (selfSelection.size() > 1) {
+            QMessageBox::information(this, tr("Multiple Self Entries Selected"), 
+                tr("Only the first selected self-entry row will be used for association. "
+                   "Each bank row can only be associated with one self-entry row."));
+        }
+
+        const QModelIndex &selfIndex = selfSelection.first();
+
+        // Perform associations using BooksConnections
+        try {
+            m_booksConnections->tryToConnect(bankTable, bankSelection, selfTable, selfIndex);
+            QMessageBox::information(this, tr("Association Successful"), 
+                tr("Successfully associated %1 bank row(s) with the selected self-entry.")
+                .arg(bankSelection.size()));
+        } catch (const std::exception &e) {
+            QMessageBox::warning(this, tr("Association Failed"), 
+                tr("Failed to associate entries: %1").arg(e.what()));
+        }
+    }
+    // If self-selection is empty, use the hash-based tryToConnect with book tables
+    else {
+        // Get all non-bank, non-self tables (purchase, services, etc.)
+        QList<const AbstractBooksTable *> bookTables = getAllNonBankTables();
+        
+        if (bookTables.isEmpty()) {
+            QMessageBox::warning(this, tr("No Book Tables"), 
+                tr("No book tables available for association."));
+            return;
+        }
+
+        // Build the hash of tables to their selections
+        QHash<AbstractBooksTable *, QModelIndexList> tableIndexes;
+        
+        // Add bank table with its selection
+        tableIndexes.insert(bankTable, bankSelection);
+        
+        // For each book table, get its selection
+        for (const AbstractBooksTable *bookTable : bookTables) {
+            // Find the QTableView for this book table
+            QList<QTableView *> allViews = ui->toolBoxSalePurchases->findChildren<QTableView *>();
+            for (QTableView *view : allViews) {
+                if (view->model() == bookTable) {
+                    QModelIndexList selection = view->selectionModel()->selectedRows();
+                    if (!selection.isEmpty()) {
+                        AbstractBooksTable *nonConstTable = const_cast<AbstractBooksTable *>(bookTable);
+                        tableIndexes.insert(nonConstTable, selection);
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Check if we have at least two tables with selections
+        if (tableIndexes.size() < 2) {
+            QMessageBox::warning(this, tr("Insufficient Selection"), 
+                tr("Please select rows from at least two tables (bank and book tables) to associate."));
+            return;
+        }
+
+        // Create CurrencyRateManager for the connection
+        QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
+        CompanyInfosTable companyInfo{workingDir};
+        const auto &apiKey = companyInfo.getApiKeyFixer();
+        if (apiKey.isEmpty())
+        {
+            QMessageBox::warning(
+                        this
+                        , tr("Fixer.io API key is empty")
+                        , tr("Fixer.io API key can't be empty. You need to create an account and enter the API key in the settings."));
+        }
+        else
+        {
+            CurrencyRateManager currencyRateManager{workingDir, apiKey}; // TODO from settings api key
+
+            // Perform associations using the hash-based tryToConnect
+            try {
+                m_booksConnections->tryToConnect(tableIndexes, &currencyRateManager);
+                QMessageBox::information(this, tr("Association Successful"),
+                                         tr("Successfully associated entries between selected tables."));
+            } catch (const std::exception &e) {
+                QMessageBox::warning(this, tr("Association Failed"),
+                                     tr("Failed to associate entries: %1").arg(e.what()));
+            }
+        }
+    }
 }
 
 void PaneBookKeeping::dissociate()
 {
-
+    // Collect all selections from book and bank tables
+    QHash<AbstractBooksTable *, QModelIndexList> tableSelections;
+    
+    // Get selection from bank tables
+    AbstractBooksTableBank *bankTable = getVisibleBankTable();
+    if (bankTable) {
+        QTableView *bankView = qobject_cast<QTableView*>(ui->toolBoxBanks->currentWidget());
+        if (bankView) {
+            QModelIndexList bankSelection = bankView->selectionModel()->selectedRows();
+            if (!bankSelection.isEmpty()) {
+                tableSelections.insert(bankTable, bankSelection);
+            }
+        }
+    }
+    
+    // Get selection from self-entry table (handled separately)
+    EntrySelfTable *selfTable = const_cast<EntrySelfTable*>(getSeflEntryTable());
+    QModelIndexList selfSelection;
+    if (selfTable) {
+        selfSelection = ui->tableSelfEntry->selectionModel()->selectedRows();
+    }
+    
+    // Get selection from book tables (purchases, services, etc.)
+    QList<const AbstractBooksTable *> bookTables = getAllNonBankTables();
+    for (const AbstractBooksTable *bookTable : bookTables) {
+        QList<QTableView *> allViews = ui->toolBoxSalePurchases->findChildren<QTableView *>();
+        for (QTableView *view : allViews) {
+            if (view->model() == bookTable) {
+                QModelIndexList selection = view->selectionModel()->selectedRows();
+                if (!selection.isEmpty()) {
+                    AbstractBooksTable *nonConstTable = const_cast<AbstractBooksTable *>(bookTable);
+                    tableSelections.insert(nonConstTable, selection);
+                }
+                break;
+            }
+        }
+    }
+    
+    // Check if any selection exists
+    if (tableSelections.isEmpty() && selfSelection.isEmpty()) {
+        QMessageBox::warning(this, tr("No Selection"), 
+            tr("Please select at least one row from any table to dissociate."));
+        return;
+    }
+    
+    // Check if any of the selected rows have connections
+    bool hasConnections = false;
+    int totalRowsToDisconnect = 0;
+    
+    // Check book/bank tables
+    for (auto it = tableSelections.begin(); it != tableSelections.end(); ++it) {
+        AbstractBooksTable *table = it.key();
+        const QModelIndexList &indices = it.value();
+        
+        for (const QModelIndex &index : indices) {
+            QString rowId = table->getRowId(index);
+            if (m_booksConnections->contains(table->getId(), rowId)) {
+                hasConnections = true;
+                totalRowsToDisconnect++;
+            }
+        }
+    }
+    
+    // Check self-entry table
+    if (selfTable && !selfSelection.isEmpty()) {
+        for (const QModelIndex &index : selfSelection) {
+            QString rowId = selfTable->getRowId(index);
+            if (m_booksConnections->contains(selfTable->getId(), rowId)) {
+                hasConnections = true;
+                totalRowsToDisconnect++;
+            }
+        }
+    }
+    
+    // If no connections found, warn the user
+    if (!hasConnections) {
+        QMessageBox::warning(this, tr("No Connections"), 
+            tr("None of the selected rows have any connections to dissociate."));
+        return;
+    }
+    
+    // Perform disconnection for all selected rows that have connections
+    int disconnectedCount = 0;
+    
+    // Disconnect book/bank tables
+    for (auto it = tableSelections.begin(); it != tableSelections.end(); ++it) {
+        AbstractBooksTable *table = it.key();
+        const QModelIndexList &indices = it.value();
+        
+        for (const QModelIndex &index : indices) {
+            QString rowId = table->getRowId(index);
+            if (m_booksConnections->contains(table->getId(), rowId)) {
+                m_booksConnections->disconnect(table, index);
+                disconnectedCount++;
+            }
+        }
+    }
+    
+    // Disconnect self-entry table
+    if (selfTable && !selfSelection.isEmpty()) {
+        for (const QModelIndex &index : selfSelection) {
+            QString rowId = selfTable->getRowId(index);
+            if (m_booksConnections->contains(selfTable->getId(), rowId)) {
+                m_booksConnections->disconnect(selfTable, index);
+                disconnectedCount++;
+            }
+        }
+    }
+    
+    // Refresh all views to update the background colors
+    if (bankTable) {
+        QTableView *bankView = qobject_cast<QTableView*>(ui->toolBoxBanks->currentWidget());
+        if (bankView) {
+            bankView->viewport()->update();
+        }
+    }
+    if (selfTable) {
+        ui->tableSelfEntry->viewport()->update();
+    }
+    for (const AbstractBooksTable *bookTable : bookTables) {
+        QList<QTableView *> allViews = ui->toolBoxSalePurchases->findChildren<QTableView *>();
+        for (QTableView *view : allViews) {
+            if (view->model() == bookTable) {
+                view->viewport()->update();
+                break;
+            }
+        }
+    }
+    
+    QMessageBox::information(this, tr("Dissociation Successful"), 
+        tr("Successfully dissociated %1 row(s).").arg(disconnectedCount));
 }
 
 void PaneBookKeeping::purchaseAdd()

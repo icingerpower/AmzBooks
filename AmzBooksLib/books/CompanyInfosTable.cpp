@@ -13,6 +13,7 @@
 const QStringList CompanyInfosTable::HEADER_IDS = { "Parameter", "Value", "Id" };
 const QString CompanyInfosTable::ID_COUNTRY = "Country";
 const QString CompanyInfosTable::ID_CURRENCY = "Currency";
+const QString CompanyInfosTable::ID_FIXER_API_KEY = "FixerApiKey";
 
 CompanyInfosTable::CompanyInfosTable(
     const QDir &workingDir, QObject *parent)
@@ -41,6 +42,17 @@ const QString &CompanyInfosTable::getCurrency() const
 {
     for (const auto &item : m_data) {
         if (item.id == ID_CURRENCY) {
+            return item.value;
+        }
+    }
+    static QString empty;
+    return empty;
+}
+
+const QString &CompanyInfosTable::getApiKeyFixer() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == ID_FIXER_API_KEY) {
             return item.value;
         }
     }
@@ -135,6 +147,7 @@ void CompanyInfosTable::_ensureDefaults()
         item.id = ID_COUNTRY;
         item.parameter = tr("Company Country Code");
         item.value = QLocale::system().name().split('_').last();
+        item.encrypt = false;
         m_data.append(item);
     }
     
@@ -144,6 +157,17 @@ void CompanyInfosTable::_ensureDefaults()
         item.id = ID_CURRENCY;
         item.parameter = tr("Currency");
         item.value = QLocale::system().currencySymbol(QLocale::CurrencyIsoCode);
+        item.encrypt = false;
+        m_data.append(item);
+    }
+    
+    // Row 3: Fixer.io API Key
+    {
+        InfoItem item;
+        item.id = ID_FIXER_API_KEY;
+        item.parameter = tr("Fixer.io API Key");
+        item.value = "";
+        item.encrypt = true;
         m_data.append(item);
     }
     
@@ -191,8 +215,20 @@ void CompanyInfosTable::_load()
         
         // Fixup: parameter should be translated usually, but in CSV it might be static.
         // If we load by ID, we can force the correct Parameter Name from code if we want "translation update".
-        if (item.id == ID_COUNTRY) item.parameter = tr("Company Country Code");
-        else if (item.id == ID_CURRENCY) item.parameter = tr("Currency");
+        if (item.id == ID_COUNTRY) {
+            item.parameter = tr("Company Country Code");
+            item.encrypt = false;
+        } else if (item.id == ID_CURRENCY) {
+            item.parameter = tr("Currency");
+            item.encrypt = false;
+        } else if (item.id == ID_FIXER_API_KEY) {
+            item.parameter = tr("Fixer.io API Key");
+            item.encrypt = true;
+            // Decrypt the value if it's encrypted
+            if (!item.value.isEmpty()) {
+                item.value = _decrypt(item.value);
+            }
+        }
         
         if (!item.id.isEmpty()) {
             m_data.append(item);
@@ -224,7 +260,59 @@ void CompanyInfosTable::_save()
         // But wait, "If CSV column order change it works".
         // Loading is robust. Saving should be consistent (Standard order).
         // Standard: Parameter;Value;Id
-        row << item.parameter << item.value << item.id;
+        QString valueToSave = item.value;
+        if (item.encrypt && !valueToSave.isEmpty()) {
+            valueToSave = _encrypt(valueToSave);
+        }
+        row << item.parameter << valueToSave << item.id;
         out << row.join(";") << "\n";
     }
+}
+
+QString CompanyInfosTable::_encrypt(const QString &value) const
+{
+    // Simple XOR-based encryption with a fixed key
+    // This is NOT cryptographically secure, but provides basic obfuscation
+    const QString key = "AmzBooksSecretKey2026";
+    QString encrypted;
+    
+    for (int i = 0; i < value.length(); ++i) {
+        QChar c = value[i];
+        QChar k = key[i % key.length()];
+        encrypted.append(QChar(c.unicode() ^ k.unicode()));
+    }
+    
+    // Convert to hex for safe CSV storage
+    QString result;
+    for (const QChar &ch : encrypted) {
+        result.append(QString::number(ch.unicode(), 16).rightJustified(4, '0'));
+    }
+    
+    return result;
+}
+
+QString CompanyInfosTable::_decrypt(const QString &value) const
+{
+    // Reverse the hex encoding
+    QString encrypted;
+    for (int i = 0; i < value.length(); i += 4) {
+        QString hex = value.mid(i, 4);
+        bool ok;
+        ushort unicode = hex.toUShort(&ok, 16);
+        if (ok) {
+            encrypted.append(QChar(unicode));
+        }
+    }
+    
+    // XOR decryption (same as encryption)
+    const QString key = "AmzBooksSecretKey2026";
+    QString decrypted;
+    
+    for (int i = 0; i < encrypted.length(); ++i) {
+        QChar c = encrypted[i];
+        QChar k = key[i % key.length()];
+        decrypted.append(QChar(c.unicode() ^ k.unicode()));
+    }
+    
+    return decrypted;
 }
