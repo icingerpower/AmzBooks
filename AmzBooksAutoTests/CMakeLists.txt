@@ -181,3 +181,9 @@ add_executable(TestServiceSales test_service_sales.cpp)
 add_test(NAME TestServiceSales COMMAND TestServiceSales)
 target_link_libraries(TestServiceSales PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(TestServiceSales PRIVATE ../AmzBooksLib)
+
+add_executable(TestInvoicing test_invoicing.cpp)
+add_test(NAME TestInvoicing COMMAND TestInvoicing)
+target_link_libraries(TestInvoicing PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestInvoicing PRIVATE ../AmzBooksLib)
+

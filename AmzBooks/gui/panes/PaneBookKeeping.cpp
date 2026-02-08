@@ -42,7 +42,7 @@ PaneBookKeeping::PaneBookKeeping(QWidget *parent) :
     ui->setupUi(this);
     QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
     m_booksConnections = new BooksConnections{workingDir};
-    m_orderManager = OrderManager::instance(workingDir);
+    m_orderManager = new OrderManager(workingDir);
 
     _initYears();
     _createBooksTables();
@@ -54,6 +54,7 @@ PaneBookKeeping::~PaneBookKeeping()
 {
     delete ui;
     delete m_booksConnections;
+    delete m_orderManager;
 }
 
 void PaneBookKeeping::loadYearSelected()
@@ -199,7 +200,7 @@ void PaneBookKeeping::associate()
         }
         else
         {
-            CurrencyRateManager currencyRateManager{workingDir, apiKey}; // TODO from settings api key
+            CurrencyRateManager currencyRateManager{workingDir, apiKey};
 
             // Perform associations using the hash-based tryToConnect
             try {

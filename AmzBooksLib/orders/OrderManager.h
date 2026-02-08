@@ -33,7 +33,7 @@ class OrderManager
     friend class TestServiceSales;
     friend class TestFileImportAmazonFbaInvoicing;
 public:
-    static OrderManager *instance(const QDir &workingDirectory = QDir());
+    explicit OrderManager(const QDir &workingDirectory);
 
     ~OrderManager();
     QDateTime getLastDateTime(ActivitySource *activitySource) const;
@@ -109,8 +109,7 @@ public:
                                                             , const Shipment *shipmentOrRefund) const;
 
 private:
-    OrderManager(const QDir &workingDirectory);
-    static OrderManager *s_instance;
+
 
     void initDb();
     

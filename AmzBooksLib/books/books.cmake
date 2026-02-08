@@ -93,6 +93,8 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/AbstractBookSaver.cpp
     ${CMAKE_CURRENT_LIST_DIR}/BookSaverFull.h
     ${CMAKE_CURRENT_LIST_DIR}/BookSaverFull.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/InvoiceGenerator.h
+    ${CMAKE_CURRENT_LIST_DIR}/InvoiceGenerator.cpp
 )
 
 

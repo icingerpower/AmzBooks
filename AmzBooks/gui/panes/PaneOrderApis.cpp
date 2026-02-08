@@ -139,7 +139,7 @@ void PaneOrderApis::import()
             // Combine results for processing?
             // Or process each. OrderManager handles recording.
             
-            OrderManager *manager = OrderManager::instance(WorkingDirectoryManager::instance()->workingDir());
+            OrderManager manager(WorkingDirectoryManager::instance()->workingDir());
             ActivitySource source = importer->getActivitySource(); // Assuming Api has this? Yes AbstractImporter has it.
 
             int importedCount = 0;
@@ -148,7 +148,7 @@ void PaneOrderApis::import()
             // Process Shipments
             if (resultShipments.orderInfos) {
                  for (const auto &shipment : resultShipments.orderInfos->shipments) {
-                     manager->recordShipmentFromSource(shipment.getId(), &source, &shipment, QDate());
+                     manager.recordShipmentFromSource(shipment.getId(), &source, &shipment, QDate());
                      newActivities.append(shipment.getActivities());
                  }
                  importedCount += resultShipments.orderInfos->shipments.size();
@@ -157,7 +157,7 @@ void PaneOrderApis::import()
             // Process Refunds
             if (resultRefunds.orderInfos) {
                 for (const auto &refund : resultRefunds.orderInfos->refunds) {
-                    manager->recordShipmentFromSource(refund.getId(), &source, &refund, QDate());
+                    manager.recordShipmentFromSource(refund.getId(), &source, &refund, QDate());
                     newActivities.append(refund.getActivities());
                 }
                 importedCount += resultRefunds.orderInfos->refunds.size();
@@ -165,13 +165,13 @@ void PaneOrderApis::import()
             // Process Addresses
              if (resultAddresses.orderInfos) {
                 for (const auto &addr : resultAddresses.orderInfos->orderAddresses) {
-                    manager->recordAddressTo(addr.orderId, addr.address);
+                    manager.recordAddressTo(addr.orderId, addr.address);
                 }
             }
             // Process Invoicing Infos
              if (resultInvoiceInfos.orderInfos) {
                 for (const auto &inv : resultInvoiceInfos.orderInfos->invoicingInfos) {
-                    manager->recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
+                    manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
                 }
             }
 

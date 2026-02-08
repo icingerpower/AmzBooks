@@ -90,6 +90,11 @@ std::optional<QString> InvoicingInfo::getInvoiceNumber() const
     return m_invoiceNumber;
 }
 
+void InvoicingInfo::setInvoiceNumber(const QString &invoiceNumber)
+{
+    m_invoiceNumber = invoiceNumber;
+}
+
 std::optional<QString> InvoicingInfo::getInvoiceLink() const
 {
     return m_invoiceLink;

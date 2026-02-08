@@ -14,6 +14,10 @@ const QStringList CompanyInfosTable::HEADER_IDS = { "Parameter", "Value", "Id" }
 const QString CompanyInfosTable::ID_COUNTRY = "Country";
 const QString CompanyInfosTable::ID_CURRENCY = "Currency";
 const QString CompanyInfosTable::ID_FIXER_API_KEY = "FixerApiKey";
+const QString CompanyInfosTable::ID_LEGAL_SHARE_CAPITAL = "Legal_ShareCapital";
+const QString CompanyInfosTable::ID_LEGAL_SIRET = "Legal_Siret";
+const QString CompanyInfosTable::ID_LEGAL_RCS = "Legal_RCS";
+const QString CompanyInfosTable::ID_LEGAL_VAT_INTRACOMMUNITY = "Legal_VATIntracommunity";
 
 CompanyInfosTable::CompanyInfosTable(
     const QDir &workingDir, QObject *parent)
@@ -171,6 +175,46 @@ void CompanyInfosTable::_ensureDefaults()
         m_data.append(item);
     }
     
+    // Row 4: Share Capital
+    {
+        InfoItem item;
+        item.id = ID_LEGAL_SHARE_CAPITAL;
+        item.parameter = tr("Legal Share Capital");
+        item.value = "1000 €";
+        item.encrypt = false;
+        m_data.append(item);
+    }
+
+    // Row 5: SIRET
+    {
+        InfoItem item;
+        item.id = ID_LEGAL_SIRET;
+        item.parameter = tr("Legal SIRET");
+        item.value = "";
+        item.encrypt = false;
+        m_data.append(item);
+    }
+
+    // Row 6: RCS
+    {
+        InfoItem item;
+        item.id = ID_LEGAL_RCS;
+        item.parameter = tr("Legal RCS");
+        item.value = "";
+        item.encrypt = false;
+        m_data.append(item);
+    }
+
+    // Row 7: VAT Intracommunity
+    {
+        InfoItem item;
+        item.id = ID_LEGAL_VAT_INTRACOMMUNITY;
+        item.parameter = tr("Legal VAT Intracommunity");
+        item.value = "";
+        item.encrypt = false;
+        m_data.append(item);
+    }
+    
     _save();
 }
 
@@ -228,6 +272,18 @@ void CompanyInfosTable::_load()
             if (!item.value.isEmpty()) {
                 item.value = _decrypt(item.value);
             }
+        } else if (item.id == ID_LEGAL_SHARE_CAPITAL) {
+            item.parameter = tr("Legal Share Capital");
+            item.encrypt = false;
+        } else if (item.id == ID_LEGAL_SIRET) {
+            item.parameter = tr("Legal SIRET");
+            item.encrypt = false;
+        } else if (item.id == ID_LEGAL_RCS) {
+            item.parameter = tr("Legal RCS");
+            item.encrypt = false;
+        } else if (item.id == ID_LEGAL_VAT_INTRACOMMUNITY) {
+            item.parameter = tr("Legal VAT Intracommunity");
+            item.encrypt = false;
         }
         
         if (!item.id.isEmpty()) {

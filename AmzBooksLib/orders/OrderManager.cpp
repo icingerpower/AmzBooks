@@ -28,18 +28,7 @@ namespace {
     }
 }
 
-OrderManager *OrderManager::s_instance = nullptr;
 
-OrderManager *OrderManager::instance(const QDir &workingDirectory)
-{
-    if (!s_instance) {
-        if (workingDirectory == QDir()) {
-            qFatal("OrderManager instance not created and no working directory provided");
-        }
-        s_instance = new OrderManager(workingDirectory);
-    }
-    return s_instance;
-}
 
 OrderManager::OrderManager(const QDir &workingDirectory)
 {

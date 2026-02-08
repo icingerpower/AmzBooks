@@ -15,6 +15,10 @@ public:
     static const QString ID_COUNTRY;
     static const QString ID_CURRENCY;
     static const QString ID_FIXER_API_KEY;
+    static const QString ID_LEGAL_SHARE_CAPITAL;
+    static const QString ID_LEGAL_SIRET;
+    static const QString ID_LEGAL_RCS;
+    static const QString ID_LEGAL_VAT_INTRACOMMUNITY;
     explicit CompanyInfosTable(const QDir &workingDir, QObject *parent = nullptr);
     const QString &getCompanyCountryCode() const;
     const QString &getCurrency() const;

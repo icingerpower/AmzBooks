@@ -21,6 +21,7 @@ public:
     void setItems(const QList<Activity> &activities, const QList<LineItem> &items);
     const QList<LineItem> &getItems() const;
     std::optional<QString> getInvoiceNumber() const;
+    void setInvoiceNumber(const QString &invoiceNumber);
     std::optional<QString> getInvoiceLink() const;
     
     /// Returns the payment date. If not set, returns the orderDate as default (instant payment).
