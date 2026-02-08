@@ -455,7 +455,7 @@ private slots:
         // 1. Init & Modify
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 2);
+            QCOMPARE(table.rowCount(), 3);  // Country, Currency, FixerApiKey
             
             // Modify Country (Row 0, Col 1)
             table.setData(table.index(0, 1), "US");
@@ -467,7 +467,7 @@ private slots:
         // 2. Persistence (New Instance)
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 2);
+            QCOMPARE(table.rowCount(), 3);  // Country, Currency, FixerApiKey
             
             // Check Values
             QCOMPARE(table.data(table.index(0, 1)).toString(), "US");
@@ -479,6 +479,73 @@ private slots:
         {
             CompanyInfosTable table(QDir(tempDir.path()));
             QCOMPARE(table.data(table.index(0, 1)).toString(), "US");
+        }
+    }
+    
+    void test_CompanyInfosTableEncryption() {
+        QTemporaryDir tempDir;
+        QString csvPath = QDir(tempDir.path()).filePath("company.csv");
+        QString testApiKey = "my_secret_api_key_12345";
+        
+        // 1. Set API Key (Row 2 = FixerApiKey)
+        {
+            CompanyInfosTable table(QDir(tempDir.path()));
+            QCOMPARE(table.rowCount(), 3);
+            
+            // Row 2 is FixerApiKey
+            table.setData(table.index(2, 1), testApiKey);
+            
+            // Verify via getter
+            QCOMPARE(table.getApiKeyFixer(), testApiKey);
+        }
+        
+        // 2. Verify CSV contains encrypted value (not plaintext)
+        {
+            QFile file(csvPath);
+            QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+            QString content = file.readAll();
+            file.close();
+            
+            // The plaintext API key should NOT appear in the CSV
+            QVERIFY(!content.contains(testApiKey));
+            
+            // But the CSV should contain the FixerApiKey row
+            QVERIFY(content.contains("FixerApiKey"));
+        }
+        
+        // 3. Reload and verify decryption works
+        {
+            CompanyInfosTable table(QDir(tempDir.path()));
+            
+            // Via data()
+            QCOMPARE(table.data(table.index(2, 1)).toString(), testApiKey);
+            
+            // Via getter
+            QCOMPARE(table.getApiKeyFixer(), testApiKey);
+        }
+        
+        // 4. Test empty API key
+        {
+            CompanyInfosTable table(QDir(tempDir.path()));
+            table.setData(table.index(2, 1), "");
+            QCOMPARE(table.getApiKeyFixer(), QString(""));
+        }
+        
+        // 5. Verify empty value in CSV
+        {
+            QFile file(csvPath);
+            QVERIFY(file.open(QIODevice::ReadOnly | QIODevice::Text));
+            QString content = file.readAll();
+            file.close();
+            
+            // Should have FixerApiKey with empty value
+            QVERIFY(content.contains("FixerApiKey"));
+        }
+        
+        // 6. Reload empty API key
+        {
+            CompanyInfosTable table(QDir(tempDir.path()));
+            QCOMPARE(table.getApiKeyFixer(), QString(""));
         }
     }
 

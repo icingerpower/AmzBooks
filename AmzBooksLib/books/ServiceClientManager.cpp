@@ -9,7 +9,9 @@ const QStringList ServiceClientManager::COL_NAMES = {
     QObject::tr("Country"),
     QObject::tr("VAT Number"),
     QObject::tr("Currency"),
-    QObject::tr("Default Amount")
+    QObject::tr("Default Amount"),
+    QObject::tr("Payment Type"),
+    QObject::tr("Payment Days")
 };
 
 ServiceClientManager::ServiceClientManager(const QDir &workingDir, QObject *parent)
@@ -90,11 +92,15 @@ bool ServiceClientManager::setData(const QModelIndex &index, const QVariant &val
 
 void ServiceClientManager::addClient(const QString &clientName, const QString &serviceLabel, 
                                      const QString &country, const QString &vatNumber, 
-                                     const QString &currency, double defaultAmount)
+                                     const QString &currency, double defaultAmount,
+                                     PaymentType paymentType, int paymentDays)
 {
     beginInsertRows(QModelIndex(), m_clients.size(), m_clients.size());
     QStringList row;
-    row << clientName << serviceLabel << country << vatNumber << currency << QString::number(defaultAmount);
+    row << clientName << serviceLabel << country << vatNumber << currency 
+        << QString::number(defaultAmount)
+        << QString::number(static_cast<int>(paymentType))
+        << QString::number(paymentDays);
     m_clients.append(row);
     endInsertRows();
     _save();
@@ -139,6 +145,41 @@ double ServiceClientManager::getDefaultAmount(int row) const
 {
     if (row >= 0 && row < m_clients.size()) return m_clients[row][ColDefaultAmount].toDouble();
     return 0.0;
+}
+
+PaymentType ServiceClientManager::getPaymentType(int row) const
+{
+    if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColPaymentType) {
+        return static_cast<PaymentType>(m_clients[row][ColPaymentType].toInt());
+    }
+    return PaymentType::Instant;
+}
+
+int ServiceClientManager::getPaymentDays(int row) const
+{
+    if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColPaymentDays) {
+        return m_clients[row][ColPaymentDays].toInt();
+    }
+    return 0;
+}
+
+QDate ServiceClientManager::calculatePaymentDate(int row, const QDate &orderDate) const
+{
+    PaymentType type = getPaymentType(row);
+    switch (type) {
+    case PaymentType::Instant:
+        return orderDate;
+    case PaymentType::AfterXDays: {
+        int days = getPaymentDays(row);
+        return orderDate.addDays(days);
+    }
+    case PaymentType::EndOfNextMonth: {
+        // Move to next month, then go to end of that month
+        QDate nextMonth = orderDate.addMonths(1);
+        return QDate(nextMonth.year(), nextMonth.month(), nextMonth.daysInMonth());
+    }
+    }
+    return orderDate;
 }
 
 void ServiceClientManager::_load()

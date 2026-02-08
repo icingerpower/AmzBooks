@@ -5,6 +5,14 @@
 #include <QDir>
 #include <QList>
 #include <QStringList>
+#include <QDate>
+
+/// Payment type for service clients
+enum class PaymentType {
+    Instant = 0,      ///< Payment on order date
+    AfterXDays = 1,   ///< Payment after X days from order date
+    EndOfNextMonth = 2 ///< Payment at end of month following order date
+};
 
 class ServiceClientManager : public QAbstractTableModel
 {
@@ -22,6 +30,8 @@ public:
         ColVatNumber,
         ColCurrency,
         ColDefaultAmount,
+        ColPaymentType,
+        ColPaymentDays,
         ColCount
     };
 
@@ -36,7 +46,9 @@ public:
     // Modification
     void addClient(const QString &clientName, const QString &serviceLabel, 
                    const QString &country, const QString &vatNumber, 
-                   const QString &currency, double defaultAmount);
+                   const QString &currency, double defaultAmount,
+                   PaymentType paymentType = PaymentType::Instant,
+                   int paymentDays = 0);
     void removeClient(int row);
 
     // Accessors for ServiceSalesBooksTable
@@ -46,6 +58,11 @@ public:
     QString getVatNumber(int row) const;
     QString getCurrency(int row) const;
     double getDefaultAmount(int row) const;
+    PaymentType getPaymentType(int row) const;
+    int getPaymentDays(int row) const;
+    
+    /// Calculate payment date based on client's payment type and order date
+    QDate calculatePaymentDate(int row, const QDate &orderDate) const;
 
 private:
     void _load();
@@ -57,3 +74,4 @@ private:
 };
 
 #endif // SERVICECLIENTMANAGER_H
+

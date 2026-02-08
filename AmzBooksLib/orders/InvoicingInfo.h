@@ -3,6 +3,7 @@
 
 #include "LineItem.h"
 #include "books/Activity.h"
+#include <QDate>
 
 class Shipment;
 class Activity;
@@ -13,13 +14,17 @@ public:
     InvoicingInfo(const Shipment *shipmentOrRefund
                   , QList<LineItem> invoiceLineItems = {}
                   , std::optional<QString> invoiceNumber = std::nullopt
-                  , std::optional<QString> invoiceLink = std::nullopt);
+                  , std::optional<QString> invoiceLink = std::nullopt
+                  , std::optional<QDate> paymentDate = std::nullopt);
 
     bool isInvoiceDone() const;
     void setItems(const QList<Activity> &activities, const QList<LineItem> &items);
     const QList<LineItem> &getItems() const;
     std::optional<QString> getInvoiceNumber() const;
     std::optional<QString> getInvoiceLink() const;
+    
+    /// Returns the payment date. If not set, returns the orderDate as default (instant payment).
+    QDate getPaymentDate(const QDate &orderDate) const;
 
     QJsonObject toJson() const;
     static InvoicingInfo fromJson(const QJsonObject &json);
@@ -29,6 +34,8 @@ private:
     QList<LineItem> m_items;
     std::optional<QString> m_invoiceNumber;
     std::optional<QString> m_invoiceLink;
+    std::optional<QDate> m_paymentDate;
 };
 
 #endif // INVOICINGINFO_H
+

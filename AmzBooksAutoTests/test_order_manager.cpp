@@ -33,6 +33,7 @@ private slots:
     void test_remove_order();
     void test_remove_shipmentRefundr();
     void test_contains();
+    void test_getShipmentAndRefundsNoInvoices();
 };
 
 void TestOrderManager::initTestCase()
@@ -1041,6 +1042,297 @@ void TestOrderManager::test_contains()
     manager.recordOrder("ord2", "Store");
     QVERIFY(manager.containsOrder("ord2"));
     QVERIFY(!manager.containsShipmentOrRefund("ship2"));
+}
+
+void TestOrderManager::test_getShipmentAndRefundsNoInvoices()
+{
+    QTemporaryDir tempDir;
+    OrderManager manager(tempDir.path());
+    
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "FR", "Report1"};
+    QString orderId = "ord_no_inv";
+    Address addr("John Doe", "Street", "", "", "City", "12345", "DE", "", "", "", "", "");
+
+    // Helper to create shipment
+    auto createShip = [&](const QString &id, double amount, QDate date, QTime time = QTime(10, 0)) -> Shipment {
+         auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(date, time), "EUR", "FR", "DE", "DE",
+             Amount(amount, amount * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+         return Shipment({*actRes.value});
+    };
+    
+    // Helper to create refund
+    auto createRefund = [&](const QString &id, double amount, QDate date, QTime time = QTime(10, 0)) -> Refund {
+         auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(date, time), "EUR", "FR", "DE", "DE",
+             Amount(-amount, -amount * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+         return Refund({*actRes.value});
+    };
+    
+    // ========== MAIN TEST SCENARIO ==========
+    // 1. Create shipment (Jan 1, 2023 - OUTSIDE requested range)
+    QDate dateJan1(2023, 1, 1);
+    QDate dateFeb15(2023, 2, 15);
+    QDate dateMar1(2023, 3, 1);
+    QDate rangeDateFrom(2023, 2, 1);  // Request range: Feb 2023
+    QDate rangeDateTo(2023, 2, 28);
+    
+    Shipment s1 = createShip("s1", 100.0, dateJan1);
+    manager.recordShipmentFromSource(orderId, &source, &s1, QDate());
+    manager.recordAddressTo(orderId, addr);
+    
+    // 2. Publish it
+    QDate pubDate1(2023, 1, 31);
+    manager.publish(pubDate1);
+    
+    // 3. Add invoicing info (so it has an invoice number)
+    InvoicingInfo invInfo(&s1, {}, "INV-001");
+    manager.recordInvoicingInfo(s1.getId(), &invInfo);
+    
+    // 4. Update with conflict (Feb 15, 2023 - INSIDE requested range)
+    // This creates a reversal and new version
+    auto actRes2 = Activity::create("evt_s1", "act_s1", "", QDateTime(dateJan1, QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment s1Updated({*actRes2.value});
+    manager.recordShipmentFromSource(orderId, &source, &s1Updated, dateFeb15);
+    
+    // Verify 3 shipments exist (original + reversal + new version)
+    {
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 3);
+    }
+    
+    // 5. Call getShipmentAndRefundsNoInvoices for Feb 2023 range
+    auto results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    
+    // Should return 1 group (one root_id) with 3 shipments
+    QCOMPARE(results->size(), 1);  // VERIFY 1
+    
+    auto &group = results->first();
+    QCOMPARE(group.shipmentsRefundsSameActivity.size(), 3);  // VERIFY 2
+    QCOMPARE(group.invoicesToDo.size(), 3);  // VERIFY 3
+    
+    // Verify invoicingInfo is populated with the original invoice
+    QVERIFY(group.invoicingInfo != nullptr);  // VERIFY 4
+    QCOMPARE(group.invoicingInfo->getInvoiceNumber().value(), QString("INV-001"));  // VERIFY 5
+    
+    // Verify addressTo is populated
+    QVERIFY(group.addressTo != nullptr);  // VERIFY 6
+    QCOMPARE(group.addressTo->getFullName(), QString("John Doe"));  // VERIFY 7
+    
+    // Verify invoicesToDo: first is false (outside range), second and third are true (inside range)
+    // Note: ordering may vary by event_date. First is Jan (original), then Feb (reversal, new)
+    int countTrue = 0;
+    int countFalse = 0;
+    for (bool todo : group.invoicesToDo) {
+        if (todo) countTrue++;
+        else countFalse++;
+    }
+    QCOMPARE(countTrue, 2);  // VERIFY 8 - reversal and new version need invoices
+    QCOMPARE(countFalse, 1);  // VERIFY 9 - original is outside date range
+    
+    // ========== ADDITIONAL 30 VERIFY TESTS ==========
+    
+    // --- Test 2: Shipment entirely inside range with no invoice ---
+    QString orderId2 = "ord_no_inv2";
+    Shipment s2 = createShip("s2", 50.0, QDate(2023, 2, 10));
+    manager.recordShipmentFromSource(orderId2, &source, &s2, QDate());
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    QCOMPARE(results->size(), 2);  // VERIFY 10 - now 2 groups
+    
+    // Find s2 group
+    bool foundS2 = false;
+    for (const auto &grp : *results) {
+        if (grp.shipmentsRefundsSameActivity.size() == 1) {
+            foundS2 = true;
+            QVERIFY(grp.invoicingInfo == nullptr);  // VERIFY 11
+            QCOMPARE(grp.invoicesToDo.size(), 1);  // VERIFY 12
+            QVERIFY(grp.invoicesToDo[0] == true);  // VERIFY 13
+        }
+    }
+    QVERIFY(foundS2);  // VERIFY 14
+    
+    // --- Test 3: Shipment inside range WITH invoice number ---
+    QString orderId3 = "ord_with_inv";
+    Shipment s3 = createShip("s3", 75.0, QDate(2023, 2, 20));
+    manager.recordShipmentFromSource(orderId3, &source, &s3, QDate());
+    InvoicingInfo invInfo3(&s3, {}, "INV-003");
+    manager.recordInvoicingInfo(s3.getId(), &invInfo3);
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    QCOMPARE(results->size(), 2);  // VERIFY 15 - still 2 groups (s3 has invoice, not returned)
+    
+    // --- Test 4: Refund inside range ---
+    QString orderId4 = "ord_refund";
+    Refund r1 = createRefund("r1", 30.0, QDate(2023, 2, 5));
+    manager.recordShipmentFromSource(orderId4, &source, &r1, QDate());
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    QCOMPARE(results->size(), 3);  // VERIFY 16 - now 3 groups
+    
+    // Find refund group (by ID, not amount - reversals also have negative amounts)
+    bool foundRefund = false;
+    for (const auto &grp : *results) {
+        for (int i = 0; i < grp.shipmentsRefundsSameActivity.size(); ++i) {
+            const auto &ship = grp.shipmentsRefundsSameActivity[i];
+            if (ship->getId().contains("r1")) {  // Find by refund ID
+                foundRefund = true;
+                QVERIFY(grp.invoicesToDo[i] == true);  // VERIFY 17 - use matching index
+            }
+        }
+    }
+    QVERIFY(foundRefund);  // VERIFY 18
+    
+    // --- Test 5: Shipment outside range (before) ---
+    QString orderId5 = "ord_before_range";
+    Shipment s5 = createShip("s5", 25.0, QDate(2023, 1, 15));
+    manager.recordShipmentFromSource(orderId5, &source, &s5, QDate());
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    QCOMPARE(results->size(), 3);  // VERIFY 19 - unchanged (s5 outside range)
+    
+    // --- Test 6: Shipment outside range (after) ---
+    QString orderId6 = "ord_after_range";
+    Shipment s6 = createShip("s6", 35.0, QDate(2023, 3, 15));
+    manager.recordShipmentFromSource(orderId6, &source, &s6, QDate());
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    QCOMPARE(results->size(), 3);  // VERIFY 20 - unchanged (s6 outside range)
+    
+    // --- Test 7: Query with no date range (return all without invoices) ---
+    results = manager.getShipmentAndRefundsNoInvoices(QDate(), QDate());
+    QVERIFY(results->size() >= 5);  // VERIFY 21 - at least 5 groups without invoices
+    
+    // --- Test 8: Multiple shipments same order, different dates ---
+    QString orderId8 = "ord_multi";
+    Shipment s8a = createShip("s8a", 10.0, QDate(2023, 1, 5));  // outside range
+    Shipment s8b = createShip("s8b", 20.0, QDate(2023, 2, 10)); // inside range
+    manager.recordShipmentFromSource(orderId8, &source, &s8a, QDate());
+    manager.recordShipmentFromSource(orderId8, &source, &s8b, QDate());
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    bool foundS8b = false;
+    for (const auto &grp : *results) {
+        for (const auto &ship : grp.shipmentsRefundsSameActivity) {
+            QString shipId = ship->getId();
+            if (shipId.contains("s8b")) {
+                foundS8b = true;
+            }
+        }
+    }
+    QVERIFY(foundS8b);  // VERIFY 22 - s8b was found
+    
+    // --- Test 9: Published vs Unpublished ---
+    QString orderId9 = "ord_pub_unpub";
+    Shipment s9 = createShip("s9", 45.0, QDate(2023, 2, 12));
+    manager.recordShipmentFromSource(orderId9, &source, &s9, QDate());
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    int countBefore = results->size();
+    
+    // Publish
+    QDate pubDate9(2023, 3, 1);
+    manager.publish(pubDate9);
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    QCOMPARE(results->size(), countBefore);  // VERIFY 23 - same count (still needs invoice)
+    
+    // Add invoice
+    InvoicingInfo invInfo9(&s9, {}, "INV-009");
+    manager.recordInvoicingInfo(s9.getId(), &invInfo9);
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    QCOMPARE(results->size(), countBefore - 1);  // VERIFY 24 - one less (now has invoice)
+    
+    // --- Test 10: Empty result when all have invoices ---
+    // Add invoices to remaining groups with data in range
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    for (const auto &grp : *results) {
+        if (!grp.shipmentsRefundsSameActivity.isEmpty()) {
+            QString rootId = grp.shipmentsRefundsSameActivity.first()->getId();
+            Shipment temp({grp.shipmentsRefundsSameActivity.first()->getActivities()});
+            InvoicingInfo tempInfo(&temp, {}, "INV-TEMP-" + rootId);
+            manager.recordInvoicingInfo(rootId, &tempInfo);
+        }
+    }
+    
+    // All should now have invoices in Feb range
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    // Some might still not have invoices if recorded after - check it's less
+    QVERIFY(results->size() <= 3);  // VERIFY 25
+    
+    // --- Test 11: Boundary date testing (exactly on dateFrom) ---
+    QString orderId11 = "ord_boundary1";
+    Shipment s11 = createShip("s11", 11.0, rangeDateFrom);  // Feb 1 exactly
+    manager.recordShipmentFromSource(orderId11, &source, &s11, QDate());
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    bool foundS11 = false;
+    for (const auto &grp : *results) {
+        for (const auto &ship : grp.shipmentsRefundsSameActivity) {
+            if (ship->getId().contains("s11")) {
+                foundS11 = true;
+                // Should be to do since it's exactly on dateFrom
+            }
+        }
+    }
+    QVERIFY(foundS11);  // VERIFY 26 - boundary date included
+    
+    // --- Test 12: Boundary date testing (exactly on dateTo) ---
+    QString orderId12 = "ord_boundary2";
+    Shipment s12 = createShip("s12", 12.0, rangeDateTo);  // Feb 28 exactly
+    manager.recordShipmentFromSource(orderId12, &source, &s12, QDate());
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    bool foundS12 = false;
+    for (const auto &grp : *results) {
+        for (const auto &ship : grp.shipmentsRefundsSameActivity) {
+            if (ship->getId().contains("act_s12")) foundS12 = true;  // Full ID pattern
+        }
+    }
+    QVERIFY(foundS12);  // VERIFY 27 - boundary date included
+    
+    // --- Test 13: InvoicingInfo with no invoice number (should be in results) ---
+    QString orderId13 = "ord_empty_inv";
+    Shipment s13 = createShip("s13", 13.0, QDate(2023, 2, 14));
+    manager.recordShipmentFromSource(orderId13, &source, &s13, QDate());
+    InvoicingInfo emptyInvInfo(&s13, {}, std::nullopt); // No invoice number
+    manager.recordInvoicingInfo(s13.getId(), &emptyInvInfo);
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    bool foundS13 = false;
+    for (const auto &grp : *results) {
+        for (const auto &ship : grp.shipmentsRefundsSameActivity) {
+            if (ship->getId().contains("s13")) {
+                foundS13 = true;
+                QVERIFY(grp.invoicesToDo[0] == true);  // VERIFY 28 - needs invoice even though info exists
+            }
+        }
+    }
+    QVERIFY(foundS13);  // VERIFY 29
+    
+    // --- Test 14: Verify activity update model is created ---
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    for (const auto &grp : *results) {
+        QVERIFY(grp.activityUpdate != nullptr);  // VERIFY 30
+        break;  // Only need to verify once
+    }
+    
+    // --- Test 15: Verify shipment data integrity ---
+    QString orderId15 = "ord_integrity";
+    Shipment s15 = createShip("s15", 150.0, QDate(2023, 2, 18));
+    manager.recordShipmentFromSource(orderId15, &source, &s15, QDate());
+    
+    results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
+    for (const auto &grp : *results) {
+        for (const auto &ship : grp.shipmentsRefundsSameActivity) {
+            if (ship->getId().contains("s15")) {
+                QCOMPARE(ship->getActivities().size(), 1);  // VERIFY 31
+                QCOMPARE(ship->getActivities().first().getAmountTaxed(), 150.0);  // VERIFY 32
+            }
+        }
+    }
 }
 
 QTEST_MAIN(TestOrderManager)

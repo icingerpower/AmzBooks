@@ -7,10 +7,12 @@ InvoicingInfo::InvoicingInfo(
         const Shipment *shipmentOrRefund
         , QList<LineItem> invoiceLineItems
         , std::optional<QString> invoiceNumber
-        , std::optional<QString> invoiceLink)
+        , std::optional<QString> invoiceLink
+        , std::optional<QDate> paymentDate)
     : m_items(invoiceLineItems)
     , m_invoiceNumber(invoiceNumber)
     , m_invoiceLink(invoiceLink)
+    , m_paymentDate(paymentDate)
 {
     // Perform adjustment
     if (shipmentOrRefund) {
@@ -93,11 +95,17 @@ std::optional<QString> InvoicingInfo::getInvoiceLink() const
     return m_invoiceLink;
 }
 
+QDate InvoicingInfo::getPaymentDate(const QDate &orderDate) const
+{
+    return m_paymentDate.value_or(orderDate);
+}
+
 QJsonObject InvoicingInfo::toJson() const
 {
     QJsonObject json;
     if (m_invoiceNumber) json["invoiceNumber"] = *m_invoiceNumber;
     if (m_invoiceLink) json["invoiceLink"] = *m_invoiceLink;
+    if (m_paymentDate) json["paymentDate"] = m_paymentDate->toString(Qt::ISODate);
     
     QJsonArray itemsArr;
     for (const auto &item : m_items) {
@@ -123,6 +131,11 @@ InvoicingInfo InvoicingInfo::fromJson(const QJsonObject &json)
     std::optional<QString> link;
     if (json.contains("invoiceLink")) link = json["invoiceLink"].toString();
     
+    std::optional<QDate> paymentDate;
+    if (json.contains("paymentDate")) {
+        paymentDate = QDate::fromString(json["paymentDate"].toString(), Qt::ISODate);
+    }
+    
     // Create with null shipment, we just hold data
-    return InvoicingInfo(nullptr, items, number, link);
+    return InvoicingInfo(nullptr, items, number, link, paymentDate);
 }

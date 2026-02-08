@@ -959,3 +959,177 @@ OrderManager::get_channel_site_ShipmentAndRefundsNoInvoices(const QDate &dateFro
     return nullptr;
 }
 
+QSharedPointer<QList<OrderManager::ShipmentRefundsWithUpdates>>
+OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate &dateTo) const
+{
+    auto results = QSharedPointer<QList<ShipmentRefundsWithUpdates>>::create();
+    
+    // Query all shipments for roots that have at least one shipment in the date range
+    // that needs an invoice. A shipment needs an invoice if:
+    // 1. It's in the date range AND
+    // 2. Either: (no invoicing_info exists) OR (it's a revision/conflict: contains -rev- or -v-)
+    
+    // First, get all distinct root_ids that have shipments within the date range
+    // needing invoice work
+    QString rootQueryStr = R"(
+        SELECT DISTINCT COALESCE(s.root_id, s.id) as root_id
+        FROM shipments s
+        LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id
+        WHERE 1=1
+    )";
+    
+    if (dateFrom.isValid()) {
+        rootQueryStr += QString(" AND DATE(s.event_date) >= '%1'").arg(dateFrom.toString(Qt::ISODate));
+    }
+    if (dateTo.isValid()) {
+        rootQueryStr += QString(" AND DATE(s.event_date) <= '%1'").arg(dateTo.toString(Qt::ISODate));
+    }
+    
+    // We want roots where shipments in range need invoices:
+    // - Either no invoicing_info exists
+    // - OR invoicing_info has no invoice_number  
+    // - OR the shipment is a revision/conflict (id contains -rev- or -v-)
+    rootQueryStr += R"( AND (
+        inv.shipment_root_id IS NULL 
+        OR inv.json NOT LIKE '%"invoiceNumber":%' 
+        OR inv.json LIKE '%"invoiceNumber":null%'
+        OR s.id LIKE '%-rev-%'
+        OR s.id LIKE '%-v-%'
+    ))";
+    
+    QSqlQuery rootQuery(rootQueryStr);
+    QSet<QString> rootIdsToProcess;
+    while (rootQuery.next()) {
+        rootIdsToProcess.insert(rootQuery.value("root_id").toString());
+    }
+    
+    if (rootIdsToProcess.isEmpty()) {
+        return results;
+    }
+    
+    // Now fetch ALL shipments for those roots (including history outside date range)
+    // along with their invoicing info and address
+    QString queryStr = R"(
+        SELECT s.id, s.order_id, s.current_json, s.source_key, s.event_date, 
+               COALESCE(s.root_id, s.id) as root_id, o.address_json, inv.json as inv_json
+        FROM shipments s
+        LEFT JOIN orders o ON s.order_id = o.id
+        LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id
+        WHERE COALESCE(s.root_id, s.id) IN (
+    )";
+    
+    // Build IN clause
+    QStringList quotedIds;
+    for (const QString &id : rootIdsToProcess) {
+        quotedIds << QString("'%1'").arg(id);
+    }
+    queryStr += quotedIds.join(", ") + ")";
+    queryStr += " ORDER BY root_id, s.event_date";
+    
+    QSqlQuery query(queryStr);
+    
+    // Group shipments by root_id
+    QHash<QString, ShipmentRefundsWithUpdates> groupedResults;
+    QHash<QString, QString> rootInvJson; // Cache invoicing json per root
+    
+    while (query.next()) {
+        QString id = query.value("id").toString();
+        QString rootId = query.value("root_id").toString();
+        QString jsonStr = query.value("current_json").toString();
+        QString addressJson = query.value("address_json").toString();
+        QString invJson = query.value("inv_json").toString();
+        QString eventDateStr = query.value("event_date").toString();
+        QDate eventDate = QDate::fromString(eventDateStr.left(10), Qt::ISODate);
+        
+        // Parse Shipment
+        QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
+        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        
+        // Check for Reversal - negate amounts if it's a reversal entry
+        if (id.contains("-rev-")) {
+            QList<Activity> newActs;
+            for (const auto &act : shipment->getActivities()) {
+                Amount negatedAmount(-act.getAmountTaxed(), -act.getAmountTaxesSource());
+                auto res = Activity::create(act.getEventId(),
+                                            act.getActivityId(),
+                                            act.getSubActivityId(),
+                                            act.getDateTime(),
+                                            act.getCurrency(),
+                                            act.getCountryCodeFrom(),
+                                            act.getCountryCodeTo(),
+                                            act.getCountryCodeVatPaidTo(),
+                                            negatedAmount,
+                                            act.getTaxSource(),
+                                            act.getTaxDeclaringCountryCode(),
+                                            act.getTaxScheme(),
+                                            act.getTaxJurisdictionLevel(),
+                                            act.getSaleType(),
+                                            act.getVatTerritoryFrom(),
+                                            act.getVatTerritoryTo());
+               if (res.value) {
+                   newActs.append(*res.value);
+               }
+            }
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+        }
+        
+        // Add to grouped results
+        if (!groupedResults.contains(rootId)) {
+            ShipmentRefundsWithUpdates item;
+            item.activityUpdate = QSharedPointer<ActivityUpdate>::create();
+            
+            // Parse invoicing info if available
+            if (!invJson.isEmpty()) {
+                QJsonObject invObj = QJsonDocument::fromJson(invJson.toUtf8()).object();
+                item.invoicingInfo = QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(invObj));
+            }
+            
+            // Parse address if available
+            if (!addressJson.isEmpty()) {
+                QJsonObject addrObj = QJsonDocument::fromJson(addressJson.toUtf8()).object();
+                item.addressTo = QSharedPointer<Address>::create(Address::fromJson(addrObj));
+            }
+            
+            rootInvJson[rootId] = invJson;
+            groupedResults[rootId] = item;
+        }
+        
+        groupedResults[rootId].shipmentsRefundsSameActivity.append(shipment);
+        
+        // Determine if this shipment needs an invoice
+        // invoicesToDo = true if:
+        // 1. The shipment is within the requested date range AND
+        // 2. Either: (no invoicing info exists OR no invoice number) OR (it's a revision/conflict)
+        bool inDateRange = true;
+        if (dateFrom.isValid() && eventDate < dateFrom) {
+            inDateRange = false;
+        }
+        if (dateTo.isValid() && eventDate > dateTo) {
+            inDateRange = false;
+        }
+        
+        bool isRevisionOrConflict = id.contains("-rev-") || id.contains("-v-");
+        
+        bool hasInvoiceNumber = false;
+        const QString &cachedInvJson = rootInvJson[rootId];
+        if (!cachedInvJson.isEmpty()) {
+            QJsonObject invObj = QJsonDocument::fromJson(cachedInvJson.toUtf8()).object();
+            if (invObj.contains("invoiceNumber") && !invObj.value("invoiceNumber").isNull()) {
+                hasInvoiceNumber = true;
+            }
+        }
+        
+        // Needs invoice if in range AND (no invoice exists OR it's a revision/conflict)
+        bool needsInvoice = inDateRange && (!hasInvoiceNumber || isRevisionOrConflict);
+        groupedResults[rootId].invoicesToDo.append(needsInvoice);
+    }
+    
+    // Convert hash to list
+    for (auto it = groupedResults.begin(); it != groupedResults.end(); ++it) {
+        results->append(it.value());
+    }
+    
+    return results;
+}
+
+

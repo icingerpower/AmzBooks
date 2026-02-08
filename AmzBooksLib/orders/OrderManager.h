@@ -69,6 +69,7 @@ public:
     struct ShipmentRefundsWithUpdates{
         QSharedPointer<ActivityUpdate> activityUpdate;
         QList<QSharedPointer<Shipment>> shipmentsRefundsSameActivity;
+        QList<bool> invoicesToDo;
         QSharedPointer<InvoicingInfo> invoicingInfo;
         QSharedPointer<Address> addressTo;
     };

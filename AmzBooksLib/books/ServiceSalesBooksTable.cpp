@@ -2,6 +2,7 @@
 #include "ServiceClientManager.h"
 #include "orders/OrderManager.h"
 #include "orders/Shipment.h"
+#include "orders/InvoicingInfo.h"
 #include "books/Activity.h"
 #include "orders/ExceptionParamValue.h"
 #include "books/ExceptionBookEquality.h"
@@ -30,7 +31,9 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     QString clientName = clientManager->getClientName(clientRow);
     QString serviceLabel = clientManager->getServiceLabel(clientRow);
     QString country = clientManager->getCountry(clientRow);
-    // double defaultAmount = clientManager->getDefaultAmount(clientRow); 
+    
+    // Calculate payment date based on client's payment type
+    QDate paymentDate = clientManager->calculatePaymentDate(clientRow, date);
 
     // 1. Generate Order ID
     // Format: "Service-{Date}-{ClientName}"
@@ -93,7 +96,13 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     
     m_orderManager->recordShipmentFromSource(orderId, &source, &shipment, date);
     
-    // 4. Add to AbstractBooksTable
+    // 4. Create and record InvoicingInfo with payment date
+    // Use paymentDate only if it differs from orderDate (non-instant payment)
+    std::optional<QDate> optPaymentDate = (paymentDate != date) ? std::optional<QDate>(paymentDate) : std::nullopt;
+    InvoicingInfo invoicingInfo(&shipment, {}, invoiceId, std::nullopt, optPaymentDate);
+    m_orderManager->recordInvoicingInfo(activityId, &invoicingInfo);
+    
+    // 5. Add to AbstractBooksTable
     // add(rowId, bookId, date, amountFullOrig, currencyAmount, label, account1, account2, vatOrig, vatCountry, vatCurrency)
     add(orderId, invoiceId, date, amount, currency, serviceLabel, 
         "", // Account 1 

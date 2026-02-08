@@ -6,6 +6,7 @@
 #include "books/ServiceSalesBooksTable.h"
 #include "orders/OrderManager.h"
 #include "orders/Shipment.h"
+#include "orders/InvoicingInfo.h"
 #include "orders/ExceptionParamValue.h"
 
 class TestServiceSales : public QObject
@@ -95,7 +96,235 @@ private slots:
     }
     
     void test_persistence();
+    
+    // ========== NEW TESTS FOR PAYMENT DATE FEATURE ==========
+    void test_InvoicingInfo_paymentDate();
+    void test_ServiceClientManager_paymentTypes();
+    void test_createSale_instantPayment();
+    void test_createSale_afterXDays();
+    void test_createSale_endOfNextMonth();
+    void test_paymentDate_edgeCases();
 };
+
+void TestServiceSales::test_InvoicingInfo_paymentDate()
+{
+    // VERIFY 1: InvoicingInfo without payment date returns order date
+    {
+        QDate orderDate(2025, 3, 15);
+        InvoicingInfo info(nullptr, {}, "INV-001", std::nullopt, std::nullopt);
+        QCOMPARE(info.getPaymentDate(orderDate), orderDate);
+    }
+    
+    // VERIFY 2: InvoicingInfo with explicit payment date returns that date
+    {
+        QDate orderDate(2025, 3, 15);
+        QDate paymentDate(2025, 4, 30);
+        InvoicingInfo info(nullptr, {}, "INV-002", std::nullopt, paymentDate);
+        QCOMPARE(info.getPaymentDate(orderDate), paymentDate);
+    }
+    
+    // VERIFY 3: JSON round-trip without paymentDate
+    {
+        InvoicingInfo original(nullptr, {}, "INV-003", "http://link.com", std::nullopt);
+        QJsonObject json = original.toJson();
+        QVERIFY(!json.contains("paymentDate"));
+        InvoicingInfo loaded = InvoicingInfo::fromJson(json);
+        QDate orderDate(2025, 1, 1);
+        QCOMPARE(loaded.getPaymentDate(orderDate), orderDate);
+        QCOMPARE(loaded.getInvoiceNumber().value(), "INV-003");
+    }
+    
+    // VERIFY 4: JSON round-trip with paymentDate
+    {
+        QDate paymentDate(2025, 5, 31);
+        InvoicingInfo original(nullptr, {}, "INV-004", std::nullopt, paymentDate);
+        QJsonObject json = original.toJson();
+        QVERIFY(json.contains("paymentDate"));
+        QCOMPARE(json["paymentDate"].toString(), "2025-05-31");
+        InvoicingInfo loaded = InvoicingInfo::fromJson(json);
+        QCOMPARE(loaded.getPaymentDate(QDate(2025, 1, 1)), paymentDate);
+    }
+}
+
+void TestServiceSales::test_ServiceClientManager_paymentTypes()
+{
+    QTemporaryDir tempDir;
+    if (!tempDir.isValid()) QFAIL("Could not create temp dir");
+
+    ServiceClientManager manager(tempDir.path());
+    
+    // VERIFY 5: Add client with Instant payment (default)
+    manager.addClient("Client1", "ServiceA", "FR", "FR111", "EUR", 100.0);
+    QCOMPARE(manager.getPaymentType(0), PaymentType::Instant);
+    QCOMPARE(manager.getPaymentDays(0), 0);
+    
+    // VERIFY 6: Add client with AfterXDays (30 days)
+    manager.addClient("Client2", "ServiceB", "DE", "DE222", "EUR", 200.0, 
+                      PaymentType::AfterXDays, 30);
+    QCOMPARE(manager.getPaymentType(1), PaymentType::AfterXDays);
+    QCOMPARE(manager.getPaymentDays(1), 30);
+    
+    // VERIFY 7: Add client with EndOfNextMonth
+    manager.addClient("Client3", "ServiceC", "US", "US333", "USD", 300.0,
+                      PaymentType::EndOfNextMonth, 0);
+    QCOMPARE(manager.getPaymentType(2), PaymentType::EndOfNextMonth);
+    
+    // VERIFY 8: calculatePaymentDate for Instant returns order date
+    {
+        QDate orderDate(2025, 6, 15);
+        QCOMPARE(manager.calculatePaymentDate(0, orderDate), orderDate);
+    }
+    
+    // VERIFY 9: calculatePaymentDate for AfterXDays adds correct days
+    {
+        QDate orderDate(2025, 6, 15);
+        QDate expected(2025, 7, 15); // + 30 days
+        QCOMPARE(manager.calculatePaymentDate(1, orderDate), expected);
+    }
+    
+    // VERIFY 10: calculatePaymentDate for EndOfNextMonth (mid-month order)
+    {
+        QDate orderDate(2025, 6, 15);
+        QDate expected(2025, 7, 31); // End of July
+        QCOMPARE(manager.calculatePaymentDate(2, orderDate), expected);
+    }
+    
+    // VERIFY 11: calculatePaymentDate for EndOfNextMonth (end of month order)
+    {
+        QDate orderDate(2025, 1, 31);
+        QDate expected(2025, 2, 28); // End of February (non-leap year 2025)
+        QCOMPARE(manager.calculatePaymentDate(2, orderDate), expected);
+    }
+    
+    // VERIFY 12: Persistence - reload and verify payment types
+    {
+        ServiceClientManager manager2(tempDir.path());
+        QCOMPARE(manager2.rowCount(), 3);
+        QCOMPARE(manager2.getPaymentType(0), PaymentType::Instant);
+        QCOMPARE(manager2.getPaymentType(1), PaymentType::AfterXDays);
+        QCOMPARE(manager2.getPaymentDays(1), 30);
+        QCOMPARE(manager2.getPaymentType(2), PaymentType::EndOfNextMonth);
+    }
+}
+
+void TestServiceSales::test_createSale_instantPayment()
+{
+    QTemporaryDir tempDir;
+    if (!tempDir.isValid()) QFAIL("Could not create temp dir");
+    
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+    
+    ServiceClientManager clientManager(tempDir.path());
+    // Client with Instant payment (default)
+    clientManager.addClient("InstantClient", "Consulting", "FR", "FR001", "EUR", 500.0);
+    
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+    
+    QDate date(2025, 3, 15);
+    QString expectedOrderId = QString("Service-%1-InstantClient").arg(date.toString("yyyyMMdd"));
+    
+    table.createSale(&clientManager, 0, date, 500.0, "EUR", "INV-INSTANT");
+    
+    // VERIFY 13: Sale created successfully
+    QCOMPARE(table.rowCount(), 1);
+    
+    // VERIFY 14: Order is recorded in OrderManager
+    QVERIFY(orderManager.containsOrder(expectedOrderId));
+}
+
+void TestServiceSales::test_createSale_afterXDays()
+{
+    QTemporaryDir tempDir;
+    if (!tempDir.isValid()) QFAIL("Could not create temp dir");
+    
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+    
+    ServiceClientManager clientManager(tempDir.path());
+    // Client with 30 days payment
+    clientManager.addClient("Net30Client", "Development", "DE", "DE001", "EUR", 1000.0,
+                            PaymentType::AfterXDays, 30);
+    
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+    
+    QDate date(2025, 3, 1);
+    QString expectedOrderId = QString("Service-%1-Net30Client").arg(date.toString("yyyyMMdd"));
+    
+    table.createSale(&clientManager, 0, date, 1000.0, "EUR", "INV-NET30");
+    
+    // VERIFY 15: Sale created successfully
+    QCOMPARE(table.rowCount(), 1);
+    
+    // VERIFY 16: Order is registered correctly
+    QVERIFY(orderManager.containsOrder(expectedOrderId));
+    
+    // VERIFY extra: Payment type is correctly set for client
+    QCOMPARE(clientManager.getPaymentType(0), PaymentType::AfterXDays);
+    QDate expectedPaymentDate = date.addDays(30); // March 31
+    QCOMPARE(clientManager.calculatePaymentDate(0, date), expectedPaymentDate);
+}
+
+void TestServiceSales::test_createSale_endOfNextMonth()
+{
+    QTemporaryDir tempDir;
+    if (!tempDir.isValid()) QFAIL("Could not create temp dir");
+    
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+    
+    ServiceClientManager clientManager(tempDir.path());
+    // Client with EndOfNextMonth payment
+    clientManager.addClient("EOMClient", "Support", "US", "US001", "EUR", 750.0,
+                            PaymentType::EndOfNextMonth, 0);
+    
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+    
+    QDate date(2025, 3, 15); // Mid March
+    QString expectedOrderId = QString("Service-%1-EOMClient").arg(date.toString("yyyyMMdd"));
+    
+    table.createSale(&clientManager, 0, date, 750.0, "EUR", "INV-EOM");
+    
+    // VERIFY 17: Sale created successfully
+    QCOMPARE(table.rowCount(), 1);
+    
+    // VERIFY 18: Order is registered correctly
+    QVERIFY(orderManager.containsOrder(expectedOrderId));
+    
+    // VERIFY extra: Payment type is correctly set and calculated
+    QCOMPARE(clientManager.getPaymentType(0), PaymentType::EndOfNextMonth);
+    QDate expectedPaymentDate(2025, 4, 30); // End of April
+    QCOMPARE(clientManager.calculatePaymentDate(0, date), expectedPaymentDate);
+}
+
+void TestServiceSales::test_paymentDate_edgeCases()
+{
+    QTemporaryDir tempDir;
+    if (!tempDir.isValid()) QFAIL("Could not create temp dir");
+    
+    ServiceClientManager manager(tempDir.path());
+    
+    // Client with AfterXDays = 0 (should be same as instant)
+    manager.addClient("ZeroDays", "Service", "FR", "FR000", "EUR", 100.0,
+                      PaymentType::AfterXDays, 0);
+    
+    // VERIFY 19: AfterXDays with 0 days = instant (same date)
+    {
+        QDate orderDate(2025, 5, 10);
+        QCOMPARE(manager.calculatePaymentDate(0, orderDate), orderDate);
+    }
+    
+    // Client with EndOfNextMonth - order at end of December
+    manager.addClient("DecClient", "Service", "FR", "FR001", "EUR", 100.0,
+                      PaymentType::EndOfNextMonth, 0);
+    
+    // VERIFY 20: EndOfNextMonth from December -> end of January next year
+    {
+        QDate orderDate(2025, 12, 31);
+        QDate expected(2026, 1, 31); // End of January next year
+        QCOMPARE(manager.calculatePaymentDate(1, orderDate), expected);
+    }
+}
 
 void TestServiceSales::test_persistence()
 {
@@ -113,13 +342,10 @@ void TestServiceSales::test_persistence()
          ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
          
          // Add Service Sale
-         // invoiceId="INV-999"
          table.createSale(&clientManager, 0, QDate(2023, 5, 20), 1000.0, "EUR", "INV-999");
          
          // Add Random Order (Amazon)
          ActivitySource sourceAmazon(ActivitySourceType::Report, "Amazon", "Report1");
-         Activity::create("AmazonOrder1", "Act1", "", QDateTime(QDate(2023, 5, 21), QTime(0,0)), "EUR", "FR", "DE", "DE", 
-                          Amount(50.0, 0.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
          
          auto actRes = Activity::create("AmazonOrder1", "Act1", "", QDateTime(QDate(2023, 5, 21), QTime(0,0)), "EUR", "FR", "DE", "DE", 
                           Amount(50.0, 0.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
