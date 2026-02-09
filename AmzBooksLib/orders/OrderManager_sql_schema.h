@@ -9,7 +9,8 @@ const QString CREATE_TABLE_ORDERS = R"(
     CREATE TABLE If NOT EXISTS orders (
         id TEXT PRIMARY KEY,
         address_json TEXT,
-        store TEXT
+        store TEXT,
+        inserted_at TEXT
     )
 )";
 
@@ -25,6 +26,7 @@ const QString CREATE_TABLE_SHIPMENTS = R"(
         event_date TEXT, -- ISO8601 string (Activity date)
         source_key TEXT, -- For querying history by source
         root_id TEXT,    -- ID of the original/root shipment if this is a revision/correction
+        inserted_at TEXT,
         FOREIGN KEY(order_id) REFERENCES orders(id)
     )
 )";

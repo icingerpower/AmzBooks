@@ -12,6 +12,7 @@ class PaneBookKeeping;
 class AbstractBooksTableBank;
 class AbstractBooksTable;
 class EntrySelfTable;
+#include <QCoroTask>
 
 class PaneBookKeeping : public QWidget
 {
@@ -56,6 +57,7 @@ public slots:
 private:
     BooksConnections *m_booksConnections;
     class OrderManager *m_orderManager;
+    QCoro::Task<> generateBookKeepingAsync();
 };
 
 #endif // PANEBOOKKEEPING_H

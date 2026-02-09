@@ -252,7 +252,9 @@ void BooksConnections::associateTablesToIds(
         QList<const AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable)
 {
     m_cacheId_table.clear();
-    const auto &selfTableId = selfEntryTable->getId();
+    m_cacheId_tableSelf.clear();
+
+    // Map Book Tables
     for (const AbstractBooksTable *table : bookTables) {
         int nRows = table->rowCount();
         const auto &tableId = table->getId();
@@ -261,15 +263,19 @@ void BooksConnections::associateTablesToIds(
             const auto &indexRow = table->index(i, 0);
             const auto &rowId = table->getRowId(indexRow);
             const auto &id = _getId(tableId, rowId);
-            const auto &otherId = m_id_id[id];
-            if (selfTableId.startsWith(selfTableId))
-            {
-                m_cacheId_tableSelf.insert(id, selfEntryTable);
-            }
-            else
-            {
-                m_cacheId_table.insert(id, table);
-            }
+            m_cacheId_table.insert(id, table);
+        }
+    }
+
+    // Map Self Table
+    if (selfEntryTable) {
+        int nRows = selfEntryTable->rowCount();
+        const auto &tableId = selfEntryTable->getId();
+        for (int i=0; i<nRows; ++i) {
+            const auto &indexRow = selfEntryTable->index(i, 0);
+            const auto &rowId = selfEntryTable->getRowId(indexRow);
+            const auto &id = _getId(tableId, rowId);
+            m_cacheId_tableSelf.insert(id, selfEntryTable);
         }
     }
 }

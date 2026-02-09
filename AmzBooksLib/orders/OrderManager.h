@@ -74,6 +74,12 @@ public:
         QSharedPointer<Address> addressTo;
     };
 
+    QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, ShipmentRefundsWithUpdates>>>> get_channel_site_ShipmentAndRefundsConflicts(
+            const QDate &dateFrom
+            , const QDate &dateTo) const;
+    QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, ShipmentRefundsWithUpdates>>>> get_channel_site_ShipmentAndRefundsInsertedAt(
+            const QDate &dateFromInsertedDb
+            , const QDate &dateToInsertedDb) const;
     QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, ShipmentRefundsWithUpdates>>>> get_channel_site_ShipmentAndRefundsNoInvoices(
             const QDate &dateFrom
             , const QDate &dateTo) const;

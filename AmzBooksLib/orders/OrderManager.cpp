@@ -86,6 +86,42 @@ void OrderManager::initDb()
             }
         }
     }
+
+    // Migration: Add inserted_at column if missing in orders
+    {
+        QSqlQuery qMig("PRAGMA table_info(orders)");
+        bool hasInsertedAt = false;
+        while (qMig.next()) {
+            if (qMig.value("name").toString() == "inserted_at") {
+                hasInsertedAt = true;
+                break;
+            }
+        }
+        if (!hasInsertedAt) {
+            QSqlQuery qAlter;
+            if (!qAlter.exec("ALTER TABLE orders ADD COLUMN inserted_at TEXT")) {
+                qWarning() << "Failed to add inserted_at column to orders:" << qAlter.lastError().text();
+            }
+        }
+    }
+
+    // Migration: Add inserted_at column if missing in shipments
+    {
+        QSqlQuery qMig("PRAGMA table_info(shipments)");
+        bool hasInsertedAt = false;
+        while (qMig.next()) {
+            if (qMig.value("name").toString() == "inserted_at") {
+                hasInsertedAt = true;
+                break;
+            }
+        }
+        if (!hasInsertedAt) {
+            QSqlQuery qAlter;
+            if (!qAlter.exec("ALTER TABLE shipments ADD COLUMN inserted_at TEXT")) {
+                qWarning() << "Failed to add inserted_at column to shipments:" << qAlter.lastError().text();
+            }
+        }
+    }
 }
 
 QDateTime OrderManager::getLastDateTime(ActivitySource *activitySource) const
@@ -141,8 +177,9 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
     
     {
         QSqlQuery qCheck;
-        qCheck.prepare("INSERT OR IGNORE INTO orders (id) VALUES (?)");
+        qCheck.prepare("INSERT OR IGNORE INTO orders (id, inserted_at) VALUES (?, ?)");
         qCheck.addBindValue(orderId);
+        qCheck.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
         if (!qCheck.exec()) qWarning() << "Failed to insert order:" << qCheck.lastError();
     }
 
@@ -234,7 +271,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                     // Reversal of the LATEST VALID State (latestJson)
                     {
                         QSqlQuery qInsRev;
-                        qInsRev.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, root_id) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?)");
+                        qInsRev.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, root_id, inserted_at) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?)");
                         qInsRev.addBindValue(reversalId);
                         qInsRev.addBindValue(orderId);
                         qInsRev.addBindValue(latestJson);  // Reverse what was last active
@@ -242,13 +279,14 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                         qInsRev.addBindValue(newDateIfConflict.isValid() ? newDateIfConflict.toString(Qt::ISODate) : eventDate);
                         qInsRev.addBindValue(sourceKey);
                         qInsRev.addBindValue(id);
+                        qInsRev.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
                         qInsRev.exec();
                     }
                     
                     // New Version
                     {
                         QSqlQuery qInsNew;
-                        qInsNew.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, root_id) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?)");
+                        qInsNew.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, root_id, inserted_at) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?)");
                         qInsNew.addBindValue(newVersionId);
                         qInsNew.addBindValue(orderId);
                         qInsNew.addBindValue(jsonStr);
@@ -256,6 +294,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                         qInsNew.addBindValue(newDateIfConflict.isValid() ? newDateIfConflict.toString(Qt::ISODate) : eventDate);
                         qInsNew.addBindValue(sourceKey);
                         qInsNew.addBindValue(id);
+                        qInsNew.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
                         qInsNew.exec();
                     }
                 }
@@ -273,13 +312,14 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
         }
     } else {
         QSqlQuery qIns;
-        qIns.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key) VALUES (?, ?, 'Draft', ?, ?, ?, ?)");
+        qIns.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, inserted_at) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?)");
         qIns.addBindValue(id);
         qIns.addBindValue(orderId);
         qIns.addBindValue(jsonStr);
         qIns.addBindValue(jsonStr);
         qIns.addBindValue(eventDate);
         qIns.addBindValue(sourceKey);
+        qIns.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
         qIns.exec();
     }
 }
@@ -430,10 +470,11 @@ void OrderManager::recordAddressTo(const QString &orderId, const Address &addres
 void OrderManager::recordOrder(const QString &orderId, const QString &store)
 {
     QSqlQuery q;
-    q.prepare("INSERT INTO orders (id, store) VALUES (?, ?) "
+    q.prepare("INSERT INTO orders (id, store, inserted_at) VALUES (?, ?, ?) "
               "ON CONFLICT(id) DO UPDATE SET store=excluded.store");
     q.addBindValue(orderId);
     q.addBindValue(store);
+    q.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
     if (!q.exec()) {
         qWarning() << "Failed to record order store:" << q.lastError();
     }
@@ -760,6 +801,78 @@ QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManag
     return results;
 }
 
+
+
+QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> 
+OrderManager::get_channel_site_ShipmentAndRefundsInsertedAt(const QDate &dateFromInsertedDb, const QDate &dateToInsertedDb) const
+{
+    auto result = QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>::create();
+    
+    QString queryStr = "SELECT current_json, source_key, event_date, id FROM shipments WHERE 1=1";
+    if (dateFromInsertedDb.isValid()) {
+        queryStr += QString(" AND inserted_at >= '%1'").arg(dateFromInsertedDb.toString(Qt::ISODate));
+    }
+    if (dateToInsertedDb.isValid()) {
+         queryStr += QString(" AND inserted_at < '%1'").arg(dateToInsertedDb.addDays(1).toString(Qt::ISODate));
+    }
+    
+    QSqlQuery query(queryStr);
+    while (query.next()) {
+        QString jsonStr = query.value(0).toString();
+        QString sourceKey = query.value(1).toString();
+        QString id = query.value(3).toString();
+        
+        QStringList parts = sourceKey.split('|');
+        QString channel = (parts.size() >= 2) ? parts[1] : "Unknown";
+        QString subchannel = (parts.size() >= 3) ? parts[2] : "Unknown";
+
+        QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
+        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        
+        if (id.contains("-rev-")) {
+            QList<Activity> newActs;
+            for (const auto &act : shipment->getActivities()) {
+                Amount negatedAmount(-act.getAmountTaxed(), -act.getAmountTaxesSource());
+                auto res = Activity::create(act.getEventId(),
+                                            act.getActivityId(),
+                                            act.getSubActivityId(),
+                                            act.getDateTime(),
+                                            act.getCurrency(),
+                                            act.getCountryCodeFrom(),
+                                            act.getCountryCodeTo(),
+                                            act.getCountryCodeVatPaidTo(),
+                                            negatedAmount,
+                                            act.getTaxSource(),
+                                            act.getTaxDeclaringCountryCode(),
+                                            act.getTaxScheme(),
+                                            act.getTaxJurisdictionLevel(),
+                                            act.getSaleType(),
+                                            act.getVatTerritoryFrom(),
+                                            act.getVatTerritoryTo());
+               if (res.value) {
+                   newActs.append(*res.value);
+               }
+            }
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+        }
+        
+        if (shipment->getActivities().isEmpty()) continue;
+        const auto &act = shipment->getActivities().first();
+        TaxResolver::TaxContext ctx;
+        ctx.taxDeclaringCountryCode = act.getTaxDeclaringCountryCode();
+        ctx.taxScheme = act.getTaxScheme();
+        ctx.taxJurisdictionLevel = act.getTaxJurisdictionLevel();
+        ctx.countryCodeVatPaidTo = act.getCountryCodeVatPaidTo();
+        
+        (*result)[channel][subchannel][ctx].shipmentsRefundsSameActivity.append(shipment);
+        (*result)[channel][subchannel][ctx].invoicesToDo.append(false);
+    }
+    
+    return result;
+}
+
+
+
 OrderManager::ConflictStatus OrderManager::checkConflict(const Shipment &existing, const Shipment &incoming) const
 {
     const auto &existingActs = existing.getActivities();
@@ -932,6 +1045,79 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
 
     return results;
 }
+
+QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> 
+OrderManager::get_channel_site_ShipmentAndRefundsConflicts(const QDate &dateFrom, const QDate &dateTo) const
+{
+    auto result = QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>::create();
+    
+    QString queryStr = "SELECT current_json, source_key, event_date, id FROM shipments WHERE 1=1";
+    if (dateFrom.isValid()) {
+        queryStr += QString(" AND event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
+    }
+    if (dateTo.isValid()) {
+        queryStr += QString(" AND event_date < '%1'").arg(dateTo.addDays(1).toString(Qt::ISODate));
+    }
+    
+    QSqlQuery query(queryStr);
+    while (query.next()) {
+        QString jsonStr = query.value(0).toString();
+        QString sourceKey = query.value(1).toString();
+        QString id = query.value(3).toString();
+        
+        // Parse Source
+        QStringList parts = sourceKey.split('|');
+        QString channel = (parts.size() >= 2) ? parts[1] : "Unknown";
+        QString subchannel = (parts.size() >= 3) ? parts[2] : "Unknown";
+
+        // Parse Shipment
+        QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
+        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        
+        // Check for Reversal
+        if (id.contains("-rev-")) {
+            QList<Activity> newActs;
+            for (const auto &act : shipment->getActivities()) {
+                Amount negatedAmount(-act.getAmountTaxed(), -act.getAmountTaxesSource());
+                auto res = Activity::create(act.getEventId(),
+                                            act.getActivityId(),
+                                            act.getSubActivityId(),
+                                            act.getDateTime(),
+                                            act.getCurrency(),
+                                            act.getCountryCodeFrom(),
+                                            act.getCountryCodeTo(),
+                                            act.getCountryCodeVatPaidTo(),
+                                            negatedAmount,
+                                            act.getTaxSource(),
+                                            act.getTaxDeclaringCountryCode(),
+                                            act.getTaxScheme(),
+                                            act.getTaxJurisdictionLevel(),
+                                            act.getSaleType(),
+                                            act.getVatTerritoryFrom(),
+                                            act.getVatTerritoryTo());
+               if (res.value) {
+                   newActs.append(*res.value);
+               }
+            }
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+        }
+        
+        if (shipment->getActivities().isEmpty()) continue;
+        const auto &act = shipment->getActivities().first();
+        TaxResolver::TaxContext ctx;
+        ctx.taxDeclaringCountryCode = act.getTaxDeclaringCountryCode();
+        ctx.taxScheme = act.getTaxScheme();
+        ctx.taxJurisdictionLevel = act.getTaxJurisdictionLevel();
+        ctx.countryCodeVatPaidTo = act.getCountryCodeVatPaidTo();
+        
+        (*result)[channel][subchannel][ctx].shipmentsRefundsSameActivity.append(shipment);
+        (*result)[channel][subchannel][ctx].invoicesToDo.append(false);
+    }
+    
+    return result;
+}
+
+
 
 void OrderManager::deleteDatabase()
 {

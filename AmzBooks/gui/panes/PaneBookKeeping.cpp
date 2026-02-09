@@ -7,6 +7,12 @@
 #include "books/BooksConnections.h"
 #include "banks/AbstractBankStatement.h"
 #include "books/PurchaseInvoiceTable.h"
+#include "books/JournalTable.h"
+#include "books/JournalEntryFactory.h"
+#include "books/BookSaverFull.h"
+#include "books/BooksAccountsSalesTable.h"
+#include "books/BookAccountPurchaseTable.h"
+#include <QCoroTask>
 
 #include <QTableView>
 #include <QHeaderView>
@@ -34,6 +40,7 @@
 
 // For confirmation message box
 #include <QMessageBox>
+#include <QProgressDialog>
 
 PaneBookKeeping::PaneBookKeeping(QWidget *parent) :
     QWidget(parent),
@@ -65,13 +72,189 @@ void PaneBookKeeping::loadYearSelected()
 
 void PaneBookKeeping::generateBookKeeping()
 {
-    // TODO ask for a save folder (suggesting the last folder choose according QSettings{})
-    // TODO call BooksConnections::associateTablesToIds for all getAllBookTables
-    // TODO then using JournalTable / JournalEntryFactory create const QHash<QString, QMultiMap<QDate, QSharedPointer<JournalEntry>>> &journal_date_entries
-    // TODO then with BookSaverFull save in the choosen folder
-    // TODO with InvoiceGenerator save also in the choosen folder, oll of the invoices into invoices folder (one folder per year / month)
-    // TODO catch excetpion or display a QMessageBox confirmation message if successful
-    // TODO if needed a callback create DialogVatParams and returning true if dialog is accepted
+    auto task = generateBookKeepingAsync();
+    // We start the task. Since it interacts with UI (message boxes), it should be fine running on main thread.
+    // However, QCoro::Task is lazy. We need to await it or start it.
+    // Common pattern for void slot:
+    // (void) task; // If task constructor starts it? No check QCoro.
+    // We need to ensure it runs.
+    // If we can't await, we can connect it?
+    // Using a lambda wrapper to launch:
+    [](QCoro::Task<> t) -> QCoro::Task<> {
+        co_await t;
+    }(std::move(task));
+}
+
+
+QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
+{
+    // 1. Ask for output directory
+    QSettings settings;
+    QString lastDir = settings.value("lastBookKeepingDir", QDir::homePath()).toString();
+    QString dir = QFileDialog::getExistingDirectory(this, tr("Select BookKeeping Folder"), lastDir);
+    if (dir.isEmpty()) {
+        co_return;
+    }
+    settings.setValue("lastBookKeepingDir", dir);
+    QDir outDir(dir);
+
+    // 2. Associate tables
+    m_booksConnections->associateTablesToIds(getAllBookTables(), getSeflEntryTable());
+
+    // 3. Prepare Factory and Dependencies
+    QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
+    CompanyInfosTable companyInfo{workingDir};
+    BooksAccountsSalesTable salesAccountTable(workingDir); // Load sales accounts config
+    
+    // Purchase Account Table needs company country code
+    BookAccountPurchaseTable purchaseAccountTable(workingDir, companyInfo.getCompanyCountryCode());
+    
+    JournalTable journalTable(workingDir);
+    const auto &apiKey = companyInfo.getApiKeyFixer();
+    if (apiKey.isEmpty())
+    {
+        QMessageBox::warning(
+                    this,
+                    tr("Fixer API key"),
+                    tr("Fixer API key is needed for currency rate retrieval"));
+        co_return;
+    }
+    CurrencyRateManager currencyRateManager(workingDir, apiKey);
+
+    // Callback for adding missing accounts
+    auto callbackAddIfMissing = [](const QString &title, const QString &text) -> QCoro::Task<bool> {
+        auto result = QMessageBox::warning(nullptr, title, text, QMessageBox::Yes | QMessageBox::No);
+        co_return result == QMessageBox::Yes;
+    };
+
+    JournalEntryFactory factory(&currencyRateManager, &companyInfo, &salesAccountTable, &purchaseAccountTable, &journalTable);
+
+    QHash<QString, QMultiMap<QDate, QSharedPointer<JournalEntry>>> journal_date_entries;
+
+    // Helper to add entry
+    auto addEntry = [&](const QSharedPointer<JournalEntry> &entry, const QString &journalId) {
+        if (entry) {
+            journal_date_entries[journalId].insert(entry->getDate(), entry);
+        }
+    };
+
+    int year = ui->comboBoxYear->currentText().toInt();
+    QDate dateIfConflict(year, 12, 31); // Default date? Unused here.
+    QDate from(year, 1, 1);
+    QDate to(year, 12, 31);
+
+    // 4. PREPARE DATA & PROGRESS
+    // --------------------------
+
+    // 4.1 Sales Data
+    auto acceptCallback = [](const ActivitySource*, const Shipment*) { return true; };
+    auto sourceMap = m_orderManager->getActivitySource_ShipmentAndRefunds(from, to, acceptCallback);
+    
+    // 4.2 Purchases Data
+    auto *purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
+    QList<PurchaseInformation> invoices;
+    if (purchaseTable) {
+        invoices = purchaseTable->manager().getInvoices(from, to);
+    }
+
+    // 4.3 Banks Data (Count only)
+    QList<const AbstractBooksTableBank *> bankTables = getAllBankTables();
+    int bankRowsToProcess = 0;
+    for (const AbstractBooksTableBank *bankTable : bankTables) {
+         int rowCount = bankTable->rowCount();
+         for (int i=0; i<rowCount; ++i) {
+             if (bankTable->getDate(i).year() == year) {
+                 bankRowsToProcess++;
+             }
+         }
+    }
+
+    // Calculate Total Steps
+    int totalSteps = 0;
+    // Sales: 1 step per source group? Or per shipment? 
+    // createEntry takes a list of shipments. So 1 step per source.
+    totalSteps += sourceMap.size(); 
+    totalSteps += invoices.size();
+    totalSteps += bankRowsToProcess;
+
+    QProgressDialog progress(tr("Generating Bookkeeping..."), tr("Cancel"), 0, totalSteps, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    int currentStep = 0;
+
+    // 5. GENERATE ENTRIES
+    // -------------------
+
+    // 5.1 Sales
+    for (auto it = sourceMap.begin(); it != sourceMap.end(); ++it) {
+        if (progress.wasCanceled()) {
+            co_return;
+        }
+        progress.setValue(currentStep++);
+
+        ActivitySource source = it.key();
+        const auto &shipments = it.value();
+        
+        QSharedPointer<JournalEntry> entry = co_await factory.createEntry(&source, shipments, callbackAddIfMissing);
+        QString journalId = journalTable.getJournal(&source);
+        addEntry(entry, journalId);
+    }
+
+    // 5.2 Purchases
+    for (const auto &info : invoices) {
+         if (progress.wasCanceled()) {
+             co_return;
+         }
+         progress.setValue(currentStep++);
+
+         QSharedPointer<JournalEntry> entry = factory.createEntry(info);
+         // Determine Journal ID for Purchases (usually "AC")
+         QString journalId = journalTable.getJournalPurchaseInvoice().code;
+         addEntry(entry, journalId);
+    }
+
+    // 5.3 Banks
+    for (const AbstractBooksTableBank *bankTable : bankTables) {
+        int rowCount = bankTable->rowCount();
+        QString journalId = bankTable->getBankStatement() ? bankTable->getBankStatement()->defaultJournal() : "BQ"; // Default to BQ
+        
+        for (int i = 0; i < rowCount; ++i) {
+            
+            QDate date = bankTable->getDate(i);
+            if (date.year() != year) continue; // Filter by year
+
+            if (progress.wasCanceled()) {
+                co_return;
+            }
+            progress.setValue(currentStep++);
+
+            QString account2 = m_booksConnections->getAccount2(const_cast<AbstractBooksTableBank*>(bankTable), i);
+            if (account2.isEmpty())
+            {
+                QMessageBox::warning(
+                            this,
+                            tr("Bank connection missing"),
+                            tr("The bank connection is not done for the bank %1 on date %2").arg(
+                                bankTable->getBankStatement()->getName(),
+                                date.toString("yyyy/MM/dd")));
+                co_return;
+            }
+
+            QSharedPointer<JournalEntry> entry = factory.createEntry(bankTable, account2, i);
+            addEntry(entry, journalId);
+        }
+    }
+    
+    progress.setValue(totalSteps);
+
+    // 6. Save
+    try {
+        BookSaverFull saver;
+        saver.save(journal_date_entries, outDir);
+        QMessageBox::information(this, tr("Success"), tr("Bookkeeping generated successfully in %1").arg(outDir.absolutePath()));
+    } catch (const std::exception &e) {
+        QMessageBox::critical(this, tr("Error"), tr("Failed to save documents: %1").arg(e.what()));
+    }
 }
 
 void PaneBookKeeping::unselectAll()

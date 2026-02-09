@@ -16,6 +16,7 @@ public:
         QString account;
         QHash<QString, double> currency_amount;
     };
+    const QDate& getDate() const { return m_date; }
     JournalEntry(const QDate &date, const QString &targetCurrency);
     void addDebitLeft(const EntryLine &entryLine
                       , const QString &currency, double rate = 1.0);

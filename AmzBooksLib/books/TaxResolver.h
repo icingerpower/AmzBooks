@@ -23,6 +23,13 @@ public:
         TaxScheme taxScheme;
         TaxJurisdictionLevel taxJurisdictionLevel;
         QString countryCodeVatPaidTo;
+
+        bool operator==(const TaxContext &other) const {
+            return taxDeclaringCountryCode == other.taxDeclaringCountryCode &&
+                   taxScheme == other.taxScheme &&
+                   taxJurisdictionLevel == other.taxJurisdictionLevel &&
+                   countryCodeVatPaidTo == other.countryCodeVatPaidTo;
+        }
     };
 
 
@@ -44,5 +51,12 @@ public:
 private:
     VatTerritoryResolver m_vatTerritoryResolver;
 };
+
+inline uint qHash(const TaxResolver::TaxContext &key, uint seed = 0) {
+    return qHash(key.taxDeclaringCountryCode, seed) ^
+           qHash(static_cast<int>(key.taxScheme), seed) ^
+           qHash(static_cast<int>(key.taxJurisdictionLevel), seed) ^
+           qHash(key.countryCodeVatPaidTo, seed);
+}
 
 #endif // VATRESOLVER_H

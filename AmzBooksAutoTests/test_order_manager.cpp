@@ -34,6 +34,8 @@ private slots:
     void test_remove_shipmentRefundr();
     void test_contains();
     void test_getShipmentAndRefundsNoInvoices();
+    void test_get_channel_site_ShipmentAndRefundsConflicts();
+    void test_get_channel_site_ShipmentAndRefunds();
 };
 
 void TestOrderManager::initTestCase()
@@ -1333,6 +1335,168 @@ void TestOrderManager::test_getShipmentAndRefundsNoInvoices()
             }
         }
     }
+}
+
+void TestOrderManager::test_get_channel_site_ShipmentAndRefundsConflicts()
+{
+    QTemporaryDir tempDir;
+    OrderManager manager(tempDir.path());
+    
+    // Setup Sources
+    ActivitySource sourceA{ActivitySourceType::Report, "ChannelA", "SiteA", "ReportA"};
+    ActivitySource sourceB{ActivitySourceType::Report, "ChannelB", "SiteB", "ReportB"};
+    
+    // 1. Create Shipments for Source A
+    // Shipment 1: Normal
+    auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment s1({*actRes1.value});
+    manager.recordShipmentFromSource("ord1", &sourceA, &s1, QDate());
+    
+    // Shipment 2: Will have conflict
+    auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment s2({*actRes2.value});
+    manager.recordShipmentFromSource("ord2", &sourceA, &s2, QDate());
+    
+    // Publish
+    QDate pubDate(2023, 2, 1);
+    manager.publish(pubDate);
+    
+    // Update Shipment 2 with Conflict
+    auto actRes2Conf = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(300.0, 60.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment s2Conf({*actRes2Conf.value});
+    manager.recordShipmentFromSource("ord2", &sourceA, &s2Conf, QDate(2023, 3, 1));
+    
+    // Shipment 3 for Source B
+    auto actRes3 = Activity::create("evt3", "act3", "", QDateTime(QDate(2023, 1, 3), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(50.0, 10.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment s3({*actRes3.value});
+    manager.recordShipmentFromSource("ord3", &sourceB, &s3, QDate());
+    
+    // Query
+    auto resultsPtr = manager.get_channel_site_ShipmentAndRefundsConflicts(QDate(2023, 1, 1), QDate(2023, 12, 31));
+    auto &results = *resultsPtr;
+    
+    // Verify Structure
+    QVERIFY(results.contains("ChannelA"));
+    QVERIFY(results.contains("ChannelB"));
+    QVERIFY(!results.contains("ChannelC"));
+    
+    QVERIFY(results["ChannelA"].contains("SiteA"));
+    QVERIFY(results["ChannelB"].contains("SiteB"));
+    
+    // Verify Data for Channel A / Site A
+    // Should have 1 TaxContexts
+    QCOMPARE(results["ChannelA"]["SiteA"].size(), 1);
+    
+    // Verify Shipments in that Context
+    auto it = results["ChannelA"]["SiteA"].begin();
+    QCOMPARE(it.value().shipmentsRefundsSameActivity.size(), 4); 
+    // ord1: 1 (Published)
+    // ord2: 3 (Published, Reversal, New)
+    
+    // Start counting amounts
+    double sum = 0;
+    for (const auto &s : it.value().shipmentsRefundsSameActivity) {
+        sum += s->getActivities().first().getAmountTaxed();
+    }
+    // Expected: 100 (Ord1) + 200 (Ord2 Orig) - 200 (Ord2 Rev) + 300 (Ord2 New) = 400.
+    QCOMPARE(sum, 400.0);
+    
+    // Verify Invoices To Do list matches size
+    QCOMPARE(it.value().invoicesToDo.size(), 4);
+    
+    // Verify Data for Channel B
+    QCOMPARE(results["ChannelB"]["SiteB"].size(), 1);
+    auto itB = results["ChannelB"]["SiteB"].begin();
+    QCOMPARE(itB.value().shipmentsRefundsSameActivity.size(), 1);
+    QCOMPARE(itB.value().shipmentsRefundsSameActivity.first()->getActivities().first().getAmountTaxed(), 50.0);
+}
+
+void TestOrderManager::test_get_channel_site_ShipmentAndRefunds()
+{
+    QTemporaryDir tempDir;
+    OrderManager manager(tempDir.path());
+    
+    // Setup
+    ActivitySource source{ActivitySourceType::Report, "Chan1", "Site1", "Rep1"};
+    
+    QDateTime start = QDateTime::currentDateTime();
+    
+    // 1. Record Shipment
+    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment s1({*actRes.value});
+    manager.recordShipmentFromSource("ord1", &source, &s1, QDate());
+    
+    // 2. Query with range covering Now
+    auto resultsPtr = manager.get_channel_site_ShipmentAndRefundsInsertedAt(start.date(), start.date().addDays(1));
+    auto &results = *resultsPtr;
+    
+    QVERIFY(results.contains("Chan1"));
+    QVERIFY(results["Chan1"].contains("Site1"));
+    
+    auto it = results["Chan1"]["Site1"].begin();
+    QCOMPARE(it.value().shipmentsRefundsSameActivity.size(), 1);
+    
+    // 3. Query with range in Past (should fail)
+    auto resultsPastPtr = manager.get_channel_site_ShipmentAndRefundsInsertedAt(start.date().addDays(-10), start.date().addDays(-5));
+    QVERIFY(resultsPastPtr->isEmpty());
+    
+    // 4. Record another one
+    auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment s2({*actRes2.value});
+    manager.recordShipmentFromSource("ord2", &source, &s2, QDate());
+    
+    // Query again covering both
+    resultsPtr = manager.get_channel_site_ShipmentAndRefundsInsertedAt(start.date(), start.date().addDays(1));
+    auto &results2 = *resultsPtr;
+    
+    QCOMPARE(results2["Chan1"]["Site1"].begin().value().shipmentsRefundsSameActivity.size(), 2);
+    
+    // Sum check
+    double sum = 0;
+    for (const auto &s : results2["Chan1"]["Site1"].begin().value().shipmentsRefundsSameActivity) {
+        sum += s->getActivities().first().getAmountTaxed();
+    }
+    QCOMPARE(sum, 300.0);
+    
+    // 5. Test empty/null date params (should return everything?)
+    // Implementation uses valid Check. If invalid, ignoring filter?
+    // Let's check impl: if(date.isValid())...
+    // If I pass invalid date, it skips filter.
+    auto resultsAllPtr = manager.get_channel_site_ShipmentAndRefundsInsertedAt(QDate(), QDate());
+    QVERIFY(!resultsAllPtr->isEmpty());
+    
+    // 6. Test with Reversal logic implicit in record
+    // Publish
+    QDate pubDate(2023, 2, 1);
+    manager.publish(pubDate);
+    
+    // Update s2 with conflict
+    auto actRes2Conf = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(500.0, 100.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment s2Conf({*actRes2Conf.value});
+    manager.recordShipmentFromSource("ord2", &source, &s2Conf, QDate(2023, 3, 1));
+    
+    // Query again
+    resultsPtr = manager.get_channel_site_ShipmentAndRefundsInsertedAt(start.date(), start.date().addDays(1));
+    
+    // Should have 1 (ord1) + 3 (ord2: Orig, Rev, New) = 4
+    QCOMPARE((*resultsPtr)["Chan1"]["Site1"].begin().value().shipmentsRefundsSameActivity.size(), 4);
+    
+    // 7. Verify logic of inserted_at vs event_date
+    // All inserted_at are "Now". event_date is Jan 1.
+    // Query by event_date (using Conflicts method) for "Next Month" -> Empty
+    auto resConfPtr = manager.get_channel_site_ShipmentAndRefundsConflicts(QDate(2023, 5, 1), QDate(2023, 6, 1));
+    QVERIFY(resConfPtr->isEmpty());
+    
+    // Query by inserted_at for "Now" -> Full
+    // Confirms we are targeting different columns
+    QVERIFY(!resultsPtr->isEmpty());
 }
 
 QTEST_MAIN(TestOrderManager)
