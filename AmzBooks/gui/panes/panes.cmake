@@ -35,4 +35,7 @@ SET(PANES_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PaneBookKeeping.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneBookKeeping.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneBookKeeping.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneOrders.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneOrders.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneOrders.ui
 )

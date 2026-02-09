@@ -30,6 +30,11 @@
         <string>File Orders</string>
        </attribute>
       </widget>
+      <widget class="PaneOrders" name="tabOrders">
+       <attribute name="title">
+        <string>Orders</string>
+       </attribute>
+      </widget>
       <widget class="QWidget" name="tabServices">
        <attribute name="title">
         <string>Services</string>
@@ -99,6 +104,12 @@
    <class>PaneBookKeeping</class>
    <extends>QWidget</extends>
    <header>gui/panes/PaneBookKeeping.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneOrders</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneOrders.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

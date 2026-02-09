@@ -36,6 +36,8 @@ private slots:
     void test_getShipmentAndRefundsNoInvoices();
     void test_get_channel_site_ShipmentAndRefundsConflicts();
     void test_get_channel_site_ShipmentAndRefunds();
+    void test_OrderTable();
+    void test_TaxAmountTable();
 };
 
 void TestOrderManager::initTestCase()
@@ -1497,6 +1499,245 @@ void TestOrderManager::test_get_channel_site_ShipmentAndRefunds()
     // Query by inserted_at for "Now" -> Full
     // Confirms we are targeting different columns
     QVERIFY(!resultsPtr->isEmpty());
+}
+
+
+#include "orders/OrderTable.h"
+
+void TestOrderManager::test_OrderTable()
+{
+    // Setup Dummy Data for Constructor 1 (QList<Shipment>)
+    QList<QSharedPointer<Shipment>> shipmentsList;
+    
+    auto act1 = Activity::create("ord1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE", 
+        Amount(100, 20), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act1.value}));
+    
+    auto act2 = Activity::create("ord2", "act2", "", QDateTime(QDate(2023, 1, 5), QTime(12, 0)), "EUR", "FR", "DE", "DE", 
+        Amount(200, 40), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act2.value}));
+    
+    // Test Constructor 1
+    OrderTable table1(shipmentsList);
+    
+    // VERIFY 1-5: Basic Model Properties (List Constructor)
+    QCOMPARE(table1.rowCount(), 2);
+    QCOMPARE(table1.columnCount(), OrderTable::COL_COUNT);
+    // Sorting Default is DESC date
+    QCOMPARE(table1.data(table1.index(0, OrderTable::COL_ORDER_ID)).toString(), "ord2"); // Newer first
+    QCOMPARE(table1.data(table1.index(1, OrderTable::COL_ORDER_ID)).toString(), "ord1");
+    QCOMPARE(table1.data(table1.index(0, OrderTable::COL_AMOUNT_TAXED)).toDouble(), 200.0);
+    
+    // Verify Columns
+    QCOMPARE(table1.data(table1.index(0, OrderTable::COL_DATE)).toDate(), QDate(2023, 1, 5));
+    QCOMPARE(table1.data(table1.index(1, OrderTable::COL_DATE)).toDate(), QDate(2023, 1, 1));
+    
+    // Sort Ascending
+    table1.sort(OrderTable::COL_DATE, Qt::AscendingOrder);
+    QCOMPARE(table1.data(table1.index(0, OrderTable::COL_ORDER_ID)).toString(), "ord1"); 
+    
+    
+    // Setup Dummy Data for Constructor 2 (Complex Hash)
+    auto complexData = QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>::create();
+    TaxResolver::TaxContext ctx; // Default
+    
+    OrderManager::ShipmentRefundsWithUpdates group1;
+    group1.shipmentsRefundsSameActivity.append(QSharedPointer<Shipment>::create(QList<Activity>{*act1.value}));
+    (*complexData)["Chan1"]["Site1"][ctx] = group1;
+    
+    OrderManager::ShipmentRefundsWithUpdates group2;
+    group2.shipmentsRefundsSameActivity.append(QSharedPointer<Shipment>::create(QList<Activity>{*act2.value}));
+    (*complexData)["Chan2"]["Site2"][ctx] = group2;
+    
+    // Test Constructor 2
+    OrderTable table2(complexData);
+    
+    // VERIFY 6-15: Complex Constructor & Data Integrity
+    QCOMPARE(table2.rowCount(), 2);
+    
+    // Sort DESC Date (default, but let's be sure)
+    table2.sort(OrderTable::COL_DATE, Qt::DescendingOrder);
+    
+    // Row 0 should be ord2 (Jan 5)
+    QCOMPARE(table2.data(table2.index(0, OrderTable::COL_ORDER_ID)).toString(), "ord2");
+    QCOMPARE(table2.data(table2.index(0, OrderTable::COL_CHANNEL)).toString(), "Chan2");
+    QCOMPARE(table2.data(table2.index(0, OrderTable::COL_SITE)).toString(), "Site2");
+    QCOMPARE(table2.data(table2.index(0, OrderTable::COL_AMOUNT_TAXED)).toDouble(), 200.0);
+    
+    // Row 1 should be ord1 (Jan 1)
+    QCOMPARE(table2.data(table2.index(1, OrderTable::COL_ORDER_ID)).toString(), "ord1");
+    QCOMPARE(table2.data(table2.index(1, OrderTable::COL_CHANNEL)).toString(), "Chan1");
+    QCOMPARE(table2.data(table2.index(1, OrderTable::COL_SITE)).toString(), "Site1");
+    
+    // Sort by Channel Ascending
+    table2.sort(OrderTable::COL_CHANNEL, Qt::AscendingOrder);
+    // Chan1 < Chan2
+    QCOMPARE(table2.data(table2.index(0, OrderTable::COL_CHANNEL)).toString(), "Chan1");
+    QCOMPARE(table2.data(table2.index(1, OrderTable::COL_CHANNEL)).toString(), "Chan2");
+    
+    // Check non-existent index
+    QVERIFY(!table2.data(table2.index(100, 0)).isValid());
+}
+
+
+#include "orders/TaxAmountTable.h"
+#include "CurrencyRateManager.h"
+
+void TestOrderManager::test_TaxAmountTable()
+{
+    QTemporaryDir tempDir;
+    
+    // Setup Fake CurrencyRateManager
+    // We assume there is a constructor requiring a directory and an API key. 
+    // And an importRate method to feed fake rates.
+    CurrencyRateManager rateManager(tempDir.path(), "fake_key");
+    
+    // Inject fake rates
+    // USD -> EUR = 0.95
+    // GBP -> EUR = 1.15
+    // Note: The date must match the shipment date
+    QDate date1(2023, 1, 1);
+    QDate date2(2023, 1, 5);
+    
+    rateManager.importRate(date1.toString("yyyy-MM-dd"), "USD", "EUR", 0.95);
+    rateManager.importRate(date2.toString("yyyy-MM-dd"), "GBP", "EUR", 1.15);
+    
+    // Setup Data
+    QList<QSharedPointer<Shipment>> shipmentsList;
+    
+    // Shipment 1: USD 100 + 20 Tax. 
+    // Untaxed: 100 * 0.95 = 95.0
+    // Tax: 20 * 0.95 = 19.0
+    auto act1 = Activity::create("ord1", "act1", "", QDateTime(date1, QTime(12, 0)), "USD", "US", "DE", "DE", 
+        Amount(100, 20), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act1.value}));
+    
+    // Shipment 2: GBP 200 + 40 Tax.
+    // Untaxed: 200 * 1.15 = 230.0
+    // Tax: 40 * 1.15 = 46.0
+    auto act2 = Activity::create("ord2", "act2", "", QDateTime(date2, QTime(12, 0)), "GBP", "UK", "DE", "DE", 
+        Amount(200, 40), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act2.value}));
+    
+    // Shipment 3: Same Context as Shipment 1, but added to verify aggregation
+    // USD 50 + 10 Tax
+    // Untaxed: 50 * 0.95 = 47.5
+    // Tax: 10 * 0.95 = 9.5
+    // Total Context 1: Untaxed = 95+47.5 = 142.5. Tax = 19+9.5 = 28.5. Total = 171.0
+    auto act3 = Activity::create("ord3", "act3", "", QDateTime(date1, QTime(12, 0)), "USD", "US", "DE", "DE", 
+        Amount(50, 10), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act3.value}));
+
+    // Test Constructor 1 (List)
+    TaxAmountTable table1(shipmentsList, &rateManager, "EUR");
+    
+    // VERIFY 1-8: Aggregation and Conversion
+    // Should have 1 row (all same context: DE, OSS, Country, DE)
+    // Wait, act1 and act3 are same context. act2 is also DE, OSS, Country, DE.
+    // So all 3 are same TaxContext key?
+    // act1: DE, OSS, Country, DE
+    // act2: DE, OSS, Country, DE (even though from UK, declaring country is DE)
+    // So only 1 row expected!
+    
+    QCOMPARE(table1.rowCount(), 1);
+    QCOMPARE(table1.columnCount(), TaxAmountTable::COL_COUNT);
+    
+    // Check Amounts
+    // Total Taxed (Gross) Converted: 
+    // Ship1: 100 * 0.95 = 95.0
+    // Ship2: 200 * 1.15 = 230.0
+    // Ship3: 50 * 0.95 = 47.5
+    // Total Gross = 372.5
+    
+    // Total Taxes Converted:
+    // Ship1: 20 * 0.95 = 19.0
+    // Ship2: 40 * 1.15 = 46.0
+    // Ship3: 10 * 0.95 = 9.5
+    // Total Tax = 74.5
+    
+    // Total Untaxed (Net) Converted:
+    // Ship1: (100-20) * 0.95 = 76.0
+    // Ship2: (200-40) * 1.15 = 184.0
+    // Ship3: (50-10) * 0.95 = 38.0
+    // Total Net = 298.0
+    
+    QCOMPARE(table1.data(table1.index(0, TaxAmountTable::COL_AMOUNT_UNTAXED)).toDouble(), 298.0);
+    QCOMPARE(table1.data(table1.index(0, TaxAmountTable::COL_AMOUNT_TAXES)).toDouble(), 74.5);
+    QCOMPARE(table1.data(table1.index(0, TaxAmountTable::COL_AMOUNT_TOTAL)).toDouble(), 372.5);
+    
+    // Check Text Fields
+    // act1.getTaxDeclaringCountryCode() is "DE"
+    QCOMPARE(table1.data(table1.index(0, TaxAmountTable::COL_TAX_DECLARING_COUNTRY)).toString(), "DE");
+    QCOMPARE(table1.data(table1.index(0, TaxAmountTable::COL_VAT_PAID_TO)).toString(), "DE");
+    QCOMPARE(table1.data(table1.index(0, TaxAmountTable::COL_TAX_SCHEME)).toString(), taxSchemeToString(TaxScheme::EuOssUnion));
+    
+    
+    // Test Constructor 2 (Hash)
+    // Let's create a scenario with DIFFERENT context
+    auto complexData = QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>::create();
+    
+    // Context A (DE)
+    TaxResolver::TaxContext ctxA;
+    ctxA.taxDeclaringCountryCode = "DE";
+    ctxA.taxScheme = TaxScheme::EuOssUnion;
+    ctxA.taxJurisdictionLevel = TaxJurisdictionLevel::Country;
+    ctxA.countryCodeVatPaidTo = "DE";
+    
+    // Context B (FR)
+    TaxResolver::TaxContext ctxB;
+    ctxB.taxDeclaringCountryCode = "FR";
+    ctxB.taxScheme = TaxScheme::DomesticVat;
+    ctxB.taxJurisdictionLevel = TaxJurisdictionLevel::Country;
+    ctxB.countryCodeVatPaidTo = "FR";
+    
+    // Add Shipment to A
+    OrderManager::ShipmentRefundsWithUpdates groupA;
+    groupA.shipmentsRefundsSameActivity.append(QSharedPointer<Shipment>::create(QList<Activity>{*act1.value}));
+    (*complexData)["Chan"]["Site"][ctxA] = groupA;
+    
+    // Add Shipment to B (Using act2 logic but modifying context implied by act2?)
+    // Wait, the table builds aggregation from the shipments themselves? 
+    // OR from the keys?
+    // Implementation: "aggregate(ctx, ship.data())" in the loop.
+    // It passes the key 'ctx' from the hash map!
+    // So updating the shipment content matters less than the key provided?
+    // Let's check impl: "aggregate(ctx, ship.data())". 
+    // And in aggregate: "if (!m_aggregationMap.contains(ctx)) ... m_aggregationMap[ctx] = row;"
+    // So the row key comes from the Hash Key.
+    // BUT the shipment activities are used for summing.
+    // So if I put act1 (DE) under ctxB (FR), it will sum act1's amounts into FR row.
+    // This is technically a mismatch data-wise but sufficient for testing table logic.
+    
+    OrderManager::ShipmentRefundsWithUpdates groupB;
+    groupB.shipmentsRefundsSameActivity.append(QSharedPointer<Shipment>::create(QList<Activity>{*act1.value})); // Reusing act1 (95 + 19)
+    (*complexData)["Chan"]["Site"][ctxB] = groupB;
+    
+    TaxAmountTable table2(complexData, &rateManager, "EUR");
+    
+    // VERIFY 9-16: Complex Constructor
+    QCOMPARE(table2.rowCount(), 2);
+    
+    table2.sort(TaxAmountTable::COL_TAX_DECLARING_COUNTRY, Qt::AscendingOrder);
+    
+    // Row 0: DE
+    // Act1 Gross: 100 * 0.95 = 95.0
+    QCOMPARE(table2.data(table2.index(0, TaxAmountTable::COL_TAX_DECLARING_COUNTRY)).toString(), "DE");
+    QCOMPARE(table2.data(table2.index(0, TaxAmountTable::COL_AMOUNT_TOTAL)).toDouble(), 95.0); 
+    
+    // Row 1: FR
+    // Act1 again: 95.0
+    QCOMPARE(table2.data(table2.index(1, TaxAmountTable::COL_TAX_DECLARING_COUNTRY)).toString(), "FR");
+    QCOMPARE(table2.data(table2.index(1, TaxAmountTable::COL_TAX_SCHEME)).toString(), taxSchemeToString(TaxScheme::DomesticVat));
+    QCOMPARE(table2.data(table2.index(1, TaxAmountTable::COL_AMOUNT_TOTAL)).toDouble(), 95.0);
+    
+    // Verify aggregation logic did not mix them
+    // Net: 80 * 0.95 = 76.0
+    QCOMPARE(table2.data(table2.index(0, TaxAmountTable::COL_AMOUNT_UNTAXED)).toDouble(), 76.0);
+    QCOMPARE(table2.data(table2.index(1, TaxAmountTable::COL_AMOUNT_UNTAXED)).toDouble(), 76.0);
+    
+    // Sorting Descending
+    table2.sort(TaxAmountTable::COL_TAX_DECLARING_COUNTRY, Qt::DescendingOrder);
+    QCOMPARE(table2.data(table2.index(0, TaxAmountTable::COL_TAX_DECLARING_COUNTRY)).toString(), "FR");
 }
 
 QTEST_MAIN(TestOrderManager)

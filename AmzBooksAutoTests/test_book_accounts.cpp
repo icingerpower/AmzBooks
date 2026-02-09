@@ -455,7 +455,7 @@ private slots:
         // 1. Init & Modify
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 3);  // Country, Currency, FixerApiKey
+            QCOMPARE(table.rowCount(), 7);  // Country, Currency, FixerApiKey + 4 Legal Infos
             
             // Modify Country (Row 0, Col 1)
             table.setData(table.index(0, 1), "US");
@@ -467,7 +467,7 @@ private slots:
         // 2. Persistence (New Instance)
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 3);  // Country, Currency, FixerApiKey
+            QCOMPARE(table.rowCount(), 7);  // Country, Currency, FixerApiKey + 4 Legal Infos
             
             // Check Values
             QCOMPARE(table.data(table.index(0, 1)).toString(), "US");
@@ -490,7 +490,7 @@ private slots:
         // 1. Set API Key (Row 2 = FixerApiKey)
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 3);
+            QCOMPARE(table.rowCount(), 7);
             
             // Row 2 is FixerApiKey
             table.setData(table.index(2, 1), testApiKey);

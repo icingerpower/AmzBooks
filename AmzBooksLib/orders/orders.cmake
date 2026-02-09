@@ -26,6 +26,10 @@ SET(ORDERS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/Result.h
     ${CMAKE_CURRENT_LIST_DIR}/OrderManager.cpp
     ${CMAKE_CURRENT_LIST_DIR}/OrderManager.h
+    ${CMAKE_CURRENT_LIST_DIR}/OrderTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/OrderTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/TaxAmountTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/TaxAmountTable.h
     ${CMAKE_CURRENT_LIST_DIR}/ActivityUpdate.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ActivityUpdate.h
     ${CMAKE_CURRENT_LIST_DIR}/AbstractImporter.cpp
