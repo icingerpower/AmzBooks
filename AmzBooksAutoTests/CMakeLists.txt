@@ -187,3 +187,13 @@ add_test(NAME TestInvoicing COMMAND TestInvoicing)
 target_link_libraries(TestInvoicing PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(TestInvoicing PRIVATE ../AmzBooksLib)
 
+
+add_executable(TestPurchaseFileSettingsTree TestPurchaseFileSettingsTree.cpp)
+add_test(NAME TestPurchaseFileSettingsTree COMMAND TestPurchaseFileSettingsTree)
+target_link_libraries(TestPurchaseFileSettingsTree PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+    target_include_directories(TestPurchaseFileSettingsTree PRIVATE ../AmzBooksLib)
+
+add_executable(TestProfit test_profit.cpp)
+add_test(NAME TestProfit COMMAND TestProfit)
+target_link_libraries(TestProfit PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestProfit PRIVATE ../AmzBooksLib)

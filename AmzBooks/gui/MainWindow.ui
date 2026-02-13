@@ -55,7 +55,7 @@
         <string>Books</string>
        </attribute>
       </widget>
-      <widget class="QWidget" name="tabProfit">
+      <widget class="PaneProfit" name="tabProfit">
        <attribute name="title">
         <string>Profit</string>
        </attribute>
@@ -110,6 +110,12 @@
    <class>PaneOrders</class>
    <extends>QWidget</extends>
    <header>gui/panes/PaneOrders.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneProfit</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneProfit.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

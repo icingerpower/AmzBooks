@@ -38,4 +38,10 @@ SET(PANES_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrders.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrders.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrders.ui
+    ${CMAKE_CURRENT_LIST_DIR}/WidgetPurchases.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/WidgetPurchases.h
+    ${CMAKE_CURRENT_LIST_DIR}/WidgetPurchases.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneProfit.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneProfit.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneProfit.ui
 )
