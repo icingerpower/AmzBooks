@@ -13,10 +13,13 @@
 
 #include "PaneOrderFiles.h"
 #include "ui_PaneOrderFiles.h"
-#include "../dialogs/DialogVatParams.h"
-#include "../dialogs/DialogVatParams.h"
+#include "gui/dialogs/DialogVatParams.h"
+#include "gui/dialogs/DialogVatParams.h"
+#include "gui/dialogs/DialogViewOrders.h"
 #include "utils/CsvHeader.h"
 #include "books/ActivityTable.h"
+#include "books/CompanyInfosTable.h"
+#include "CurrencyRateManager.h"
 
 #include <QFileSystemModel>
 
@@ -185,10 +188,22 @@ void PaneOrderFiles::importFile()
                 // We instantiate OrderManager here. 
                 // CAUTION: Ensure DB connection doesn't conflict if app uses shared connection.
                 // Assuming OrderManager handles its own connection or default connection is safe.
-                OrderManager manager(WorkingDirectoryManager::instance()->workingDir());
-                
+
                 int importedCount = 0;
                 if (result.orderInfos) {
+                   // Preview Dialog
+                   QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
+                   CompanyInfosTable companyInfo(workingDir);
+                   CurrencyRateManager currencyRateManager(workingDir, companyInfo.getApiKeyFixer());
+                   
+                   DialogViewOrders dialog(*result.orderInfos, &currencyRateManager, companyInfo.getCurrency(), self);
+                   if (dialog.exec() != QDialog::Accepted) {
+                       self->ui->buttonImport->setEnabled(true);
+                       co_return;
+                   }
+
+                   OrderManager manager(workingDir);
+
                    // We need to store the value in a local variable because getActivitySource() returns by value (temporary),
                    // and we cannot take the address of a temporary.
                    ActivitySource source = importer->getActivitySource();

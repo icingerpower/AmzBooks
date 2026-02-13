@@ -89,3 +89,9 @@ while (true) {
 ```
 
 
+    }
+}
+```
+
+### Data Sources & Rules
+- **Company Information**: Always use `CompanyInfosTable` to retrieve company-wide settings such as **Currency** (`getCurrency()`), **Country** (`getCompanyCountryCode()`), VAT numbers, etc. **NEVER** hardcode these values (e.g., do not assume "EUR" or "FR") or invent them. If a class needs this information, pass `CompanyInfosTable` or the specific value from it.

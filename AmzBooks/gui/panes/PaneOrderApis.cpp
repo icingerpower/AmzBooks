@@ -14,6 +14,9 @@
 #include "orders/AbstractImporterApi.h"
 #include "orders/OrderManager.h"
 #include "books/ActivityTable.h"
+#include "gui/dialogs/DialogViewOrders.h"
+#include "books/CompanyInfosTable.h"
+#include "CurrencyRateManager.h"
 
 PaneOrderApis::PaneOrderApis(QWidget *parent) :
     QWidget(parent),
@@ -136,43 +139,78 @@ void PaneOrderApis::import()
             // Fetch Invoicing Infos
             auto resultInvoiceInfos = co_await importer->fetchInvoiceInfos(from);
 
-            // Combine results for processing?
-            // Or process each. OrderManager handles recording.
+            // Aggregate Results
+            AbstractImporter::OrderInfos aggregatedInfos;
             
-            OrderManager manager(WorkingDirectoryManager::instance()->workingDir());
-            ActivitySource source = importer->getActivitySource(); // Assuming Api has this? Yes AbstractImporter has it.
+            // Merge Shipments
+            if (resultShipments.orderInfos) {
+                aggregatedInfos.shipments.append(resultShipments.orderInfos->shipments);
+                if (aggregatedInfos.dateMin.isNull() || (!resultShipments.orderInfos->dateMin.isNull() && resultShipments.orderInfos->dateMin < aggregatedInfos.dateMin))
+                    aggregatedInfos.dateMin = resultShipments.orderInfos->dateMin;
+                if (aggregatedInfos.dateMax.isNull() || (!resultShipments.orderInfos->dateMax.isNull() && resultShipments.orderInfos->dateMax > aggregatedInfos.dateMax))
+                    aggregatedInfos.dateMax = resultShipments.orderInfos->dateMax;
+            }
+
+            // Merge Refunds
+            if (resultRefunds.orderInfos) {
+                aggregatedInfos.refunds.append(resultRefunds.orderInfos->refunds);
+                if (aggregatedInfos.dateMin.isNull() || (!resultRefunds.orderInfos->dateMin.isNull() && resultRefunds.orderInfos->dateMin < aggregatedInfos.dateMin))
+                    aggregatedInfos.dateMin = resultRefunds.orderInfos->dateMin;
+                 if (aggregatedInfos.dateMax.isNull() || (!resultRefunds.orderInfos->dateMax.isNull() && resultRefunds.orderInfos->dateMax > aggregatedInfos.dateMax))
+                    aggregatedInfos.dateMax = resultRefunds.orderInfos->dateMax;
+            }
+
+            // Merge Addresses
+            if (resultAddresses.orderInfos) {
+                aggregatedInfos.orderAddresses.append(resultAddresses.orderInfos->orderAddresses);
+            }
+
+            // Merge Invoicing Infos
+            if (resultInvoiceInfos.orderInfos) {
+                aggregatedInfos.invoicingInfos.append(resultInvoiceInfos.orderInfos->invoicingInfos);
+            }
+            
+            // Prepare Dialog
+            auto *workingDirMgr = WorkingDirectoryManager::instance();
+            QDir workingDir = workingDirMgr->workingDir();
+            CompanyInfosTable companyInfo(workingDir);
+            CurrencyRateManager currencyRateManager(workingDir, companyInfo.getApiKeyFixer());
+
+            DialogViewOrders dialog(aggregatedInfos, &currencyRateManager, companyInfo.getCurrency(), self);
+            if (dialog.exec() != QDialog::Accepted) {
+                self->ui->buttonImport->setEnabled(true);
+                co_return;
+            }
+
+            // Proceed to Save
+            OrderManager manager(workingDir);
+            ActivitySource source = importer->getActivitySource();
 
             int importedCount = 0;
             QList<Activity> newActivities;
 
             // Process Shipments
-            if (resultShipments.orderInfos) {
-                 for (const auto &shipment : resultShipments.orderInfos->shipments) {
-                     manager.recordShipmentFromSource(shipment.getId(), &source, &shipment, QDate());
-                     newActivities.append(shipment.getActivities());
-                 }
-                 importedCount += resultShipments.orderInfos->shipments.size();
+            for (const auto &shipment : aggregatedInfos.shipments) {
+                 manager.recordShipmentFromSource(shipment.getId(), &source, &shipment, QDate());
+                 newActivities.append(shipment.getActivities());
             }
+            importedCount += aggregatedInfos.shipments.size();
 
             // Process Refunds
-            if (resultRefunds.orderInfos) {
-                for (const auto &refund : resultRefunds.orderInfos->refunds) {
-                    manager.recordShipmentFromSource(refund.getId(), &source, &refund, QDate());
-                    newActivities.append(refund.getActivities());
-                }
-                importedCount += resultRefunds.orderInfos->refunds.size();
+            for (const auto &refund : aggregatedInfos.refunds) {
+                manager.recordShipmentFromSource(refund.getId(), &source, &refund, QDate());
+                newActivities.append(refund.getActivities());
             }
+            importedCount += aggregatedInfos.refunds.size();
+
             // Process Addresses
-             if (resultAddresses.orderInfos) {
-                for (const auto &addr : resultAddresses.orderInfos->orderAddresses) {
-                    manager.recordAddressTo(addr.orderId, addr.address);
-                }
+            for (const auto &addr : aggregatedInfos.orderAddresses) {
+                manager.recordAddressTo(addr.orderId, addr.address);
             }
+
             // Process Invoicing Infos
-             if (resultInvoiceInfos.orderInfos) {
-                for (const auto &inv : resultInvoiceInfos.orderInfos->invoicingInfos) {
-                    manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
-                }
+            for (const auto &inv : aggregatedInfos.invoicingInfos) {
+                manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
             }
 
             // Update Chart & Table
@@ -192,7 +230,7 @@ void PaneOrderApis::import()
             }
 
             QMessageBox::information(self, tr("Import Successful"), 
-                                     tr("Successfully fetched data."));
+                                     tr("Successfully fetched and imported data."));
 
         } catch (const QException &e) {
              QMessageBox::critical(self, tr("Import Error"), e.what());
