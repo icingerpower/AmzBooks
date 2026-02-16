@@ -668,10 +668,7 @@ void ProfitTree::processEconomicsFile(const QString &filePath,
         double sales = valCvt(getVal(colSales));
         double ads = valCvt(getVal(colAds));
         double fba = valCvt(getVal(colFba));
-        if (msku == "CJYD206234728BY" && fba > 0)
-        {
-            int TEMP=10;++TEMP;
-        }
+
         double referral = valCvt(getVal(colReferral)) + valCvt(getVal(colReferralRefund1));
         if (colReferralRefund2 != -1)
         {
@@ -824,10 +821,7 @@ ProfitTreeItem* ProfitTree::createItemFromAgg(
     
     item->setAdsCost(agg.adsCost);
     item->setStorageCost(agg.storageCost);
-    if (msku == "CJYD193175416PK")
-    {
-        int TEMP=10;++TEMP;
-    }
+
     item->setFbaFees(agg.fbaFees);
     item->setReferralFees(agg.referralFees);
     item->setOtherFees(agg.otherFees);

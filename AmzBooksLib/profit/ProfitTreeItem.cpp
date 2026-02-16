@@ -326,15 +326,12 @@ void ProfitTreeItem::updateItemData()
     
     // Calculate Profit / Capital (Profit / Unit Cost)
     double profitPerCapital = (totalUnitCost > 0.0001) ? (profitPerUnit / totalUnitCost) : 0.0;
-    if (m_msku == "CJYD206234728BY")
-    {
-        int TEMP=10;++TEMP;
-    }
+
 
     m_itemData[0] = m_parentAsin;
     m_itemData[1] = m_msku;
     m_itemData[2] = m_title;
-    m_itemData[3] = m_unitsGross;
+    m_itemData[3] = unitsNet; // Display Net Units
     m_itemData[4] = m_monthlyUnitsSoldMedian;
     m_itemData[5] = m_unitsReturned;
     m_itemData[6] = returnPercent;

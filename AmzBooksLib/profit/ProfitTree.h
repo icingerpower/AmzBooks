@@ -88,6 +88,9 @@ private:
 
     // Inner helper types
     struct AggregatedData {
+        // LOGIC NOTE: We do NOT store "unitsSold" (Net) here to avoid synchronization issues.
+        // Net Units = unitsGross - unitsReturned.
+        // Always calculate Net Units dynamically.
         int unitsGross = 0; // Gross units sold
         int unitsReturned = 0;
         double revenue = 0.0;
