@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>800</width>
-    <height>600</height>
+    <width>1428</width>
+    <height>1014</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -35,24 +35,19 @@
         <string>Orders</string>
        </attribute>
       </widget>
-      <widget class="QWidget" name="tabServices">
-       <attribute name="title">
-        <string>Services</string>
-       </attribute>
-      </widget>
       <widget class="QWidget" name="tabVAT">
        <attribute name="title">
         <string>VAT</string>
        </attribute>
       </widget>
-      <widget class="QWidget" name="tabInventory">
-       <attribute name="title">
-        <string>Inventaire</string>
-       </attribute>
-      </widget>
       <widget class="PaneBookKeeping" name="tabBookkeeping">
        <attribute name="title">
         <string>Books</string>
+       </attribute>
+      </widget>
+      <widget class="PaneInventory" name="tabInventory">
+       <attribute name="title">
+        <string>Inventaire</string>
        </attribute>
       </widget>
       <widget class="PaneProfit" name="tabProfit">
@@ -74,7 +69,7 @@
     <rect>
      <x>0</x>
      <y>0</y>
-     <width>800</width>
+     <width>1428</width>
      <height>20</height>
     </rect>
    </property>
@@ -116,6 +111,12 @@
    <class>PaneProfit</class>
    <extends>QWidget</extends>
    <header>gui/panes/PaneProfit.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneInventory</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneInventory.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

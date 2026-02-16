@@ -48,6 +48,8 @@ include(books/books.cmake)
 include(banks/banks.cmake)
 include(profit/profit.cmake)
 
+include(inventory/inventory.cmake)
+
 add_library(AmzBooksLib STATIC
   AmzBooksLib.cpp
   AmzBooksLib.h
@@ -61,6 +63,7 @@ add_library(AmzBooksLib STATIC
   ${BOOKS_FILES}
   ${BANKS_FILES}
   ${PROFIT_FILES}
+  ${INVENTORY_FILES}
   ${UTILS_FILES}
 )
 

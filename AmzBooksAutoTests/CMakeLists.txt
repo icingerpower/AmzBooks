@@ -196,4 +196,8 @@ target_link_libraries(TestPurchaseFileSettingsTree PRIVATE Qt${QT_VERSION_MAJOR}
 add_executable(TestProfit test_profit.cpp)
 add_test(NAME TestProfit COMMAND TestProfit)
 target_link_libraries(TestProfit PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
-target_include_directories(TestProfit PRIVATE ../AmzBooksLib)
+
+add_executable(testInventory test_inventory.cpp)
+add_test(NAME testInventory COMMAND testInventory)
+target_link_libraries(testInventory PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(testInventory PRIVATE ../AmzBooksLib)
