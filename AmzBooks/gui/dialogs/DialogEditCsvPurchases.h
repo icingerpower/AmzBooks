@@ -2,6 +2,7 @@
 #define DIALOGEDITCSVPURCHASES_H
 
 #include <QDialog>
+#include <QDir>
 
 namespace Ui {
 class DialogEditCsvPurchases;
@@ -15,7 +16,7 @@ class DialogEditCsvPurchases : public QDialog
 
 public:
     explicit DialogEditCsvPurchases(
-            const QString &workingDir, QWidget *parent = nullptr);
+            const QDir &workingDir, QWidget *parent = nullptr);
     ~DialogEditCsvPurchases();
 
 private slots:

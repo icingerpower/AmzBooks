@@ -44,4 +44,7 @@ SET(PANES_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PaneProfit.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneProfit.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneProfit.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneInventory.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneInventory.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneInventory.ui
 )

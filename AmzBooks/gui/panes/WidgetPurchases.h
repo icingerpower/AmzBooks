@@ -17,13 +17,18 @@ public:
     ~WidgetPurchases();
 
     QStringList getCsvFilePaths() const;
+    QDir getPurchaseDir() const;
 
 private slots:
-    void onSelectFolder();
-    void onEditColumns();
-    void onCheckFiles();
+    void selectFolder();
+    void editColumns();
+    void checkFiles();
     void onFolderChanged(const QString &path);
     void _connectSlots();
+    void _saveSettings();
+
+public:
+    double getShippingPrice(const QString &countryCode) const;
 
 private:
     Ui::WidgetPurchases *ui;

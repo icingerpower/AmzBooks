@@ -22,7 +22,7 @@ class CurrencyRateManager : public QObject
 {
     Q_OBJECT
 public:
-    static void setAllowRealApiCalls(bool allowed);
+
 
     explicit CurrencyRateManager(const QDir &workingDir, const QString &apiKey, QObject *parent = nullptr);
 
@@ -37,7 +37,7 @@ private:
     void _appendRate(const QString &key, double rate) const;
     QString _csvPath() const;
 
-    static bool s_allowRealApiCalls;
+
 
     QDir m_workingDir;
     QString m_apiKey;

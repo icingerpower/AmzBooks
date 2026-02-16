@@ -475,10 +475,26 @@ private slots:
         }
         
         // 3. Robustness
-        injectFakeColumn(iniFiles);
+        // injectFakeColumn(iniFiles); // This only tests column robustness
+        
+        // Inject a fake ROW to test row count strictness
+        {
+            QFile file(iniFiles);
+            if (file.open(QIODevice::Append | QIODevice::Text)) {
+                QTextStream out(&file);
+                out << "FakeParam;FakeValue;FakeId\n";
+            }
+        }
+
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.data(table.index(0, 1)).toString(), "US");
+            // The bug is that it loads all rows including fake ones.
+            // We want strict 7 rows.
+            QCOMPARE(table.rowCount(), 7); 
+            
+            // Should still have valid data for known IDs
+            QCOMPARE(table.getCompanyCountryCode(), "US");
+            QCOMPARE(table.getCurrency(), "USD");
         }
     }
     

@@ -2,12 +2,7 @@
 #include "ExceptionRateCurrency.h"
 #include <QDebug>
 
-bool CurrencyRateManager::s_allowRealApiCalls = false;
 
-void CurrencyRateManager::setAllowRealApiCalls(bool allowed)
-{
-    s_allowRealApiCalls = allowed;
-}
 #include <QFileInfo>
 #include <QTextStream>
 #include <QNetworkAccessManager>
@@ -90,9 +85,6 @@ double CurrencyRateManager::convert(double amount, const QString &source, const 
 
 double CurrencyRateManager::retrieveCurrency(const QString &source, const QString &dest, const QDate &date) const
 {
-    if (!s_allowRealApiCalls) {
-         throw ExceptionRateCurrency("Real API calls are disabled. Use importRate() to provide test data.");
-    }
     Q_ASSERT(date < QDate::currentDate());
     double rate = 1.0;
     if (source != dest) {

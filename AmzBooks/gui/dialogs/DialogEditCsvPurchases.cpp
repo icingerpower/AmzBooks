@@ -6,13 +6,13 @@
 #include "orders/ExceptionParamValue.h"
 
 DialogEditCsvPurchases::DialogEditCsvPurchases(
-        const QString &workingDir, QWidget *parent) :
+        const QDir &workingDir, QWidget *parent) :
     QDialog(parent),
     ui(new Ui::DialogEditCsvPurchases)
 {
     ui->setupUi(this);
     
-    m_model = new PurchaseFileSettingsTree(QDir(workingDir), this);
+    m_model = new PurchaseFileSettingsTree(workingDir, this);
     ui->treeView->setModel(m_model);
     ui->treeView->expandAll();
 

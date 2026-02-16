@@ -1,3 +1,5 @@
+#include "../../common/workingdirectory/WorkingDirectoryManager.h"
+
 #include "WidgetPurchases.h"
 #include "ui_WidgetPurchases.h"
 #include "gui/dialogs/DialogEditCsvPurchases.h"
@@ -48,6 +50,14 @@ WidgetPurchases::WidgetPurchases(QWidget *parent) :
         ui->treeViewCsvFiles->setModel(nullptr); 
     }
 
+    // Load Settings
+    auto settingsPtr = WorkingDirectoryManager::instance()->settings();
+    ui->spinBoxShippingDefault->setValue(settingsPtr->value("purchases/shipping_default", 0.0).toDouble());
+    ui->spinBoxShippingUS->setValue(settingsPtr->value("purchases/shipping_us", 0.0).toDouble());
+    ui->spinBoxShippingCA->setValue(settingsPtr->value("purchases/shipping_ca", 0.0).toDouble());
+    ui->spinBoxShippingUK->setValue(settingsPtr->value("purchases/shipping_uk", 0.0).toDouble());
+    ui->spinBoxShippingJP->setValue(settingsPtr->value("purchases/shipping_jp", 0.0).toDouble());
+    
     _connectSlots();
 }
 
@@ -58,12 +68,29 @@ WidgetPurchases::~WidgetPurchases()
 
 void WidgetPurchases::_connectSlots()
 {
-    connect(ui->buttonSelectFolder, &QPushButton::clicked, this, &WidgetPurchases::onSelectFolder);
-    connect(ui->buttonEditCsv, &QPushButton::clicked, this, &WidgetPurchases::onEditColumns);
-    connect(ui->pushButton, &QPushButton::clicked, this, &WidgetPurchases::onCheckFiles);
+    connect(ui->buttonSelectFolder, &QPushButton::clicked, this, &WidgetPurchases::selectFolder);
+    connect(ui->buttonEditCsv, &QPushButton::clicked, this, &WidgetPurchases::editColumns);
+    connect(ui->pushButton, &QPushButton::clicked, this, &WidgetPurchases::checkFiles);
+    
+    // Auto-save settings
+    connect(ui->spinBoxShippingDefault, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &WidgetPurchases::_saveSettings);
+    connect(ui->spinBoxShippingUS, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &WidgetPurchases::_saveSettings);
+    connect(ui->spinBoxShippingCA, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &WidgetPurchases::_saveSettings);
+    connect(ui->spinBoxShippingUK, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &WidgetPurchases::_saveSettings);
+    connect(ui->spinBoxShippingJP, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this, &WidgetPurchases::_saveSettings);
 }
 
-void WidgetPurchases::onSelectFolder()
+void WidgetPurchases::_saveSettings()
+{
+    auto settings = WorkingDirectoryManager::instance()->settings();
+    settings->setValue("purchases/shipping_default", ui->spinBoxShippingDefault->value());
+    settings->setValue("purchases/shipping_us", ui->spinBoxShippingUS->value());
+    settings->setValue("purchases/shipping_ca", ui->spinBoxShippingCA->value());
+    settings->setValue("purchases/shipping_uk", ui->spinBoxShippingUK->value());
+    settings->setValue("purchases/shipping_jp", ui->spinBoxShippingJP->value());
+}
+
+void WidgetPurchases::selectFolder()
 {
     QString dir = QFileDialog::getExistingDirectory(this, tr("Select Purchase Folder"),
                                                     m_currentDir,
@@ -86,26 +113,29 @@ void WidgetPurchases::onFolderChanged(const QString &path)
     ui->treeViewCsvFiles->setRootIndex(m_fileModel->index(m_currentDir));
 }
 
-void WidgetPurchases::onEditColumns()
+void WidgetPurchases::editColumns()
 {
-    DialogEditCsvPurchases dialog(m_currentDir, this);
+    DialogEditCsvPurchases dialog(
+                WorkingDirectoryManager::instance()->workingDir(), this);
     dialog.exec();
 }
 
 #include <QDirIterator>
 
-void WidgetPurchases::onCheckFiles()
+void WidgetPurchases::checkFiles()
 {
     // Find all CSV files recursively
     QStringList files = getCsvFilePaths();
     
     if (files.isEmpty()) {
-        QMessageBox::information(this, tr("Check Files"), tr("No CSV files found in the current directory or subdirectories."));
+        QMessageBox::information(this
+                                 , tr("Check Files")
+                                 , tr("No CSV files found in the current directory or subdirectories."));
         return;
     }
     
-    
-    PurchaseFileSettingsTree settingsTree((QDir(m_currentDir)));
+    PurchaseFileSettingsTree settingsTree(
+                WorkingDirectoryManager::instance()->workingDir());
     QList<ErrorEntry> errors;
     
     foreach (const QString &filePath, files) {
@@ -166,8 +196,8 @@ void WidgetPurchases::onCheckFiles()
         for (int i = 0; i < errors.size(); ++i) {
             QTableWidgetItem *itemFile = new QTableWidgetItem(errors[i].file);
             QTableWidgetItem *itemError = new QTableWidgetItem(errors[i].error);
-            itemFile->setFlags(itemFile->flags() ^ Qt::ItemIsEditable); // Read-only
-            itemError->setFlags(itemError->flags() ^ Qt::ItemIsEditable);
+            // itemFile->setFlags(itemFile->flags() ^ Qt::ItemIsEditable); // Allow editing for copy/paste
+            // itemError->setFlags(itemError->flags() ^ Qt::ItemIsEditable);
             
             table->setItem(i, 0, itemFile);
             table->setItem(i, 1, itemError);
@@ -197,4 +227,18 @@ QStringList WidgetPurchases::getCsvFilePaths() const
     std::sort(absolutePaths.begin(), absolutePaths.end(), std::greater<QString>());
     
     return absolutePaths;
+}
+
+QDir WidgetPurchases::getPurchaseDir() const
+{
+    return QDir(m_currentDir);
+}
+
+double WidgetPurchases::getShippingPrice(const QString &countryCode) const
+{
+    if (countryCode == "US") return ui->spinBoxShippingUS->value();
+    if (countryCode == "CA") return ui->spinBoxShippingCA->value();
+    if (countryCode == "UK") return ui->spinBoxShippingUK->value();
+    if (countryCode == "JP") return ui->spinBoxShippingJP->value();
+    return ui->spinBoxShippingDefault->value();
 }

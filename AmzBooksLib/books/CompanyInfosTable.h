@@ -45,6 +45,7 @@ private:
     void _load();
     void _save();
     void _ensureDefaults();
+    void _initDefaultRows(); // New helper
     QString _encrypt(const QString &value) const;
     QString _decrypt(const QString &value) const;
 

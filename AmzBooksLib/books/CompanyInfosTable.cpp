@@ -143,6 +143,12 @@ Qt::ItemFlags CompanyInfosTable::flags(const QModelIndex &index) const
 
 void CompanyInfosTable::_ensureDefaults()
 {
+    _initDefaultRows();
+    _save();
+}
+
+void CompanyInfosTable::_initDefaultRows()
+{
     m_data.clear();
     
     // Row 1: Country
@@ -214,17 +220,15 @@ void CompanyInfosTable::_ensureDefaults()
         item.encrypt = false;
         m_data.append(item);
     }
-    
-    _save();
 }
 
 void CompanyInfosTable::_load()
 {
     beginResetModel();
-    m_data.clear();
     
     QFile file(m_filePath);
     if (!file.exists() || !file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        // If file doesn't exist, we will create defaults later (in init)
         endResetModel();
         return;
     }
@@ -240,62 +244,43 @@ void CompanyInfosTable::_load()
 
     // Identify indices for our Technical IDs
     int idxId = columnMap.value("Id", -1);
-    int idxParam = columnMap.value("Parameter", -1);
+    int idxParam = columnMap.value("Parameter", -1); // Unused for logic, but good to have
     int idxValue = columnMap.value("Value", -1);
 
-    // If Id column is missing, we can't reliably map rows to our logic, maybe assume legacy order?
-    // But this is a new file format. If missing, we might fail or load partial.
+    QMap<QString, QString> loadedValues;
     
-    while (!in.atEnd()) {
-        QString line = in.readLine();
-        if (line.trimmed().isEmpty()) continue;
-        
-        QStringList parts = line.split(";");
-        
-        InfoItem item;
-        if (idxId != -1 && idxId < parts.size()) item.id = parts[idxId];
-        if (idxParam != -1 && idxParam < parts.size()) item.parameter = parts[idxParam];
-        if (idxValue != -1 && idxValue < parts.size()) item.value = parts[idxValue];
-        
-        // Fixup: parameter should be translated usually, but in CSV it might be static.
-        // If we load by ID, we can force the correct Parameter Name from code if we want "translation update".
-        if (item.id == ID_COUNTRY) {
-            item.parameter = tr("Company Country Code");
-            item.encrypt = false;
-        } else if (item.id == ID_CURRENCY) {
-            item.parameter = tr("Currency");
-            item.encrypt = false;
-        } else if (item.id == ID_FIXER_API_KEY) {
-            item.parameter = tr("Fixer.io API Key");
-            item.encrypt = true;
-            // Decrypt the value if it's encrypted
-            if (!item.value.isEmpty()) {
-                item.value = _decrypt(item.value);
+    if (idxId != -1 && idxValue != -1) {
+        while (!in.atEnd()) {
+            QString line = in.readLine();
+            if (line.trimmed().isEmpty()) continue;
+            
+            QStringList parts = line.split(";");
+            if (idxId < parts.size() && idxValue < parts.size()) {
+                QString id = parts[idxId];
+                QString value = parts[idxValue];
+                loadedValues[id] = value;
             }
-        } else if (item.id == ID_LEGAL_SHARE_CAPITAL) {
-            item.parameter = tr("Legal Share Capital");
-            item.encrypt = false;
-        } else if (item.id == ID_LEGAL_SIRET) {
-            item.parameter = tr("Legal SIRET");
-            item.encrypt = false;
-        } else if (item.id == ID_LEGAL_RCS) {
-            item.parameter = tr("Legal RCS");
-            item.encrypt = false;
-        } else if (item.id == ID_LEGAL_VAT_INTRACOMMUNITY) {
-            item.parameter = tr("Legal VAT Intracommunity");
-            item.encrypt = false;
         }
-        
-        if (!item.id.isEmpty()) {
-            m_data.append(item);
+    }
+    
+    // Enforce 7 rows structure
+    _initDefaultRows();
+    
+    // Update values from loaded file
+    for (int i = 0; i < m_data.size(); ++i) {
+        if (loadedValues.contains(m_data[i].id)) {
+            QString val = loadedValues[m_data[i].id];
+            
+            // Decrypt if needed
+            if (m_data[i].id == ID_FIXER_API_KEY && m_data[i].encrypt && !val.isEmpty()) {
+                val = _decrypt(val);
+            }
+            
+            m_data[i].value = val;
         }
     }
     
     endResetModel();
-    
-    // Check if we have required rows, if not add defaults?
-    // Current logic: _ensureDefaults calls clear(). Better only add missing if needed.
-    // For now, if empty, constructor calls _ensureDefaults.
 }
 
 void CompanyInfosTable::_save()

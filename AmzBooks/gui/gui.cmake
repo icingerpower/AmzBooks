@@ -36,5 +36,8 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogViewOrders.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogViewOrders.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogViewOrders.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditProductFilters.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditProductFilters.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditProductFilters.ui
     ${PANES_FILES}
 )

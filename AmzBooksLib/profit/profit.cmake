@@ -1,6 +1,12 @@
 SET(PROFIT_FILES
-    ${CMAKE_CURRENT_LIST_DIR}/PurchaseFileSettingsTree.h
     ${CMAKE_CURRENT_LIST_DIR}/PurchaseFileSettingsTree.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/PurchaseFileSettingsTreeItem.h
+    ${CMAKE_CURRENT_LIST_DIR}/PurchaseFileSettingsTree.h
     ${CMAKE_CURRENT_LIST_DIR}/PurchaseFileSettingsTreeItem.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PurchaseFileSettingsTreeItem.h
+    ${CMAKE_CURRENT_LIST_DIR}/ProfitTree.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ProfitTree.h
+    ${CMAKE_CURRENT_LIST_DIR}/ProfitTreeItem.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ProfitTreeItem.h
+    ${CMAKE_CURRENT_LIST_DIR}/ProductFilterTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ProductFilterTable.h
 )
