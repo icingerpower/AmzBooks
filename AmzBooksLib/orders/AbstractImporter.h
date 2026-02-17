@@ -28,11 +28,17 @@ public:
         QString orderId;
         Address address;
     };
+    struct Amount{
+        double value;
+        QString currency;
+    };
+
     struct OrderInfos{
         QList<InvoicingInfoWithId> invoicingInfos;
         QList<AddressToWithId> orderAddresses;
         QList<Shipment> shipments;
         QList<Refund> refunds;
+        QHash<QString, Amount> orderId_refundClue;
         QHash<QString, QString> orderId_store;
         QDate dateMin;
         QDate dateMax;

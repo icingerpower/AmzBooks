@@ -195,7 +195,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         QString actId = line.value(indActivityId);
         
         // Create Activity
-        Amount amt(amountExcl + amountVat, amountVat);
+        ::Amount amt(amountExcl + amountVat, amountVat);
         // Note: Amount constructor takes (Taxed, Tax). We construct Taxed from Excl+Vat to ensure consistency with Excl column. 
         
         auto actRes = Activity::create(

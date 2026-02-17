@@ -59,13 +59,19 @@ add_custom_command(TARGET TestVatRateResolver POST_BUILD
 
 add_executable(TestOrderManager test_order_manager.cpp)
 add_test(NAME TestOrderManager COMMAND TestOrderManager)
-target_link_libraries(TestOrderManager PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
-target_include_directories(TestOrderManager PRIVATE ../AmzBooksLib)
+target_link_libraries(TestOrderManager PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib QCoro::Core)
+target_include_directories(TestOrderManager PRIVATE ../AmzBooksLib ../../common)
 
 add_custom_command(TARGET TestOrderManager POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
     $<TARGET_FILE_DIR:TestOrderManager>/data/amazon-vat-reports
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-fba-invoicing
+    $<TARGET_FILE_DIR:TestOrderManager>/data/amazon-fba-invoicing
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-transactions
+    $<TARGET_FILE_DIR:TestOrderManager>/data/amazon-transactions
 )
 
 add_executable(TestBookAccounts test_book_accounts.cpp)

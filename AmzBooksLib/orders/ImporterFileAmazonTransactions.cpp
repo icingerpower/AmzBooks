@@ -3,7 +3,6 @@
 #include "utils/CsvHeader.h"
 #include <QFileInfo>
 #include <QDebug>
-#include "SaleType.h"
 
 DECLARE_IMPORTER_FILE(ImporterFileAmazonTransactions)
 
@@ -70,7 +69,6 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::
     int indProductCharges = dataRode->header.pos("Total product charges");
     
     // Dynamic currency detection
-    int indTotal = -1;
     QString currency;
     
     // Search for "Total (XXX)" column
@@ -78,7 +76,6 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::
     for (int i = 0; i < headers.size(); ++i) {
         QString header = headers.at(i);
         if (header.startsWith("Total (") && header.endsWith(")")) {
-            indTotal = i;
             currency = header.mid(7, 3); // Extract XXX from Total (XXX)
             break;
         }
@@ -89,36 +86,19 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::
         ex.setColumnValuesError({"Total (XXX)"});
         throw ex; // Currency column is mandatory
     }
-    
-    // If not found, maybe check "Total" and assume default or error?
-    // The user provided sample has "Total (USD)".
-    // Let's assume valid currency is found if Total (XXX) exists.
-    
-    // Extract country from filename
-    // Format: YYYY-MM-transactions-XX.csv or similar
-    QString fileName = QFileInfo(filePath).fileName();
-    QString countryCode;
-    
-    QRegularExpression re("transactions-([a-z\\.]+)\\.csv");
-    auto match = re.match(fileName);
-    if (match.hasMatch()) {
-        QString suffix = match.captured(1);
-        if (suffix == "com") countryCode = "US";
-        else if (suffix == "co.uk") countryCode = "GB";
-        else countryCode = suffix.toUpper();
-    } else {
-         result.errorReturned = "Could not extract country from filename (expected format: ...transactions-XX.csv): " + fileName;
-         co_return result;
-    }
 
     for (const auto &line : dataRode->lines) {
         QString transType = line.value(indTransType);
         
-        // We only care about Refunds as requested
-        if (transType != "Refund") continue;
+        // We only care about Refunds
+        if (transType != "Refund") {
+            continue;
+        }
 
         QString orderId = line.value(indOrderId);
-        if (orderId.isEmpty()) continue;
+        if (orderId.isEmpty()) {
+            continue;
+        }
 
         // Parse Date
         QString dateStr = line.value(indDate);
@@ -134,46 +114,16 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::
              continue;
         }
 
-        if (result.orderInfos->dateMin.isNull() || date < result.orderInfos->dateMin) result.orderInfos->dateMin = date;
-        if (result.orderInfos->dateMax.isNull() || date > result.orderInfos->dateMax) result.orderInfos->dateMax = date;
-
-        // Amounts
-        double productCharges = line.value(indProductCharges).toDouble();
-        
-        double amountTax = 0.0;
-        double amountTotal = productCharges; 
-        
-        Amount amt(amountTotal, amountTax);
-        
-        auto actRes = Activity::create(
-            orderId, // OrderID as EventID
-            orderId, // ActivityID same as OrderID
-            "", // subId
-            date.startOfDay(),
-            currency,
-            countryCode, // depart (From)
-            countryCode, // arrival (To) - Unknown so assume same country?
-            "", // vatPaidTo
-            amt,
-            TaxSource::MarketplaceProvided, // Assumption
-            "", // declaringCountry
-            TaxScheme::Unknown,
-            TaxJurisdictionLevel::Country,
-            SaleType::Products
-        );
-
-        if (actRes.ok()) {
-            QList<Activity> activities;
-            activities.append(actRes.value.value());
-            Refund refund(activities);
-            result.orderInfos->refunds.append(refund);
-            
-            // Invoicing Info
-            InvoicingInfo info(&result.orderInfos->refunds.last());
-            result.orderInfos->invoicingInfos.append({orderId, info});
-        } else {
-             qWarning() << "Failed to create refund activity for order:" << orderId << "Error:" << (actRes.errors.isEmpty() ? "" : actRes.errors.first().message);
+        if (result.orderInfos->dateMin.isNull() || date < result.orderInfos->dateMin) {
+            result.orderInfos->dateMin = date;
         }
+        if (result.orderInfos->dateMax.isNull() || date > result.orderInfos->dateMax) {
+            result.orderInfos->dateMax = date;
+        }
+
+        // Store refund clue: orderId -> {amount, currency}
+        double productCharges = line.value(indProductCharges).toDouble();
+        result.orderInfos->orderId_refundClue[orderId] = {productCharges, currency};
     }
 
     co_return result;

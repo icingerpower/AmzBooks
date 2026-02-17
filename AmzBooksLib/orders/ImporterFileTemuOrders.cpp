@@ -319,7 +319,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuOrders::_loadRep
         QString currency = "EUR";
         
         // Create Amount (gross includes tax)
-        Amount amount(netAmount + productTax, productTax);
+        ::Amount amount(netAmount + productTax, productTax);
         
         // Determine Tax Scheme
         TaxScheme scheme = (originCountry == destCountry) 

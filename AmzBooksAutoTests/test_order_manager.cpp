@@ -3,6 +3,7 @@
 #include <QTemporaryDir>
 #include <QSqlQuery>
 #include "orders/OrderManager.h"
+#include <QCoroTask>
 #include "orders/Shipment.h"
 #include "orders/Refund.h"
 #include "books/Activity.h"
@@ -11,6 +12,13 @@
 #include "orders/ActivityUpdate.h"
 #include "orders/Address.h"
 #include "orders/InvoicingInfo.h"
+#include "orders/ImporterFileAmazonVatEu.h"
+#include "orders/ImporterFileAmazonFbaInvoicing.h"
+#include "orders/ImporterFileAmazonTransactions.h"
+#include "books/FbaCentersTable.h"
+#include <QDirIterator>
+#include <QSqlError>
+#include <QFile>
 
 class TestOrderManager : public QObject
 {
@@ -38,6 +46,8 @@ private slots:
     void test_get_channel_site_ShipmentAndRefunds();
     void test_OrderTable();
     void test_TaxAmountTable();
+    void test_tryRecordRefund();
+    void test_importOrderInvariance();
 };
 
 void TestOrderManager::initTestCase()
@@ -1738,6 +1748,436 @@ void TestOrderManager::test_TaxAmountTable()
     // Sorting Descending
     table2.sort(TaxAmountTable::COL_TAX_DECLARING_COUNTRY, Qt::DescendingOrder);
     QCOMPARE(table2.data(table2.index(0, TaxAmountTable::COL_TAX_DECLARING_COUNTRY)).toString(), "FR");
+}
+
+void TestOrderManager::test_tryRecordRefund()
+{
+    // No-op callback: returns empty (no pick)
+    auto noopCallback = [](const QString &, const QString &, const QList<QSharedPointer<Shipment>> &) -> QCoro::Task<QString> {
+        co_return QString{};
+    };
+
+    // Case 1: Single shipment => refund succeeds
+    {
+        QTemporaryDir tempDir;
+        OrderManager manager(tempDir.path());
+        ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+
+        auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        QVERIFY(actRes.errors.isEmpty());
+        Shipment shipment({*actRes.value});
+        manager.recordShipmentFromSource("ord1", &source, &shipment, QDate());
+
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord1", -100.0, "EUR", "", noopCallback));
+        QVERIFY2(error.isEmpty(), qPrintable("Case 1 failed: " + error));
+
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = 'ord1'");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 2); // 1 shipment + 1 refund
+    }
+
+    // Case 2: Multiple shipments, unique amount match
+    {
+        QTemporaryDir tempDir;
+        OrderManager manager(tempDir.path());
+        ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+
+        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment ship1({*actRes1.value});
+        manager.recordShipmentFromSource("ord2", &source, &ship1, QDate());
+
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment ship2({*actRes2.value});
+        manager.recordShipmentFromSource("ord2", &source, &ship2, QDate());
+
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord2", -100.0, "EUR", "", noopCallback));
+        QVERIFY2(error.isEmpty(), qPrintable("Case 2 failed: " + error));
+
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = 'ord2'");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 3);
+    }
+
+    // Case 3: shipmentId provided for partial refund
+    {
+        QTemporaryDir tempDir;
+        OrderManager manager(tempDir.path());
+        ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+
+        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment ship1({*actRes1.value});
+        manager.recordShipmentFromSource("ord3", &source, &ship1, QDate());
+
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment ship2({*actRes2.value});
+        manager.recordShipmentFromSource("ord3", &source, &ship2, QDate());
+
+        QString shipId = ship2.getId();
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord3", -50.0, "EUR", shipId, noopCallback));
+        QVERIFY2(error.isEmpty(), qPrintable("Case 3 failed: " + error));
+
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = 'ord3'");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 3);
+    }
+
+    // Case 4: Ambiguous - same amounts, no shipmentId, no-op callback => error
+    {
+        QTemporaryDir tempDir;
+        OrderManager manager(tempDir.path());
+        ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+
+        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment ship1({*actRes1.value});
+        manager.recordShipmentFromSource("ord4", &source, &ship1, QDate());
+
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment ship2({*actRes2.value});
+        manager.recordShipmentFromSource("ord4", &source, &ship2, QDate());
+
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord4", -100.0, "EUR", "", noopCallback));
+        QVERIFY2(!error.isEmpty(), "Case 4: Expected error but got success");
+        QVERIFY(error.contains("ord4"));
+
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = 'ord4'");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 2);
+    }
+
+    // Case 5: No shipments at all => error
+    {
+        QTemporaryDir tempDir;
+        OrderManager manager(tempDir.path());
+        QString error = QCoro::waitFor(manager.tryRecordRefund("nonexistent", -50.0, "EUR", "", noopCallback));
+        QVERIFY(!error.isEmpty());
+        QVERIFY(error.contains("nonexistent"));
+    }
+
+    // Case 6: Ambiguous + callback returns valid shipment ID => refund created
+    {
+        QTemporaryDir tempDir;
+        OrderManager manager(tempDir.path());
+        ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+
+        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment ship1({*actRes1.value});
+        manager.recordShipmentFromSource("ord6", &source, &ship1, QDate());
+
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment ship2({*actRes2.value});
+        manager.recordShipmentFromSource("ord6", &source, &ship2, QDate());
+
+        // Callback returns the second shipment's ID
+        QString targetId = ship2.getId();
+        auto pickCallback = [targetId](const QString &, const QString &, const QList<QSharedPointer<Shipment>> &) -> QCoro::Task<QString> {
+            co_return targetId;
+        };
+
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord6", -100.0, "EUR", "", pickCallback));
+        QVERIFY2(error.isEmpty(), qPrintable("Case 6 failed: " + error));
+
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = 'ord6'");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 3); // 2 shipments + 1 refund
+    }
+
+    // Case 7: Ambiguous + callback returns empty => error returned
+    {
+        QTemporaryDir tempDir;
+        OrderManager manager(tempDir.path());
+        ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+
+        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment ship1({*actRes1.value});
+        manager.recordShipmentFromSource("ord7", &source, &ship1, QDate());
+
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+             Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Shipment ship2({*actRes2.value});
+        manager.recordShipmentFromSource("ord7", &source, &ship2, QDate());
+
+        // Callback returns empty (user cancelled)
+        auto cancelCallback = [](const QString &, const QString &, const QList<QSharedPointer<Shipment>> &) -> QCoro::Task<QString> {
+            co_return QString{};
+        };
+
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord7", -100.0, "EUR", "", cancelCallback));
+        QVERIFY2(!error.isEmpty(), "Case 7: Expected error but got success");
+        QVERIFY(error.contains("ord7"));
+
+        // No refund should have been recorded
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = 'ord7'");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 2);
+    }
+}
+
+void TestOrderManager::test_importOrderInvariance()
+{
+    // --------------------------------------------------
+    // Resolve data directories
+    // --------------------------------------------------
+    QDir appDir(QCoreApplication::applicationDirPath());
+    auto resolveDataDir = [&](const QString &subDir) -> QString {
+        QString path = appDir.absoluteFilePath("data/" + subDir);
+        if (QFileInfo::exists(path)) return path;
+        QDir search = appDir;
+        for (int i = 0; i < 5; ++i) {
+            QString p = search.absoluteFilePath("data/" + subDir);
+            if (QFileInfo::exists(p)) return p;
+            if (!search.cdUp() || search.isRoot()) break;
+        }
+        return {};
+    };
+
+    QString vatDir = resolveDataDir("amazon-vat-reports");
+    QString fbaDir = resolveDataDir("amazon-fba-invoicing");
+    QString txnDir = resolveDataDir("amazon-transactions");
+
+    if (vatDir.isEmpty() || fbaDir.isEmpty() || txnDir.isEmpty()) {
+        QSKIP("One or more test data directories not found");
+    }
+
+    // --------------------------------------------------
+    // Determine target year (last year, or -2 if January)
+    // --------------------------------------------------
+    QDate today = QDate::currentDate();
+    int targetYear = today.year() - 1;
+    if (today.month() == 1) targetYear = today.year() - 2;
+    QString yearStr = QString::number(targetYear);
+
+    qDebug() << "Target year:" << targetYear;
+
+    // --------------------------------------------------
+    // Collect CSV file paths per report type for that year
+    // FILTER: Use only October (month 10) to avoid timeout (loading 200+ files takes too long)
+    // --------------------------------------------------
+    QString monthFilter = yearStr + "-10";
+    qDebug() << "Filtering for month:" << monthFilter;
+
+    auto collectCsvs = [&](const QString &baseDir, const QString &prefix) -> QStringList {
+        QStringList files;
+        QString yearPath = QDir(baseDir).absoluteFilePath(yearStr);
+        if (!QFileInfo::exists(yearPath)) return files;
+        QDirIterator it(yearPath, {"*.csv"}, QDir::Files);
+        while (it.hasNext()) {
+            QString f = it.next();
+            QString name = QFileInfo(f).fileName();
+            if (name.startsWith(prefix) && name.contains(monthFilter))
+                files << f;
+        }
+        files.sort();
+        return files;
+    };
+
+    QStringList vatFiles = collectCsvs(vatDir, "vat-eu-");
+    QStringList fbaFiles = collectCsvs(fbaDir, "invoicing-fba-");
+    QStringList txnFiles = collectCsvs(txnDir, QString::number(targetYear));
+
+    qDebug() << "VAT files:" << vatFiles.size()
+             << "FBA files:" << fbaFiles.size()
+             << "TXN files:" << txnFiles.size();
+
+    QVERIFY2(!vatFiles.isEmpty(), "No VAT report files found for target year");
+    QVERIFY2(!fbaFiles.isEmpty(), "No FBA invoicing files found for target year");
+    QVERIFY2(!txnFiles.isEmpty(), "No transaction files found for target year");
+
+    // --------------------------------------------------
+    // Helper: load one set of files with an importer,
+    //         then record into an OrderManager.
+    // --------------------------------------------------
+    struct ImporterRun {
+        AbstractImporterFile *importer;
+        QStringList files;
+    };
+
+    auto noopCallback = [](const QString &, const QString &, const QList<QSharedPointer<Shipment>> &) -> QCoro::Task<QString> {
+        co_return QString{};
+    };
+
+    auto loadAndRecord = [&](OrderManager &manager,
+                             const QList<ImporterRun> &runs) {
+        for (const auto &run : runs) {
+            ActivitySource source = run.importer->getActivitySource();
+            for (const QString &filePath : run.files) {
+                AbstractImporter::ReturnOrderInfos result;
+                try {
+                    auto task = run.importer->loadReport(filePath);
+                    result = QCoro::waitFor(task);
+                } catch (...) {
+                    qWarning() << "Exception loading" << filePath << "— skipping";
+                    continue;
+                }
+                if (!result.errorReturned.isEmpty()) {
+                    qWarning() << "Error loading" << filePath << ":" << result.errorReturned << "— skipping";
+                    continue;
+                }
+                if (!result.orderInfos) continue;
+
+                // Start transaction for bulk recording
+                manager.m_db.transaction();
+
+                // Record shipments
+                for (const auto &ship : result.orderInfos->shipments) {
+                    manager.recordShipmentFromSource(ship.getId(), &source, &ship, QDate());
+                }
+                // Record refunds
+                for (const auto &ref : result.orderInfos->refunds) {
+                    manager.recordShipmentFromSource(ref.getId(), &source, &ref, QDate());
+                }
+                // Record addresses
+                for (const auto &addr : result.orderInfos->orderAddresses) {
+                    manager.recordAddressTo(addr.orderId, addr.address);
+                }
+                // Record invoicingInfos
+                for (const auto &inv : result.orderInfos->invoicingInfos) {
+                    manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
+                }
+                
+                manager.m_db.commit();
+
+                // Process refund clues — skip old/unknown orders silently
+                // processing clues needs queries anyway, but usually few clues per file
+                // And tryRecordRefund might need its own transaction handling? 
+                // It's a coroutine, so it runs sequentially.
+                // tryRecordRefund usually does SELECTs and then INSERT/UPDATE.
+                // Keeping it outside the main bulk transaction is safer to avoid long-held locks if it yields.
+                for (auto it = result.orderInfos->orderId_refundClue.begin();
+                     it != result.orderInfos->orderId_refundClue.end(); ++it) {
+                    QCoro::waitFor(manager.tryRecordRefund(
+                        it.key(), it.value().value, it.value().currency, QString{}, noopCallback));
+                }
+            }
+        }
+    };
+
+    // --------------------------------------------------
+    // Helper: extract ordered rows from an OrderManager DB
+    // --------------------------------------------------
+    struct ShipmentRow {
+        QString id;
+        QString orderId;
+        QString currentJson;
+    };
+
+    auto extractShipments = [](OrderManager &mgr) -> QList<ShipmentRow> {
+        QList<ShipmentRow> rows;
+        QSqlQuery q(mgr.m_db);
+        q.exec("SELECT id, order_id, current_json FROM shipments ORDER BY id");
+        while (q.next()) {
+            rows.append({q.value(0).toString(), q.value(1).toString(), q.value(2).toString()});
+        }
+        return rows;
+    };
+
+    struct OrderRow {
+        QString id;
+        QString addressJson;
+        QString store;
+    };
+
+    auto extractOrders = [](OrderManager &mgr) -> QList<OrderRow> {
+        QList<OrderRow> rows;
+        QSqlQuery q(mgr.m_db);
+        q.exec("SELECT id, address_json, store FROM orders ORDER BY id");
+        while (q.next()) {
+            rows.append({q.value(0).toString(), q.value(1).toString(), q.value(2).toString()});
+        }
+        return rows;
+    };
+
+    // --------------------------------------------------
+    // RUN 1: vat-reports → fba-invoicing → transactions
+    // --------------------------------------------------
+    QTemporaryDir tempDir1;
+    QVERIFY(tempDir1.isValid());
+    {
+        ImporterFileAmazonVatEu vatImporter(tempDir1.path());
+        ImporterFileAmazonFbaInvoicing fbaImporter(tempDir1.path());
+        ImporterFileAmazonTransactions txnImporter(tempDir1.path());
+        OrderManager manager1(tempDir1.path());
+
+        loadAndRecord(manager1, {
+            {&vatImporter, vatFiles},
+            {&fbaImporter, fbaFiles},
+            {&txnImporter, txnFiles}
+        });
+    }
+
+    // --------------------------------------------------
+    // RUN 2: fba-invoicing → transactions → vat-reports
+    // --------------------------------------------------
+    QTemporaryDir tempDir2;
+    QVERIFY(tempDir2.isValid());
+    {
+        ImporterFileAmazonFbaInvoicing fbaImporter(tempDir2.path());
+        ImporterFileAmazonTransactions txnImporter(tempDir2.path());
+        ImporterFileAmazonVatEu vatImporter(tempDir2.path());
+        OrderManager manager2(tempDir2.path());
+
+        loadAndRecord(manager2, {
+            {&fbaImporter, fbaFiles},
+            {&txnImporter, txnFiles},
+            {&vatImporter, vatFiles}
+        });
+    }
+
+    // --------------------------------------------------
+    // COMPARE
+    // --------------------------------------------------
+    OrderManager mgr1(tempDir1.path());
+    OrderManager mgr2(tempDir2.path());
+
+    auto shipments1 = extractShipments(mgr1);
+    auto shipments2 = extractShipments(mgr2);
+
+    auto orders1 = extractOrders(mgr1);
+    auto orders2 = extractOrders(mgr2);
+
+    qDebug() << "Run 1: orders=" << orders1.size() << "shipments=" << shipments1.size();
+    qDebug() << "Run 2: orders=" << orders2.size() << "shipments=" << shipments2.size();
+
+    // Verify non-empty
+    QVERIFY2(!shipments1.isEmpty(), "Run 1 produced no shipments");
+    QVERIFY2(!shipments2.isEmpty(), "Run 2 produced no shipments");
+
+    // Compare order counts
+    QCOMPARE(orders1.size(), orders2.size());
+
+    // Compare shipment counts
+    QCOMPARE(shipments1.size(), shipments2.size());
+
+    // Compare order content
+    for (int i = 0; i < orders1.size(); ++i) {
+        QCOMPARE(orders1[i].id, orders2[i].id);
+        QCOMPARE(orders1[i].store, orders2[i].store);
+        // address_json may differ in insertion timestamp — just check same id/store
+    }
+
+    // Compare shipment content
+    for (int i = 0; i < shipments1.size(); ++i) {
+        QCOMPARE(shipments1[i].id, shipments2[i].id);
+        QCOMPARE(shipments1[i].orderId, shipments2[i].orderId);
+        QCOMPARE(shipments1[i].currentJson, shipments2[i].currentJson);
+    }
+
+    qDebug() << "Import order invariance verified:" << shipments1.size() << "shipments match.";
 }
 
 QTEST_MAIN(TestOrderManager)

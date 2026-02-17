@@ -146,7 +146,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         double price = line.value(idxItemPrice).toDouble();
         double tax = line.value(idxItemTax).toDouble();
         // Assuming Price is Net, constructed Amount should be (Gross, Tax)
-        Amount amount(price + tax, tax);
+        ::Amount amount(price + tax, tax);
         
         // FC Resolution
         QString fc = line.value(idxFC).trimmed();

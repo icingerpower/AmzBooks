@@ -13,6 +13,7 @@
 
 #include "ActivitySource.h"
 #include "Shipment.h"
+#include "Refund.h"
 #include "InvoicingInfo.h"
 #include "Address.h"
 #include "ActivityUpdate.h"
@@ -508,6 +509,178 @@ void OrderManager::recordInvoicingInfo(const QString &shipmentOrRefundId,
     if (!q.exec()) {
         qWarning() << "Failed to record invoicing info:" << q.lastError();
     }
+}
+
+QCoro::Task<QString> OrderManager::tryRecordRefund(
+        const QString &orderId, double amount, const QString &currency, const QString &shipmentId,
+        std::function<QCoro::Task<QString>(const QString &errorTitle,
+                                           const QString &errorText,
+                                           const QList<QSharedPointer<Shipment>> &shipmentsToPick)> callbackPickShipment)
+{
+    // 1. If the order id initially has only one shipment => We can create the refund
+    // 2. But if several shipments with several kind of TVA, we can create the refund only if one shipment and one only is the amount value
+    // 3. If not, we check if shipmentId is not empty and do a partial refund on it.
+    // 4. Otherwise we call the callback to let the user pick, or return an error
+
+    // Gather all shipments for this order
+    struct ShipmentInfo {
+        QString id;
+        QSharedPointer<Shipment> shipment;
+        double totalTaxed;
+        QString countryFrom;
+        QString countryTo;
+        QString sourceKey;
+    };
+
+    QList<ShipmentInfo> shipments;
+    {
+        QSqlQuery q;
+        q.prepare("SELECT id, current_json, source_key FROM shipments WHERE order_id = ? AND id NOT LIKE '%-rev-%'");
+        q.addBindValue(orderId);
+        if (q.exec()) {
+            while (q.next()) {
+                QString id = q.value(0).toString();
+                QString jsonStr = q.value(1).toString();
+                QString sourceKey = q.value(2).toString();
+                QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
+                auto ship = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+
+                double totalTaxed = 0.0;
+                QString cFrom, cTo;
+                for (const auto &act : ship->getActivities()) {
+                    totalTaxed += act.getAmountTaxed();
+                    if (cFrom.isEmpty()) {
+                        cFrom = act.getCountryCodeFrom();
+                    }
+                    if (cTo.isEmpty()) {
+                        cTo = act.getCountryCodeTo();
+                    }
+                }
+                shipments.append({id, ship, totalTaxed, cFrom, cTo, sourceKey});
+            }
+        }
+    }
+
+    if (shipments.isEmpty()) {
+        co_return QObject::tr("No shipments found for order %1").arg(orderId);
+    }
+
+    // Helper lambda: create a refund from a shipment with given amount
+    auto createRefundFromShipment = [&](const ShipmentInfo &info) -> QString {
+        const auto &activities = info.shipment->getActivities();
+        if (activities.isEmpty()) {
+            return QObject::tr("Shipment %1 has no activities").arg(info.id);
+        }
+
+        // Create refund activities by negating the shipment's activities, scaled to the refund amount
+        QList<Activity> refundActivities;
+        double shipTotal = info.totalTaxed;
+        double ratio = (qAbs(shipTotal) > 0.001) ? (amount / shipTotal) : 1.0;
+
+        for (const auto &act : activities) {
+            double refundTaxed = act.getAmountTaxed() * ratio;
+            double refundTaxes = act.getAmountTaxesSource() * ratio;
+
+            ::Amount negatedAmount(refundTaxed, refundTaxes);
+            auto res = Activity::create(
+                act.getEventId() + "-refund",
+                act.getActivityId() + "-refund",
+                act.getSubActivityId(),
+                act.getDateTime(),
+                currency.isEmpty() ? act.getCurrency() : currency,
+                act.getCountryCodeFrom(),
+                act.getCountryCodeTo(),
+                act.getCountryCodeVatPaidTo(),
+                negatedAmount,
+                act.getTaxSource(),
+                act.getTaxDeclaringCountryCode(),
+                act.getTaxScheme(),
+                act.getTaxJurisdictionLevel(),
+                act.getSaleType(),
+                act.getVatTerritoryFrom(),
+                act.getVatTerritoryTo());
+
+            if (res.ok()) {
+                refundActivities.append(*res.value);
+            }
+        }
+
+        if (refundActivities.isEmpty()) {
+            return QObject::tr("Failed to create refund activities for shipment %1").arg(info.id);
+        }
+
+        Refund refund(refundActivities);
+
+        // Parse source key back to ActivitySource
+        ActivitySource source;
+        QStringList parts = info.sourceKey.split('|');
+        if (parts.size() >= 4) {
+            source.type = static_cast<ActivitySourceType>(parts[0].toInt());
+            source.channel = parts[1];
+            source.subchannel = parts[2];
+            source.reportOrMethode = parts[3];
+        }
+
+        recordShipmentFromSource(orderId, &source, &refund, QDate::currentDate());
+        return QString{}; // Success
+    };
+
+    // Case 1: Single shipment
+    if (shipments.size() == 1) {
+        co_return createRefundFromShipment(shipments.first());
+    }
+
+    // Case 2: Multiple shipments — find one whose totalTaxed matches qAbs(amount)
+    {
+        QList<int> matchingIndices;
+        double absAmount = qAbs(amount);
+        for (int i = 0; i < shipments.size(); ++i) {
+            if (qAbs(qAbs(shipments[i].totalTaxed) - absAmount) < 0.01) {
+                matchingIndices.append(i);
+            }
+        }
+        if (matchingIndices.size() == 1) {
+            co_return createRefundFromShipment(shipments[matchingIndices.first()]);
+        }
+    }
+
+    // Case 3: shipmentId provided
+    if (!shipmentId.isEmpty()) {
+        for (const auto &info : shipments) {
+            if (info.id == shipmentId) {
+                co_return createRefundFromShipment(info);
+            }
+        }
+        co_return QObject::tr("Shipment %1 not found for order %2").arg(shipmentId, orderId);
+    }
+
+    // Case 4: Ambiguous — call callback to let the user pick a shipment
+    QStringList details;
+    QList<QSharedPointer<Shipment>> shipmentPtrs;
+    for (const auto &info : shipments) {
+        details.append(QObject::tr("  Shipment %1: amount=%2, from=%3, to=%4")
+                        .arg(info.id, QString::number(info.totalTaxed, 'f', 2), info.countryFrom, info.countryTo));
+        shipmentPtrs.append(info.shipment);
+    }
+
+    QString errorTitle = QObject::tr("Ambiguous refund for order %1").arg(orderId);
+    QString errorText = QObject::tr("Cannot determine which shipment to refund for order %1 (amount=%2 %3).\n"
+              "Existing shipments:\n%4")
+            .arg(orderId, QString::number(amount, 'f', 2), currency, details.join("\n"));
+
+    if (callbackPickShipment) {
+        QString pickedId = co_await callbackPickShipment(errorTitle, errorText, shipmentPtrs);
+        if (!pickedId.isEmpty()) {
+            for (const auto &info : shipments) {
+                if (info.id == pickedId) {
+                    co_return createRefundFromShipment(info);
+                }
+            }
+            co_return QObject::tr("Shipment %1 not found for order %2").arg(pickedId, orderId);
+        }
+    }
+
+    co_return errorText;
 }
 
 QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfo(const QString &shipmentId) const

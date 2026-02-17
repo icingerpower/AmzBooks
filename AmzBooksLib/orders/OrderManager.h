@@ -14,6 +14,7 @@
 #include <QMultiMap>
 #include <QSharedPointer>
 #include <functional>
+#include <QCoroTask>
 
 #include <QSqlDatabase>
 #include <QJsonObject>
@@ -59,6 +60,14 @@ public:
     // The info is stored by shipment root ID, ensuring access across all revisions/conflicts.
     void recordInvoicingInfo(const QString &shipmentOrRefundId,
                              const InvoicingInfo *invoicingInfo);
+    QCoro::Task<QString> tryRecordRefund(
+            const QString &orderId,
+            double amount,
+            const QString &currency,
+            const QString &shipmentId,
+            std::function<QCoro::Task<QString>(const QString &errorTitle,
+                                               const QString &errorText,
+                                               const QList<QSharedPointer<Shipment>> &shipmentsToPick)> callbackPickShipment);
 
     // Retrieves the invoicing info associated with a shipment's root ID.
     QSharedPointer<InvoicingInfo> getInvoicingInfo(const QString &shipmentId) const;

@@ -15,6 +15,7 @@
 #include "orders/OrderManager.h"
 #include "books/ActivityTable.h"
 #include "gui/dialogs/DialogViewOrders.h"
+#include "gui/dialogs/DialogPickShipment.h"
 #include "books/CompanyInfosTable.h"
 #include "CurrencyRateManager.h"
 
@@ -169,6 +170,16 @@ void PaneOrderApis::import()
             if (resultInvoiceInfos.orderInfos) {
                 aggregatedInfos.invoicingInfos.append(resultInvoiceInfos.orderInfos->invoicingInfos);
             }
+
+            // Merge Refund Clues from all result sets
+            for (auto *resultPtr : {&resultShipments, &resultRefunds, &resultAddresses, &resultInvoiceInfos}) {
+                if (resultPtr->orderInfos) {
+                    for (auto it = resultPtr->orderInfos->orderId_refundClue.begin();
+                         it != resultPtr->orderInfos->orderId_refundClue.end(); ++it) {
+                        aggregatedInfos.orderId_refundClue.insert(it.key(), it.value());
+                    }
+                }
+            }
             
             // Prepare Dialog
             auto *workingDirMgr = WorkingDirectoryManager::instance();
@@ -211,6 +222,29 @@ void PaneOrderApis::import()
             // Process Invoicing Infos
             for (const auto &inv : aggregatedInfos.invoicingInfos) {
                 manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
+            }
+
+            // Process Refund Clues
+            QStringList refundErrors;
+            for (auto it = aggregatedInfos.orderId_refundClue.begin();
+                 it != aggregatedInfos.orderId_refundClue.end(); ++it) {
+                auto callbackPick = [self](const QString &errorTitle,
+                                            const QString &errorText,
+                                            const QList<QSharedPointer<Shipment>> &shipmentsToPick) -> QCoro::Task<QString> {
+                    DialogPickShipment dialog(errorTitle, errorText, shipmentsToPick, self);
+                    if (dialog.exec() == QDialog::Accepted) {
+                        co_return dialog.selectedShipmentId();
+                    }
+                    co_return QString{};
+                };
+                QString err = co_await manager.tryRecordRefund(
+                    it.key(), it.value().value, it.value().currency, QString{}, callbackPick);
+                if (!err.isEmpty()) {
+                    refundErrors.append(err);
+                }
+            }
+            if (!refundErrors.isEmpty()) {
+                QMessageBox::warning(self, tr("Refund Errors"), refundErrors.join("\n\n"));
             }
 
             // Update Chart & Table

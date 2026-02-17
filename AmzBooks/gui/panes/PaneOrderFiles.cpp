@@ -16,6 +16,7 @@
 #include "gui/dialogs/DialogVatParams.h"
 #include "gui/dialogs/DialogVatParams.h"
 #include "gui/dialogs/DialogViewOrders.h"
+#include "gui/dialogs/DialogPickShipment.h"
 #include "utils/CsvHeader.h"
 #include "books/ActivityTable.h"
 #include "books/CompanyInfosTable.h"
@@ -238,6 +239,29 @@ void PaneOrderFiles::importFile()
                        manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
                    }
                    
+                   // Process Refund Clues
+                   QStringList refundErrors;
+                   for (auto it = result.orderInfos->orderId_refundClue.begin();
+                        it != result.orderInfos->orderId_refundClue.end(); ++it) {
+                       auto callbackPick = [self](const QString &errorTitle,
+                                                   const QString &errorText,
+                                                   const QList<QSharedPointer<Shipment>> &shipmentsToPick) -> QCoro::Task<QString> {
+                           DialogPickShipment dialog(errorTitle, errorText, shipmentsToPick, self);
+                           if (dialog.exec() == QDialog::Accepted) {
+                               co_return dialog.selectedShipmentId();
+                           }
+                           co_return QString{};
+                       };
+                       QString err = co_await manager.tryRecordRefund(
+                           it.key(), it.value().value, it.value().currency, QString{}, callbackPick);
+                       if (!err.isEmpty()) {
+                           refundErrors.append(err);
+                       }
+                   }
+                   if (!refundErrors.isEmpty()) {
+                       QMessageBox::warning(self, tr("Refund Errors"), refundErrors.join("\n\n"));
+                   }
+
                    importedCount = result.orderInfos->shipments.size() + result.orderInfos->refunds.size();
 
                    // Update Chart Data
