@@ -48,13 +48,13 @@ TestFileImportAmazonTransactions::~TestFileImportAmazonTransactions()
 void TestFileImportAmazonTransactions::initTestCase()
 {
     QDir appDir(QCoreApplication::applicationDirPath());
-    // Assuming data copied to data/eu-vat-reports
-    QString possiblePath = appDir.absoluteFilePath("data/eu-vat-reports");
+    // Assuming data copied to data/amazon-vat-reports
+    QString possiblePath = appDir.absoluteFilePath("data/amazon-vat-reports");
     if (QFileInfo::exists(possiblePath)) {
         m_reportsPath = possiblePath;
     } else {
         // Fallback to source dir (adjust as needed if standard path differs)
-        m_reportsPath = QDir::current().absoluteFilePath("data/eu-vat-reports"); 
+        m_reportsPath = QDir::current().absoluteFilePath("data/amazon-vat-reports"); 
     }
     qDebug() << "Reports Path:" << m_reportsPath;
     

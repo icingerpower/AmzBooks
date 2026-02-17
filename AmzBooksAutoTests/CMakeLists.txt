@@ -6,6 +6,7 @@ enable_testing()
 
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Test)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
+find_package(QCoro6 REQUIRED COMPONENTS Core)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
 
@@ -28,19 +29,19 @@ target_include_directories(TestOrders PRIVATE ../AmzBooksLib)
 target_link_libraries(TestTaxResolver PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(TestTaxResolver PRIVATE ../AmzBooksLib ../../common)
 
-# Copy eu-vat-reports to build directory (for both or just one, doing it generally for TestTaxResolver is enough as it needs it)
+# Copy amazon-vat-reports to build directory (for both or just one, doing it generally for TestTaxResolver is enough as it needs it)
 add_custom_command(TARGET TestTaxResolver POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
-    $<TARGET_FILE_DIR:TestTaxResolver>/data/eu-vat-reports
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
+    $<TARGET_FILE_DIR:TestTaxResolver>/data/amazon-vat-reports
 )
 
 
-# Copy eu-vat-reports to build directory
+# Copy amazon-vat-reports to build directory
 add_custom_command(TARGET TestOrders POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
-    $<TARGET_FILE_DIR:TestOrders>/data/eu-vat-reports
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
+    $<TARGET_FILE_DIR:TestOrders>/data/amazon-vat-reports
 )
 
 add_executable(TestVatRateResolver test_vat_rate.cpp)
@@ -51,8 +52,8 @@ target_include_directories(TestVatRateResolver PRIVATE ../AmzBooksLib ../../comm
 
 add_custom_command(TARGET TestVatRateResolver POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
-    $<TARGET_FILE_DIR:TestVatRateResolver>/data/eu-vat-reports
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
+    $<TARGET_FILE_DIR:TestVatRateResolver>/data/amazon-vat-reports
 )
 
 
@@ -63,8 +64,8 @@ target_include_directories(TestOrderManager PRIVATE ../AmzBooksLib)
 
 add_custom_command(TARGET TestOrderManager POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
-    $<TARGET_FILE_DIR:TestOrderManager>/data/eu-vat-reports
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
+    $<TARGET_FILE_DIR:TestOrderManager>/data/amazon-vat-reports
 )
 
 add_executable(TestBookAccounts test_book_accounts.cpp)
@@ -74,8 +75,8 @@ target_include_directories(TestBookAccounts PRIVATE ../AmzBooksLib)
 
 add_custom_command(TARGET TestBookAccounts POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
-    $<TARGET_FILE_DIR:TestBookAccounts>/data/eu-vat-reports
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
+    $<TARGET_FILE_DIR:TestBookAccounts>/data/amazon-vat-reports
 )
 
 add_executable(TestCurrencies test_currencies.cpp)
@@ -90,8 +91,8 @@ target_include_directories(TestBookEntries PRIVATE ../AmzBooksLib)
 
 add_custom_command(TARGET TestBookEntries POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
-    $<TARGET_FILE_DIR:TestBookEntries>/data/eu-vat-reports
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
+    $<TARGET_FILE_DIR:TestBookEntries>/data/amazon-vat-reports
 )
 
 add_executable(TestJournalTable tst_journal_table.cpp)
@@ -107,8 +108,8 @@ target_include_directories(TestFileImportAmazonTransactions PRIVATE ../AmzBooksL
 
 add_custom_command(TARGET TestFileImportAmazonTransactions POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory
-    ${CMAKE_CURRENT_SOURCE_DIR}/../data/eu-vat-reports
-    $<TARGET_FILE_DIR:TestFileImportAmazonTransactions>/data/eu-vat-reports
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
+    $<TARGET_FILE_DIR:TestFileImportAmazonTransactions>/data/amazon-vat-reports
     COMMAND ${CMAKE_COMMAND} -E copy_directory
     ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-transactions
     $<TARGET_FILE_DIR:TestFileImportAmazonTransactions>/data/amazon-transactions
@@ -116,7 +117,7 @@ add_custom_command(TARGET TestFileImportAmazonTransactions POST_BUILD
 
 add_executable(TestFileImportAmazonFbaInvoicing test_file_import_amazon_fba_invoicing.cpp)
 add_test(NAME TestFileImportAmazonFbaInvoicing COMMAND TestFileImportAmazonFbaInvoicing)
-target_link_libraries(TestFileImportAmazonFbaInvoicing PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_link_libraries(TestFileImportAmazonFbaInvoicing PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib QCoro::Core)
 target_include_directories(TestFileImportAmazonFbaInvoicing PRIVATE ../AmzBooksLib ../../common)
 
 add_custom_command(TARGET TestFileImportAmazonFbaInvoicing POST_BUILD

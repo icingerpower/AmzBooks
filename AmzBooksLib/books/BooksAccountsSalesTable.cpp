@@ -256,7 +256,7 @@ void BooksAccountsSalesTable::_fillIfEmpty()
 {
     if (m_listOfStringList.isEmpty()) {
         // Use VatResolver for default rates (today's rates)
-        // Since we are in the library, we assume data/eu-vat-reports or similar might optionally exist, 
+        // Since we are in the library, we assume data/amazon-vat-reports or similar might optionally exist, 
         // but VatResolver has defaults if persistence is false/empty? 
         // Actually VatResolver usually loads from a file. If empty, we might not get rates.
         // However, VatResolver constructor logic populates some defaults if file missing? 

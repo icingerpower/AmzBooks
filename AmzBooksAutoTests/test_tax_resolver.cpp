@@ -140,15 +140,18 @@ void TestTaxResolver::test_AmazonReports()
     TaxResolver resolver(QCoreApplication::applicationDirPath());
     VatTerritoryResolver vatResolver(QCoreApplication::applicationDirPath());
 
-    QString reportDir = QCoreApplication::applicationDirPath() + "/data/eu-vat-reports";
+    QString reportDir = QCoreApplication::applicationDirPath() + "/data/amazon-vat-reports";
     QDir dir(reportDir);
     if (!dir.exists()) {
         QSKIP("Report directory not found in build dir. Check CMake copy command.");
     }
 
-    QStringList filters;
-    filters << "*.csv";
-    QFileInfoList fileList = dir.entryInfoList(filters, QDir::Files);
+    QFileInfoList fileList;
+    QDirIterator it(reportDir, QStringList() << "*.csv", QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        fileList.append(it.fileInfo());
+    }
 
     // BLACKLIST
     const QSet<QString> blacklist = getBlacklist();

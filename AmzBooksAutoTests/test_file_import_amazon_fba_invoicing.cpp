@@ -62,13 +62,13 @@ void TestFileImportAmazonFbaInvoicing::initTestCase()
     qDebug() << "Data Dir:" << m_dataDir;
     
     // Find VAT reports path
-    QString vatPath = appDir.absoluteFilePath("data/eu-vat-reports");
+    QString vatPath = appDir.absoluteFilePath("data/amazon-vat-reports");
     if (QFileInfo::exists(vatPath)) {
         m_vatReportsPath = vatPath;
     } else {
         QDir vatSearchDir = appDir;
         for (int i = 0; i < 5; ++i) {
-            if (vatSearchDir.cd("data/eu-vat-reports")) {
+            if (vatSearchDir.cd("data/amazon-vat-reports")) {
                 m_vatReportsPath = vatSearchDir.absolutePath();
                 break;
             }
@@ -308,16 +308,8 @@ void TestFileImportAmazonFbaInvoicing::test_realData()
         
         // Importer
         AbstractImporter::ReturnOrderInfos result;
-        try {
-            auto task = importerSafe.loadReport(filePath);
-            result = QCoro::waitFor(task);
-        } catch (const std::exception &e) {
-            qDebug() << "Skipping file (Caught Exception):" << filePath << e.what();
-            continue;
-        } catch (...) {
-            qDebug() << "Skipping file (Caught Unknown Exception):" << filePath;
-            continue;
-        }
+        auto task = importerSafe.loadReport(filePath);
+        result = QCoro::waitFor(task);
         
         if (!result.errorReturned.isEmpty()) {
              qWarning() << "Failed to import" << filePath << ":" << result.errorReturned;

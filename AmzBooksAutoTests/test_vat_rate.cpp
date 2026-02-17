@@ -46,10 +46,10 @@ void TestVatRateResolver::initTestCase()
 {
     // Locate data
      QDir appDir(QCoreApplication::applicationDirPath());
-    // In build/AmzBooksAutoTests, data is likely copied to data/eu-vat-reports via CMake
-    // Assuming relative path "data/eu-vat-reports" works if CWD is set correctly or relative to App
+    // In build/AmzBooksAutoTests, data is likely copied to data/amazon-vat-reports via CMake
+    // Assuming relative path "data/amazon-vat-reports" works if CWD is set correctly or relative to App
     
-    QString possiblePath = appDir.absoluteFilePath("data/eu-vat-reports");
+    QString possiblePath = appDir.absoluteFilePath("data/amazon-vat-reports");
     if (!QFileInfo::exists(possiblePath)) {
         // Try source dir fallback if needed (but CMake should copy it)
          // Assuming CMake copies to build dir
@@ -97,9 +97,12 @@ void TestVatRateResolver::test_AmazonReportsRates()
         QSKIP("Report directory not found. Skipping validation.");
     }
 
-    QStringList filters;
-    filters << "*.csv";
-    QFileInfoList files = reportDir.entryInfoList(filters, QDir::Files);
+    QFileInfoList files;
+    QDirIterator it(m_reportsPath, QStringList() << "*.csv", QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        it.next();
+        files.append(it.fileInfo());
+    }
 
     QTemporaryDir tempDir;
     // Use in-memory VatResolver (no persistence, minimal I/O)

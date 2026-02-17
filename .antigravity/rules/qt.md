@@ -22,3 +22,7 @@
 ## Memory Management
 - Use `QObject` parent-child hierarchy for automatic memory management.
 - Use `QSharedPointer` or `QScopedPointer` for check-ins that are not QObjects.
+
+## Test Integrity
+- **DO NOT SUPPRESS EXCEPTIONS TO PASS TESTS**: If a test fails due to missing data (e.g. missing FBA center in `FbaCentersTable`), **DO NOT** catch the exception in the production code to make the test pass.
+- **FIX THE ROOT CAUSE**: Instead, update the test data or the data loading logic (e.g. `_fillIfEmpty`) to include the missing data. The test failure is a valid signal that data is incomplete.
