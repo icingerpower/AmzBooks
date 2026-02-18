@@ -77,9 +77,23 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> AbstractImporterFile::loadReport
     ReturnOrderInfos result = co_await _loadReport(filePath, callbackAddIfMissing);
     
     if (result.errorReturned.isEmpty() && result.orderInfos) {
+        auto &shipments = result.orderInfos->shipments;
+        for (int i=shipments.size()-1; i>-1; --i) {
+            if (qAbs(shipments[i].getTotalTaxed()) < 0.00001) {
+                shipments.removeAt(i);
+            }
+        }
+        auto &refunds = result.orderInfos->refunds;
+        for (int i=refunds.size()-1; i>-1; --i) {
+            if (qAbs(refunds[i].getTotalTaxed()) < 0.00001) {
+                refunds.removeAt(i);
+            }
+        }
         // Update date range in OrderInfos
         int year = getMinYear(*result.orderInfos);
-        if (year == 0) year = QDate::currentDate().year();
+        if (year == 0) {
+            year = QDate::currentDate().year();
+        }
         
         QDir reportDir = m_workingDirectory;
         if (!reportDir.exists("reports")) reportDir.mkdir("reports");

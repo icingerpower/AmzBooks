@@ -56,6 +56,7 @@ private:
     void buildRows(const QList<QSharedPointer<Shipment>> &shipments);
     void buildRows(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &data);
     void aggregate(const TaxResolver::TaxContext &ctx, const Shipment *shipment);
+    void prependTotalRow();
     
     // Helper to store aggregation map before flattening to list
     QHash<TaxResolver::TaxContext, TaxRow> m_aggregationMap;

@@ -17,6 +17,7 @@ class Shipment
 public:
     explicit Shipment(QList<Activity> activities);
     virtual ~Shipment() = default;
+    double getTotalTaxed() const;
     void computeTax(const TaxResolver *taxResolver
                     , const VatResolver *vatResolver
                     , const QString &vatTerritoryFrom

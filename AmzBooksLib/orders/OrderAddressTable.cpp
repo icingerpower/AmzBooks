@@ -4,8 +4,15 @@ const QStringList OrderAddressTable::COL_NAMES = {
     QObject::tr("Order ID"),
     QObject::tr("Full Name"),
     QObject::tr("Company"),
+    QObject::tr("Address Line 1"),
+    QObject::tr("Address Line 2"),
+    QObject::tr("Address Line 3"),
     QObject::tr("City"),
+    QObject::tr("Postal Code"),
+    QObject::tr("State / Region"),
     QObject::tr("Country"),
+    QObject::tr("Email"),
+    QObject::tr("Phone"),
     QObject::tr("Tax ID")
 };
 
@@ -39,12 +46,19 @@ QVariant OrderAddressTable::data(const QModelIndex &index, int role) const
 
     if (role == Qt::DisplayRole) {
         switch (index.column()) {
-        case COL_ORDER_ID: return item.orderId;
-        case COL_FULL_NAME: return addr.getFullName();
-        case COL_COMPANY: return addr.getCompanyName();
-        case COL_CITY: return addr.getCity();
-        case COL_COUNTRY: return addr.getCountryCode();
-        case COL_TAX_ID: return addr.getTaxId();
+        case COL_ORDER_ID:       return item.orderId;
+        case COL_FULL_NAME:      return addr.getFullName();
+        case COL_COMPANY:        return addr.getCompanyName();
+        case COL_ADDRESS_LINE1:  return addr.getAddressLine1();
+        case COL_ADDRESS_LINE2:  return addr.getAddressLine2();
+        case COL_ADDRESS_LINE3:  return addr.getAddressLine3();
+        case COL_CITY:           return addr.getCity();
+        case COL_POSTAL_CODE:    return addr.getPostalCode();
+        case COL_STATE_OR_REGION:return addr.getStateOrRegion();
+        case COL_COUNTRY:        return addr.getCountryCode();
+        case COL_EMAIL:          return addr.getEmail();
+        case COL_PHONE:          return addr.getPhone();
+        case COL_TAX_ID:         return addr.getTaxId();
         }
     }
     return QVariant();

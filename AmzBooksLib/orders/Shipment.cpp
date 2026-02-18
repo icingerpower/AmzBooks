@@ -9,6 +9,16 @@ Shipment::Shipment(QList<Activity> activities)
 {
 }
 
+double Shipment::getTotalTaxed() const
+{
+    double total = 0.;
+    for (const auto &activity : m_activities)
+    {
+        total += activity.getAmountTaxed();
+    }
+    return total;
+}
+
 void Shipment::computeTax(
         const TaxResolver *taxResolver
         , const VatResolver *vatResolver

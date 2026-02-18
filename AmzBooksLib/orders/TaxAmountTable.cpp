@@ -3,6 +3,7 @@
 #include "CurrencyRateManager.h"
 #include "books/TaxScheme.h"
 #include "books/TaxJurisdictionLevel.h"
+#include <QFont>
 
 const QStringList TaxAmountTable::COL_NAMES = {
     QObject::tr("Declaring Country"),
@@ -69,6 +70,11 @@ QVariant TaxAmountTable::data(const QModelIndex &index, int role) const
         case COL_AMOUNT_TOTAL: return row.amountTotal;
         }
     }
+    if (role == Qt::FontRole && index.row() == 0) {
+        QFont font;
+        font.setBold(true);
+        return font;
+    }
     return QVariant();
 }
 
@@ -83,7 +89,13 @@ QVariant TaxAmountTable::headerData(int section, Qt::Orientation orientation, in
 
 void TaxAmountTable::sort(int column, Qt::SortOrder order)
 {
+    if (m_rows.size() <= 1)
+        return;
+
     emit layoutAboutToBeChanged();
+
+    // Keep the total row (index 0) pinned; sort only the detail rows.
+    TaxRow totalRow = m_rows.takeFirst();
 
     std::sort(m_rows.begin(), m_rows.end(), [column, order](const TaxRow &a, const TaxRow &b) {
         bool less = false;
@@ -99,6 +111,8 @@ void TaxAmountTable::sort(int column, Qt::SortOrder order)
         }
         return (order == Qt::AscendingOrder) ? less : !less;
     });
+
+    m_rows.prepend(totalRow);
 
     emit layoutChanged();
 }
@@ -154,6 +168,7 @@ void TaxAmountTable::buildRows(const QList<QSharedPointer<Shipment>> &shipments)
     }
     
     m_rows = m_aggregationMap.values();
+    prependTotalRow();
 }
 
 void TaxAmountTable::buildRows(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &data)
@@ -176,4 +191,17 @@ void TaxAmountTable::buildRows(const QSharedPointer<QHash<QString, QHash<QString
     }
     
     m_rows = m_aggregationMap.values();
+    prependTotalRow();
+}
+
+void TaxAmountTable::prependTotalRow()
+{
+    TaxRow total;
+    total.taxDeclaringCountry = tr("Total");
+    for (const TaxRow &r : m_rows) {
+        total.amountUntaxed += r.amountUntaxed;
+        total.amountTaxes   += r.amountTaxes;
+        total.amountTotal   += r.amountTotal;
+    }
+    m_rows.prepend(total);
 }
