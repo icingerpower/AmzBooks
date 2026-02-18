@@ -3,6 +3,7 @@
 #include <QDebug>
 #include <QCoroTask>
 #include <QException>
+#include <QSettings>
 
 #include "../../../../common/workingdirectory/WorkingDirectoryManager.h"
 
@@ -10,6 +11,7 @@
 #include "orders/ParamsTable.h"
 #include "orders/AbstractImporterFile.h"
 #include "orders/OrderManager.h"
+#include "ExceptionWithTitleText.h"
 
 #include "PaneOrderFiles.h"
 #include "ui_PaneOrderFiles.h"
@@ -157,17 +159,28 @@ void PaneOrderFiles::importFile()
     }
 
     AbstractImporterFile *importer = m_importersTable->getImporter(index);
-    if (!importer) return;
+    if (!importer) {
+        return;
+    }
 
-    QString filePath = QFileDialog::getOpenFileName(this, tr("Select File to Import"),
-                                                    QDir::homePath(),
+    QSettings settings;
+    QString key = QString("PaneOrderFiles/LastDir/%1").arg(importer->getId());
+    QString lastDir = settings.value(key, QDir::homePath()).toString();
+
+    QStringList filePaths = QFileDialog::getOpenFileNames(this, tr("Select Files to Import"),
+                                                    lastDir,
                                                     tr("All Files (*.*)")); // Filters could be improved based on importer
-    if (filePath.isEmpty()) return;
+    if (filePaths.isEmpty()) {
+        return;
+    }
+
+    settings.setValue(key, QFileInfo(filePaths.first()).absolutePath());
+    filePaths.sort();
 
     // Run import asynchronously
     // We utilize QCoro to handle the async task
     
-    [](PaneOrderFiles *self, AbstractImporterFile *importer, QString path) -> QCoro::Task<void> {
+    [](PaneOrderFiles *self, AbstractImporterFile *importer, QStringList paths) -> QCoro::Task<void> {
         // Disable UI?
         self->ui->buttonImport->setEnabled(false);
         
@@ -178,26 +191,57 @@ void PaneOrderFiles::importFile()
                 int result = dialog.exec();
                 co_return (result == QDialog::Accepted);
             };
+
+            AbstractImporter::ReturnOrderInfos aggregatedResult;
+            aggregatedResult.orderInfos = QSharedPointer<AbstractImporter::OrderInfos>::create();
+            QStringList errors;
+
+            for (const QString &path : paths) {
+                // Load Report with callback
+                auto result = co_await importer->loadReport(path, callbackAddIfMissing);
+                
+                if (!result.errorReturned.isEmpty()) {
+                    errors.append(QString("File: %1\nError: %2").arg(QFileInfo(path).fileName(), result.errorReturned));
+                    continue;
+                }
+
+                if (result.orderInfos) {
+                   aggregatedResult.orderInfos->shipments.append(result.orderInfos->shipments);
+                   aggregatedResult.orderInfos->refunds.append(result.orderInfos->refunds);
+                   aggregatedResult.orderInfos->orderAddresses.append(result.orderInfos->orderAddresses);
+                   aggregatedResult.orderInfos->invoicingInfos.append(result.orderInfos->invoicingInfos);
+                   
+                   // Merge maps
+                   aggregatedResult.orderInfos->orderId_refundClue.insert(result.orderInfos->orderId_refundClue);
+                   aggregatedResult.orderInfos->orderId_store.insert(result.orderInfos->orderId_store);
+
+                   // Update dates
+                   if (aggregatedResult.orderInfos->dateMin.isNull() || (result.orderInfos->dateMin.isValid() && result.orderInfos->dateMin < aggregatedResult.orderInfos->dateMin)) {
+                       aggregatedResult.orderInfos->dateMin = result.orderInfos->dateMin;
+                   }
+                   if (aggregatedResult.orderInfos->dateMax.isNull() || (result.orderInfos->dateMax.isValid() && result.orderInfos->dateMax > aggregatedResult.orderInfos->dateMax)) {
+                       aggregatedResult.orderInfos->dateMax = result.orderInfos->dateMax;
+                   }
+                }
+            }
             
-            // Load Report with callback
-            auto result = co_await importer->loadReport(path, callbackAddIfMissing);
-            
-            if (!result.errorReturned.isEmpty()) {
-                QMessageBox::critical(self, tr("Import Failed"), result.errorReturned);
-            } else {
+            if (!errors.isEmpty()) {
+                QMessageBox::warning(self, tr("Import Errors"), errors.join("\n\n"));
+            }
+
+            if (!aggregatedResult.orderInfos->shipments.isEmpty() || !aggregatedResult.orderInfos->refunds.isEmpty()) {
                 // Save to OrderManager
                 // We instantiate OrderManager here. 
                 // CAUTION: Ensure DB connection doesn't conflict if app uses shared connection.
                 // Assuming OrderManager handles its own connection or default connection is safe.
 
                 int importedCount = 0;
-                if (result.orderInfos) {
                    // Preview Dialog
                    QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
                    CompanyInfosTable companyInfo(workingDir);
                    CurrencyRateManager currencyRateManager(workingDir, companyInfo.getApiKeyFixer());
                    
-                   DialogViewOrders dialog(*result.orderInfos, &currencyRateManager, companyInfo.getCurrency(), self);
+                   DialogViewOrders dialog(*aggregatedResult.orderInfos, &currencyRateManager, companyInfo.getCurrency(), self);
                    if (dialog.exec() != QDialog::Accepted) {
                        self->ui->buttonImport->setEnabled(true);
                        co_return;
@@ -210,7 +254,7 @@ void PaneOrderFiles::importFile()
                    ActivitySource source = importer->getActivitySource();
 
                    // Process Shipments
-                   for (const auto &shipment : result.orderInfos->shipments) {
+                   for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
                        manager.recordShipmentFromSource(
                            shipment.getId(),
                            &source,
@@ -220,7 +264,7 @@ void PaneOrderFiles::importFile()
                    }
                    
                    // Process Refunds
-                   for (const auto &refund : result.orderInfos->refunds) {
+                   for (const auto &refund : aggregatedResult.orderInfos->refunds) {
                        manager.recordShipmentFromSource(
                            refund.getId(),
                            &source,
@@ -230,19 +274,19 @@ void PaneOrderFiles::importFile()
                    }
                    
                    // Process Addresses
-                   for (const auto &addr : result.orderInfos->orderAddresses) {
+                   for (const auto &addr : aggregatedResult.orderInfos->orderAddresses) {
                        manager.recordAddressTo(addr.orderId, addr.address);
                    }
                    
                    // Process InvoicingInfos
-                   for (const auto &inv : result.orderInfos->invoicingInfos) {
+                   for (const auto &inv : aggregatedResult.orderInfos->invoicingInfos) {
                        manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
                    }
                    
                    // Process Refund Clues
                    QStringList refundErrors;
-                   for (auto it = result.orderInfos->orderId_refundClue.begin();
-                        it != result.orderInfos->orderId_refundClue.end(); ++it) {
+                   for (auto it = aggregatedResult.orderInfos->orderId_refundClue.begin();
+                        it != aggregatedResult.orderInfos->orderId_refundClue.end(); ++it) {
                        auto callbackPick = [self](const QString &errorTitle,
                                                    const QString &errorText,
                                                    const QList<QSharedPointer<Shipment>> &shipmentsToPick) -> QCoro::Task<QString> {
@@ -262,18 +306,18 @@ void PaneOrderFiles::importFile()
                        QMessageBox::warning(self, tr("Refund Errors"), refundErrors.join("\n\n"));
                    }
 
-                   importedCount = result.orderInfos->shipments.size() + result.orderInfos->refunds.size();
+                   importedCount = aggregatedResult.orderInfos->shipments.size() + aggregatedResult.orderInfos->refunds.size();
 
                    // Update Chart Data
                    if (importedCount > 0) {
                        auto &counts = self->m_ordersData[importer->getId()];
-                       for (const auto &shipment : result.orderInfos->shipments) {
+                       for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
                            // Using first activity date as approximation for shipment date
                            if (!shipment.getActivities().isEmpty()) {
                                counts[shipment.getActivities().first().getDateTime().date()]++;
                            }
                        }
-                       for (const auto &refund : result.orderInfos->refunds) {
+                       for (const auto &refund : aggregatedResult.orderInfos->refunds) {
                            if (!refund.getActivities().isEmpty()) {
                                counts[refund.getActivities().first().getDateTime().date()]++;
                            }
@@ -289,10 +333,10 @@ void PaneOrderFiles::importFile()
                        // However, let's be safe or just do it.
                        
                        QList<Activity> newActivities;
-                       for (const auto &shipment : result.orderInfos->shipments) {
+                       for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
                            newActivities.append(shipment.getActivities());
                        }
-                       for (const auto &refund : result.orderInfos->refunds) {
+                       for (const auto &refund : aggregatedResult.orderInfos->refunds) {
                            newActivities.append(refund.getActivities());
                        }
                        
@@ -320,14 +364,17 @@ void PaneOrderFiles::importFile()
                             }, Qt::QueuedConnection);
                        }
                    }
-                }
                 
                 QMessageBox::information(self, tr("Import Successful"), 
                                          tr("Successfully imported %1 items.").arg(importedCount));
+            } else if (errors.isEmpty()) {
+                 QMessageBox::information(self, tr("Import"), tr("No data found to import."));
             }
             
         } catch (const CsvHeaderException &e) {
-             QMessageBox::critical(self, tr("Import Error"), e.what());
+             QMessageBox::critical(self, tr("Columns error"), e.getErrorColumns(tr("CSV missing columns:")));
+        } catch (const ExceptionWithTitleText &e) {
+             QMessageBox::critical(self, e.errorTitle(), e.errorText());
         } catch (const QException &e) {
              QMessageBox::critical(self, tr("Import Error"), e.what());
         } catch (const std::exception &e) {
@@ -336,7 +383,7 @@ void PaneOrderFiles::importFile()
 
         self->ui->buttonImport->setEnabled(true);
         
-    }(this, importer, filePath);
+    }(this, importer, filePaths);
 }
 
 void PaneOrderFiles::removeFile()

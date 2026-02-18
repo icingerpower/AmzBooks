@@ -1,8 +1,8 @@
 #include "FbaCentersTable.h"
+#include "ExceptionWithTitleText.h"
 #include <QFile>
 #include <QTextStream>
 #include <QDebug>
-#include "ExceptionVatAccount.h" // Reusing exception type or similar if needed, else std::runtime_error
 
 const QStringList FbaCentersTable::HEADER_IDS = {
     "FbaCenter", "CountryCode", "PostalCode", "City"
@@ -62,11 +62,13 @@ QCoro::Task<QString> FbaCentersTable::getCountryCode(
             // Let's return empty string to indicate failure if we don't want to throw, 
             // but consistency suggests throwing or returning empty if valid. 
             // We'll throw simple exception for now to abort flow if critical.
-            throw std::runtime_error(tr("FBA Center %1 not found").arg(fbaCenterId).toStdString());
+            ExceptionWithTitleText exception(tr("FBA Center Not Found"), tr("FBA Center %1 not found").arg(fbaCenterId));
+            exception.raise();
         }
     }
 
-    throw std::runtime_error(tr("FBA Center %1 not found").arg(fbaCenterId).toStdString());
+    ExceptionWithTitleText exception(tr("FBA Center Not Found"), tr("FBA Center %1 not found").arg(fbaCenterId));
+    exception.raise();
 }
 
 void FbaCentersTable::addCenter(const FbaCenter &center)

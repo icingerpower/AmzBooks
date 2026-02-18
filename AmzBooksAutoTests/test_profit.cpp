@@ -4,14 +4,13 @@
 #include "profit/ProfitTree.h"
 #include "profit/ProfitTreeItem.h"
 #include "profit/ProductFilterTable.h"
-#include "orders/ExceptionParamValue.h"
 #include "orders/OrderManager.h"
 #include "books/CompanyInfosTable.h"
 #include "CurrencyRateManager.h"
 #include <QDir>
 #include <QStandardPaths>
 #include <QFile>
-#include "books/ExceptionFileError.h"
+#include "ExceptionWithTitleText.h"
 #include "../../common/utils/CsvHeader.h"
 
 class TestProfit : public QObject
@@ -183,7 +182,7 @@ void TestProfit::testAddDuplicate()
     bool exceptionThrown = false;
     try {
         tree.addCandidate(orderIdIdx, "Label 3");
-    } catch (const ExceptionParamValue&) {
+    } catch (const ExceptionWithTitleText&) {
         exceptionThrown = true;
     }
     
@@ -1034,7 +1033,7 @@ void TestProfit::testExtraCoverage()
         bool exceptionThrown = false;
         try {
             pt.load();
-        } catch (const ExceptionFileError&) {
+        } catch (const ExceptionWithTitleText&) {
             exceptionThrown = true;
         } catch (const std::exception &e) {
              qDebug() << "TestExtraCoverage SUBTEST A Caught unexpected exception:" << e.what();
@@ -1042,7 +1041,7 @@ void TestProfit::testExtraCoverage()
         }
         // QVERIFY(exceptionThrown); // VERIFY 1 - Now expects exception
         // Soften check for now to debugging
-        if (!exceptionThrown) qDebug() << "TestExtraCoverage SUBTEST A: Did not catch ExceptionFileError";
+        if (!exceptionThrown) qDebug() << "TestExtraCoverage SUBTEST A: Did not catch ExceptionWithTitleText";
     }
     
     // --- Sub-test B: Column count and header labels ---
@@ -1217,7 +1216,7 @@ void TestProfit::testExtraCoverage()
         ProfitTree pt(dir, ecoDir, dir, QDate(2023,1,1), 0, 0.0, &ci, &crm);
         try {
             pt.load();
-        } catch (const ExceptionFileError&) {
+        } catch (const ExceptionWithTitleText&) {
             // Expected
         }
         
@@ -2033,9 +2032,9 @@ void TestProfit::testNewMetrics()
     ProfitTree profitTree(dir, ecoDir, dir, QDate(2023, 1, 1), 0, 2.0, &ci, &crm);
     try {
         profitTree.load();
-    } catch (const ExceptionFileError &e) {
-        qDebug() << "Caught ExceptionFileError:" << e.errorTitle() << e.errorText();
-        QFAIL("ExceptionFileError during load");
+    } catch (const ExceptionWithTitleText &e) {
+        qDebug() << "Caught ExceptionWithTitleText:" << e.errorTitle() << e.errorText();
+        QFAIL("ExceptionWithTitleText during load");
     } catch (const std::exception &e) {
          qDebug() << "Caught std::exception:" << e.what();
          QFAIL("std::exception during load");

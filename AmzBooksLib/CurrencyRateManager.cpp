@@ -1,5 +1,5 @@
 #include "CurrencyRateManager.h"
-#include "ExceptionRateCurrency.h"
+#include "ExceptionWithTitleText.h"
 #include <QDebug>
 
 
@@ -10,6 +10,7 @@
 #include <QNetworkRequest>
 #include <QEventLoop>
 #include <QFile>
+#include <QXmlStreamReader>
 
 namespace {
 double extractRateFromContent(const QString &content, const QString &currency) {
@@ -17,12 +18,14 @@ double extractRateFromContent(const QString &content, const QString &currency) {
     if (currency != "EUR") {
         if (!content.contains(currency)) {
             qDebug() << content;
-            throw ExceptionRateCurrency("Rate not found for currency: " + currency);
+            ExceptionWithTitleText exception("Currency Rate Error", "Rate not found for currency: " + currency);
+            exception.raise();
         }
         QString searchStr = QString("\"%1\":").arg(currency);
         auto parts = content.split(searchStr);
         if (parts.size() < 2) {
-             throw ExceptionRateCurrency("Parse error for currency: " + currency);
+             ExceptionWithTitleText exception("Currency Rate Error", "Parse error for currency: " + currency);
+             exception.raise();
         }
         QString rateString = parts[1];
         if (rateString.contains(",")) {
@@ -102,14 +105,14 @@ double CurrencyRateManager::retrieveCurrency(const QString &source, const QStrin
             combined.replace("EUR", "");
             url += combined;
         }
-        qDebug() << "url to retrieve currency:" << url;
         
         QNetworkAccessManager manager;
         QNetworkRequest request(url);
         QNetworkReply *reply = manager.get(request);
         
         if (!reply) {
-            throw ExceptionRateCurrency("Network request failed to create reply");
+            ExceptionWithTitleText exception("Currency Rate Error", "Network request failed to create reply");
+            exception.raise();
         }
         
         QEventLoop loop;
@@ -117,16 +120,20 @@ double CurrencyRateManager::retrieveCurrency(const QString &source, const QStrin
         loop.exec();
         
         if (reply->error() != QNetworkReply::NoError) {
+            // Fallback for non-XML errors or if error element not found
+            // Fallback for non-XML errors or if error element not found
             QString errorMsg = reply->errorString();
             delete reply;
-            throw ExceptionRateCurrency("Network error: " + errorMsg);
+            ExceptionWithTitleText exception("Currency Rate Error", "Network error: " + errorMsg);
+            exception.raise();
         }
         
         QString rateInfo = QString::fromUtf8(reply->readAll());
         delete reply;
 
         if (rateInfo.isEmpty()) {
-            throw ExceptionRateCurrency(url);
+            ExceptionWithTitleText exception("Currency Rate Error", "Empty response from Fixer.io: " + url);
+            exception.raise();
         }
         
         double rateSource = 1.0; 
@@ -136,11 +143,13 @@ double CurrencyRateManager::retrieveCurrency(const QString &source, const QStrin
             rateSource = extractRateFromContent(rateInfo, source);
             rateDest = extractRateFromContent(rateInfo, dest);
         } catch (...) {
-            throw ExceptionRateCurrency(url);
+            ExceptionWithTitleText exception("Currency Rate Error", "Unknown error parsing rate from: " + url);
+            exception.raise();
         }
 
         if (rateSource == 0.0) {
-             throw ExceptionRateCurrency(url + " (source rate is 0)");
+             ExceptionWithTitleText exception("Currency Rate Error", url + " (source rate is 0)");
+             exception.raise();
         }
 
         rate = rateDest / rateSource;

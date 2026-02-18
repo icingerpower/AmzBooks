@@ -5,20 +5,17 @@
 #include "books/BooksAccountsSalesTable.h"
 #include "books/TaxScheme.h"
 #include "books/BookAccountPurchaseTable.h"
-#include "books/ExceptionVatAccountExisting.h"
-#include "books/ExceptionTaxSchemeInvalid.h"
+#include "ExceptionWithTitleText.h"
 #include "books/CompanyAddressTable.h"
 #include "books/CompanyInfosTable.h"
-#include "books/ExceptionCompanyInfo.h"
 #include "books/VatNumbersTable.h"
 #include <QCoroTask>
 #include <QCoroFuture>
-#include "books/ExceptionVatAccount.h"
 
 #include "books/BookAccountBankTable.h"
 #include "banks/AbstractBankStatement.h"
 #include "books/BookAccountAmzBalanceTable.h"
-#include "books/ExceptionAccountMissing.h"
+#include "ExceptionWithTitleText.h"
 
 // Helper to synchronously wait for QCoro::Task
 template <typename T>
@@ -133,7 +130,7 @@ private slots:
         // 2. Duplicate -> Exception
         QVERIFY_EXCEPTION_THROWN(
             table.addAccount(vc, 10.0, acc),
-            ExceptionVatAccountExisting
+            ExceptionWithTitleText
         );
         
         // 3. Diff Rate -> OK
@@ -172,7 +169,7 @@ private slots:
         // Case 4: Unknown rate -> Exception
         QVERIFY_EXCEPTION_THROWN(
             syncWait(table.getAccounts(vc, 5.0)),
-            ExceptionVatAccount
+            ExceptionWithTitleText
         );
     }
 
@@ -222,13 +219,13 @@ private slots:
         VatCountries vc = table.resolveVatCountries(TaxScheme::DomesticVat, "US", "US", "US");
 
         // 1. Missing without callback -> throws ExceptionVatAccount
-        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9)), ExceptionVatAccount);
+        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9)), ExceptionWithTitleText);
 
         // 2. Missing with callback returning false -> throws ExceptionVatAccount
         auto cbReject = [](const QString&, const QString&) -> QCoro::Task<bool> {
             co_return false;
         };
-        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, cbReject)), ExceptionVatAccount);
+        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, cbReject)), ExceptionWithTitleText);
 
         // 3. Retry loop: Callback calls true (Retry) multiple times then false (Cancel) -> throws ExceptionVatAccount
         int countRetry = 0;
@@ -237,7 +234,7 @@ private slots:
             if (countRetry < 5) co_return true; // Retry
             co_return false; // Cancel
         };
-        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, cbRetryThenCancel)), ExceptionVatAccount);
+        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, cbRetryThenCancel)), ExceptionWithTitleText);
         QCOMPARE(countRetry, 5);
 
         // 4. Missing with callback that Adds -> Returns Account
@@ -343,7 +340,7 @@ private slots:
         // 1. Invalid Country
         QVERIFY_EXCEPTION_THROWN(
             table.addAccount("US", 10.0, "6", "4"),
-            ExceptionTaxSchemeInvalid
+            ExceptionWithTitleText
         );
         
         // 2. Valid Country, New Rate
@@ -352,7 +349,7 @@ private slots:
         // 3. Duplicate (DE, 19.0)
         QVERIFY_EXCEPTION_THROWN(
             table.addAccount("DE", 19.0, "6New", "4New"),
-            ExceptionVatAccountExisting
+            ExceptionWithTitleText
         );
         
         // 4. Same Country, Diff Rate -> OK
@@ -377,8 +374,8 @@ private slots:
           QCOMPARE(table.getAccountsDebit6("IT"), "600IT");
           
           // Case 2: Unknown country -> Exception
-          QVERIFY_EXCEPTION_THROWN(table.getAccountsDebit6("ES"), ExceptionVatAccount);
-          QVERIFY_EXCEPTION_THROWN(table.getAccountsCredit4("ES"), ExceptionVatAccount);
+          QVERIFY_EXCEPTION_THROWN(table.getAccountsDebit6("ES"), ExceptionWithTitleText);
+          QVERIFY_EXCEPTION_THROWN(table.getAccountsCredit4("ES"), ExceptionWithTitleText);
     }
 
     void test_CompanyAddressTable() {
@@ -417,7 +414,7 @@ private slots:
             QCOMPARE(table.getCity(QDate(2023, 6, 1)), "Paris");
 
             // Verify Exception for old date
-            QVERIFY_EXCEPTION_THROWN(table.getCompanyAddress(QDate(2022, 1, 1)), ExceptionCompanyInfo);
+            QVERIFY_EXCEPTION_THROWN(table.getCompanyAddress(QDate(2022, 1, 1)), ExceptionWithTitleText);
         }
         
         // 2. Persistence (New Instance)
@@ -580,7 +577,7 @@ private slots:
             QVERIFY(!table.hasVatNumber("ES"));
             
             // Duplicate strict check
-            QVERIFY_EXCEPTION_THROWN(table.addVatNumber("FR", "FR999"), ExceptionCompanyInfo);
+            QVERIFY_EXCEPTION_THROWN(table.addVatNumber("FR", "FR999"), ExceptionWithTitleText);
             
             // Validate Columns (0=Country, 1=Vat, ID is hidden)
             QCOMPARE(table.data(table.index(0, 0)).toString(), "FR");
@@ -794,7 +791,7 @@ private slots:
              QString unknownSite = "amazon.mars";
              
              // First call without callback - throws
-             QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccount(unknownSite)), ExceptionAccountMissing);
+             QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccount(unknownSite)), ExceptionWithTitleText);
              QVERIFY(!table.data(table.index(table.rowCount()-1, 0)).toString().contains(unknownSite));
 
              // Call with callback that adds it

@@ -3,7 +3,7 @@
 #include <QTextStream>
 #include <QDate>
 #include <QDebug>
-#include "ExceptionFileError.h"
+#include "ExceptionWithTitleText.h"
 
 DECLARE_BOOK_SAVER(BookSaverFull)
 
@@ -99,7 +99,8 @@ void BookSaverFull::save(
         QDir().mkpath(fileInfo.absolutePath());
         QFile file(fileInfo.absoluteFilePath());
         if (!file.open(QIODevice::WriteOnly | QIODevice::Text)) {
-            throw ExceptionFileError("File open failed", QString("Could not open file for writing: %1").arg(fileInfo.absoluteFilePath()));
+            ExceptionWithTitleText exception("File open failed", QString("Could not open file for writing: %1").arg(fileInfo.absoluteFilePath()));
+            exception.raise();
         }
         
         QTextStream out(&file);
@@ -135,7 +136,8 @@ void BookSaverFull::save(
             
             QDir monthDir = outDir;
             if (!monthDir.mkpath(QString("%1/%2").arg(yearStr, monthStr))) {
-                throw ExceptionFileError("Directory creation failed", QString("Could not create directory for %1-%2").arg(yearStr, monthStr));
+                ExceptionWithTitleText exception("Directory creation failed", QString("Could not create directory for %1-%2").arg(yearStr, monthStr));
+                exception.raise();
             }
             monthDir.cd(yearStr);
             monthDir.cd(monthStr);

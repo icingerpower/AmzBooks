@@ -7,12 +7,11 @@
 #include "utils/CsvReader.h"
 #include "utils/CsvHeader.h"
 #include "CountriesEu.h"
-#include "ExceptionRateCurrency.h"
+#include "ExceptionWithTitleText.h"
 #include <QDirIterator>
 #include <QFileInfo>
 #include <QDebug>
 #include <numeric>
-#include "books/ExceptionFileError.h"
 
 ProfitTree::ProfitTree(const QDir &workingDir,
                        const QDir &economicsDir, 
@@ -243,13 +242,15 @@ void ProfitTree::setupTreeData()
     }
     
     if (!filesFound) {
-        throw ExceptionFileError(tr("No Economics Files"), 
+        ExceptionWithTitleText exception(tr("No Economics Files"), 
                                  tr("No economics CSV files found recursively in: %1").arg(m_economicsDir.absolutePath()));
+        exception.raise();
     }
     
     if (parentMap.isEmpty()) {
-        throw ExceptionFileError(tr("No Valid Economics Data"), 
+        ExceptionWithTitleText exception(tr("No Valid Economics Data"), 
                                  tr("Economics files were found but no valid data rows could be extracted."));
+        exception.raise();
     }
 
     // 3. Build Tree
@@ -471,13 +472,15 @@ void ProfitTree::loadPurchaseData(QHash<QString, PurchaseData> &purchaseDataMap)
     }
     
     if (!filesFound) {
-        throw ExceptionFileError(tr("No Invoice Files"), 
+        ExceptionWithTitleText exception(tr("No Invoice Files"), 
                                  tr("No purchase invoice CSV files found recursively in: %1").arg(m_purchasesDir.absolutePath()));
+        exception.raise();
     }
     
     if (purchaseDataMap.isEmpty()) {
-        throw ExceptionFileError(tr("No Valid Invoice Data"), 
+        ExceptionWithTitleText exception(tr("No Valid Invoice Data"), 
                                  tr("Purchase invoice files were found but no valid data rows could be extracted."));
+        exception.raise();
     }
 }
 

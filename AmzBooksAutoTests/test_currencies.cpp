@@ -4,7 +4,7 @@
 #include <QProcessEnvironment>
 
 #include "CurrencyRateManager.h"
-#include "ExceptionRateCurrency.h"
+#include "ExceptionWithTitleText.h"
 
 class TestCurrencies : public QObject
 {
@@ -54,8 +54,8 @@ private slots:
             double converted = manager.convert(amount, source, dest, date);
             QCOMPARE(converted, amount * rate);
 
-        } catch (const ExceptionRateCurrency &e) {
-            QFAIL(qPrintable("ExceptionRateCurrency caught: " + e.url()));
+        } catch (const ExceptionWithTitleText &e) {
+            QFAIL(qPrintable("ExceptionWithTitleText caught: " + e.errorText()));
         }
     }
 

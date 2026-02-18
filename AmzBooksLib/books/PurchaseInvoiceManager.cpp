@@ -3,7 +3,7 @@
 #include <QDirIterator>
 #include <QCoreApplication> // For tr() if needed, but QObject::tr is better if Q_OBJECT is present, or QCoreApplication::translate
 
-#include "ExceptionFileError.h"
+#include "ExceptionWithTitleText.h"
 
 #include "PurchaseInvoiceManager.h"
 
@@ -75,8 +75,9 @@ void PurchaseInvoiceManager::add(const QString &sourceFilePath, PurchaseInformat
 {
     QFileInfo sourceInfo(sourceFilePath);
     if (!sourceInfo.exists()) {
-        throw ExceptionFileError(QObject::tr("File Not Found"),
+        ExceptionWithTitleText exception(QObject::tr("File Not Found"),
                                  QObject::tr("The source file '%1' does not exist.").arg(sourceFilePath));
+        exception.raise();
     }
     
     if (info.originalExtension.isEmpty()) {
@@ -86,21 +87,24 @@ void PurchaseInvoiceManager::add(const QString &sourceFilePath, PurchaseInformat
     QString relativePath = getRelativePath(info);
     QDir destDir(m_workingDir);
     if (!destDir.mkpath(relativePath)) {
-        throw ExceptionFileError(QObject::tr("Directory Error"),
+        ExceptionWithTitleText exception(QObject::tr("Directory Error"),
                                  QObject::tr("Could not create directory '%1'.").arg(relativePath));
+        exception.raise();
     }
     
     if (!destDir.cd(relativePath)) {
-         throw ExceptionFileError(QObject::tr("Directory Error"),
+         ExceptionWithTitleText exception(QObject::tr("Directory Error"),
                                  QObject::tr("Could not access directory '%1'.").arg(relativePath));
+         exception.raise();
     }
     
     QString fileName = encode(info);
     QString destFilePath = destDir.filePath(fileName);
     
     if (!QFile::copy(sourceFilePath, destFilePath)) {
-        throw ExceptionFileError(QObject::tr("Copy Error"),
+        ExceptionWithTitleText exception(QObject::tr("Copy Error"),
                                  QObject::tr("Failed to copy file from '%1' to '%2'.").arg(sourceFilePath, destFilePath));
+        exception.raise();
     }
     
     // Refresh model
@@ -203,14 +207,16 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
     QStringList parts = baseName.split("__");
     
     if (parts.size() < 5) {
-        throw ExceptionFileError(QObject::tr("Invalid Filename"),
+        ExceptionWithTitleText exception(QObject::tr("Invalid Filename"),
                                  QObject::tr("The filename '%1' does not have enough parts (expected at least 5).").arg(fileName));
+        exception.raise();
     }
     
     info.date = QDate::fromString(parts[0], Qt::ISODate);
     if (!info.date.isValid()) {
-        throw ExceptionFileError(QObject::tr("Invalid Date"),
+        ExceptionWithTitleText exception(QObject::tr("Invalid Date"),
                                  QObject::tr("The date '%1' in filename '%2' is invalid.").arg(parts[0], fileName));
+        exception.raise();
     }
 
     info.account = parts[1];

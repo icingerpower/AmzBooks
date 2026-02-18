@@ -1,4 +1,5 @@
 #include "ImporterApiCommerceHQ.h"
+#include "ExceptionWithTitleText.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonArray>
@@ -214,7 +215,8 @@ QCoro::Task<void> ImporterApiCommerceHQ::fetchStoreOrders(const StoreConfig& sto
     co_await reply;
 
     if (reply->error() != QNetworkReply::NoError) {
-        throw std::runtime_error("API Request failed: " + reply->errorString().toStdString());
+        ExceptionWithTitleText exception("API Request Failed", "API Request failed: " + reply->errorString());
+        exception.raise();
     }
 
     QByteArray responseData = reply->readAll();

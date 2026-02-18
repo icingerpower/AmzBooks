@@ -62,67 +62,40 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
     // So we should verify headers and throw this exception if missing.
     // Assuming CsvHeaderException is defined in utils/CsvHeader.h
     
-    // Helper to find column index from a list of possible names
-    auto getIdx = [&](const QStringList &names) -> int {
+    // Initialize FbaCentersTable
+    FbaCentersTable fbaTable(m_workingDirectory);
+
+    // Helper for optional columns (returns -1 if missing)
+    auto getOptionalPos = [&](const QStringList &names) -> int {
         for (const auto &name : names) {
-            if (csvData->header.contains(name)) {
-                return csvData->header.pos(name);
-            }
+             if (csvData->header.contains(name)) {
+                 return csvData->header.pos(name);
+             }
         }
         return -1;
     };
 
-    // Mandatory Columns
-    struct ColReq { QString internal; QStringList candidates; };
-    QList<ColReq> reqCols = {
-        {"Amazon Order Id", {"Amazon Order Id"}},
-        {"Shipment ID", {"Shipment ID"}},
-        {"Shipment Date", {"Shipment Date"}},
-        {"Currency", {"Currency"}},
-        {"Item Price", {"Item Price"}},
-        {"Item Tax", {"Item Tax"}},
-        {"FC", {"FC"}},
-        {"Delivery Country Code", {"Delivery Country Code", "Shipping Country Code"}}
-    };
+    // Mandatory columns - use header.pos() which throws CsvHeaderException if missing
+    int idxOrderId = csvData->header.pos("Amazon Order Id");
+    int idxShipId = csvData->header.pos("Shipment ID");
+    int idxDate = csvData->header.pos("Shipment Date"); 
+    int idxCurrency = csvData->header.pos("Currency");
+    int idxItemPrice = csvData->header.pos("Item Price");
+    int idxItemTax = csvData->header.pos("Item Tax");
+    int idxFC = csvData->header.pos("FC");
+    int idxDelivCountry = csvData->header.pos(QStringList{"Delivery Country Code", "Shipping Country Code"});
 
-    // Debug headers
-    // qCritical() << "Headers found:" << csvData->header.headers; // Assuming CsvHeader has QStringList headers or similar? 
-    // csvData->header is CsvHeader. Does it have public list?
-    // checking CsvHeader.h would be good, but assuming standard. CsvReader::m_dataRode.header.
-    // Let's iterate if uncertain about public members, or just rely on pos check failing.
-    
-    for (const auto &req : reqCols) {
-        if (getIdx(req.candidates) == -1) {
-             qCritical() << "Missing column:" << req.internal << "Candidates:" << req.candidates;
-             CsvHeaderException e;
-             e.setColumnValuesError({req.internal});
-             e.setFileName(filePath);
-             throw e;
-        }
-    }
-
-    // Initialize FbaCentersTable
-    FbaCentersTable fbaTable(m_workingDirectory);
-
-    int idxOrderId = getIdx({"Amazon Order Id"});
-    int idxShipId = getIdx({"Shipment ID"});
-    int idxShipItemId = getIdx({"Shipment Item ID", "Shipment Item Id"}); // Added capitalization variant just in case
-    int idxDate = getIdx({"Shipment Date"}); 
-    int idxCurrency = getIdx({"Currency"});
-    int idxItemPrice = getIdx({"Item Price"});
-    int idxItemTax = getIdx({"Item Tax"});
-    int idxFC = getIdx({"FC"});
-    int idxDelivCountry = getIdx({"Delivery Country Code", "Shipping Country Code"});
-
-    int idxName = getIdx({"Recipient Name"});
-    int idxAddr1 = getIdx({"Delivery Address 1", "Shipping Address 1"});
-    int idxAddr2 = getIdx({"Delivery Address 2", "Shipping Address 2"});
-    int idxAddr3 = getIdx({"Delivery Address 3", "Shipping Address 3"});
-    int idxCity = getIdx({"Delivery City/Town", "Shipping City"});
-    int idxCounty = getIdx({"Delivery County", "Shipping State"}); // US uses State, EU often County? Or Province.
-    int idxPostcode = getIdx({"Delivery Postcode", "Shipping Postal Code"});
-    int idxPhone = getIdx({"Delivery Phone Number", "Shipping Phone Number"});
-    int idxEmail = getIdx({"Buyer E-mail", "Buyer Email"});
+    // Optional columns
+    int idxShipItemId = getOptionalPos(QStringList{"Shipment Item ID", "Shipment Item Id"}); 
+    int idxName = getOptionalPos(QStringList{"Recipient Name"});
+    int idxAddr1 = getOptionalPos(QStringList{"Delivery Address 1", "Shipping Address 1"});
+    int idxAddr2 = getOptionalPos(QStringList{"Delivery Address 2", "Shipping Address 2"});
+    int idxAddr3 = getOptionalPos(QStringList{"Delivery Address 3", "Shipping Address 3"});
+    int idxCity = getOptionalPos(QStringList{"Delivery City/Town", "Shipping City"});
+    int idxCounty = getOptionalPos(QStringList{"Delivery County", "Shipping State/Province/Region"}); 
+    int idxPostcode = getOptionalPos(QStringList{"Delivery Postcode", "Shipping Postal Code"});
+    int idxPhone = getOptionalPos(QStringList{"Delivery Phone Number", "Shipping Phone Number"});
+    int idxEmail = getOptionalPos(QStringList{"Buyer E-mail", "Buyer Email", "Buyer Name"});
     
     // Track added addresses to avoid duplicates
     QSet<QString> addedAddresses;

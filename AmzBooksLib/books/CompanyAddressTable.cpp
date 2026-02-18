@@ -8,7 +8,7 @@
 #include <QCoreApplication> 
 #include <QFileInfo>
 #include <QDir>
-#include "ExceptionCompanyInfo.h"
+#include "ExceptionWithTitleText.h"
 
 const QStringList CompanyAddressTable::HEADER_IDS = { "Date", "CompanyName", "Street1", "Street2", "PostalCode", "City" };
 
@@ -30,7 +30,8 @@ const CompanyAddressTable::AddressItem &CompanyAddressTable::_getItemForDate(con
             return entry;
         }
     }
-    throw ExceptionCompanyInfo(tr("Missing Address"), tr("No company address found for date %1").arg(date.toString(Qt::ISODate)));
+    ExceptionWithTitleText exception(tr("Missing Address"), tr("No company address found for date %1").arg(date.toString(Qt::ISODate)));
+    exception.raise();
 }
 
 QString CompanyAddressTable::getCompanyAddress(const QDate &date) const

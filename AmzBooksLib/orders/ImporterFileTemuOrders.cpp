@@ -213,25 +213,6 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuOrders::_loadRep
     }
     const auto *csvData = reader.dataRode();
 
-    // Required columns for Temu orders
-    const QStringList required = {
-        "Order ID",
-        "Order item ID", 
-        "order status",
-        "purchase date",
-        "ship country",
-        "Base price total  after discount", // Note: two spaces in original
-        "Product Tax"
-    };
-    
-    for (const QString &col : required)
-    {
-        if (!csvData->header.contains(col))
-        {
-            qWarning() << "Missing required column:" << col;
-            throw CsvHeaderException();
-        }
-    }
 
     // Get column indices
     int idxOrderId = csvData->header.pos("Order ID");

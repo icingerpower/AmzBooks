@@ -1,5 +1,5 @@
 #include "ParamsTable.h"
-#include "ExceptionParamValue.h"
+#include "ExceptionWithTitleText.h"
 #include <QDebug>
 
 ParamsTable::ParamsTable(AbstractImporter *importer, QObject *parent)
@@ -67,7 +67,7 @@ bool ParamsTable::setData(const QModelIndex &index, const QVariant &value, int r
                 m_importer->setParam(key, value);
                 emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
                 return true;
-            } catch (const ExceptionParamValue &e) {
+            } catch (const ExceptionWithTitleText &e) {
                 emit exceptionOccurred(e.errorTitle(), e.errorText());
                 return false;
             }

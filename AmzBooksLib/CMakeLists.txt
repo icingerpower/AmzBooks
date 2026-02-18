@@ -57,8 +57,8 @@ add_library(AmzBooksLib STATIC
   CountriesEu.cpp
   CurrencyRateManager.h
   CurrencyRateManager.cpp
-  ExceptionRateCurrency.h
-  ExceptionRateCurrency.cpp
+  ExceptionWithTitleText.h
+  ExceptionWithTitleText.cpp
   ${ORDERS_FILES}
   ${BOOKS_FILES}
   ${BANKS_FILES}

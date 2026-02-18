@@ -2,7 +2,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDebug>
-#include "orders/ExceptionParamValue.h"
+#include "ExceptionWithTitleText.h"
 
 const QString PurchaseFileSettingsTree::COL_ORDER_ID = "Order ID";
 const QString PurchaseFileSettingsTree::COL_TITLE = "Title";
@@ -242,13 +242,15 @@ void PurchaseFileSettingsTree::addCandidate(const QModelIndex &parentIndex, cons
         PurchaseFileSettingsTreeItem *fixedRow = m_rootItem->child(i);
         // Check fixed row name (though usually it's different concept, but safe to check)
         if (fixedRow->name() == candidate) {
-             throw ExceptionParamValue(tr("Duplicate Name"), tr("The name '%1' is already used by a fixed row.").arg(candidate));
+             ExceptionWithTitleText exception(tr("Duplicate Name"), tr("The name '%1' is already used by a fixed row.").arg(candidate));
+             exception.raise();
         }
         
         for (int j = 0; j < fixedRow->childCount(); ++j) {
             PurchaseFileSettingsTreeItem *existing = fixedRow->child(j);
             if (existing->name() == candidate) {
-                throw ExceptionParamValue(tr("Duplicate Name"), tr("The name '%1' is already used.").arg(candidate));
+                ExceptionWithTitleText exception(tr("Duplicate Name"), tr("The name '%1' is already used.").arg(candidate));
+                exception.raise();
             }
         }
     }

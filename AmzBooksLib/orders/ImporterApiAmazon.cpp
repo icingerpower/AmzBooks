@@ -1,4 +1,5 @@
 #include "ImporterApiAmazon.h"
+#include "ExceptionWithTitleText.h"
 #include <QJsonDocument>
 #include <QJsonObject>
 #include <QCryptographicHash>
@@ -116,7 +117,8 @@ QCoro::Task<void> ImporterApiAmazon::refreshAccessToken()
     co_await reply;
     
     if (reply->error() != QNetworkReply::NoError) {
-        throw std::runtime_error("Failed to refresh access token: " + reply->errorString().toStdString());
+        ExceptionWithTitleText exception("Token Refresh Failed", "Failed to refresh access token: " + reply->errorString());
+        exception.raise();
     }
     
     QByteArray data = reply->readAll();
@@ -128,7 +130,8 @@ QCoro::Task<void> ImporterApiAmazon::refreshAccessToken()
         int expiresIn = root["expires_in"].toInt(3600);
         m_tokenCache.expiration = QDateTime::currentDateTime().addSecs(expiresIn);
     } else {
-        throw std::runtime_error("Invalid token response: " + data.toStdString());
+        ExceptionWithTitleText exception("Invalid Token Response", "Invalid token response: " + QString::fromUtf8(data));
+        exception.raise();
     }
 }
 
@@ -238,14 +241,17 @@ QCoro::Task<QByteArray> ImporterApiAmazon::sendSignedRequest(const QString& meth
     } else if (method == "POST") {
         reply = nam()->post(request, payload);
     } else {
-        throw std::runtime_error("Unsupported method: " + method.toStdString());
+        ExceptionWithTitleText exception("Unsupported Method", "Unsupported method: " + method);
+        exception.raise();
     }
     
     auto response = co_await reply;
     
     if (reply->error() != QNetworkReply::NoError) {
         QByteArray errorBody = reply->readAll();
-        throw std::runtime_error("API Request failed (" + reply->errorString().toStdString() + "): " + errorBody.toStdString());
+        ExceptionWithTitleText exception("API Request Failed", 
+            "API Request failed (" + reply->errorString() + "): " + QString::fromUtf8(errorBody));
+        exception.raise();
     }
     
     co_return reply->readAll();

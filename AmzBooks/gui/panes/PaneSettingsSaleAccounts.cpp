@@ -2,7 +2,7 @@
 
 #include "../../common/workingdirectory/WorkingDirectoryManager.h"
 #include "books/BooksAccountsSalesTable.h"
-#include "books/ExceptionTaxSchemeInvalid.h"
+#include "ExceptionWithTitleText.h"
 #include "gui/dialogs/DialogAddSaleAccount.h"
 
 #include "PaneSettingsSaleAccounts.h"
@@ -46,7 +46,7 @@ void PaneSettingsSaleAccounts::addRate()
                 accounts.vatAccountToPay = dialog.getVatAccountToPay();
 
                 model->addAccount(vc, dialog.getVatRate(), accounts);
-            } catch (const ExceptionTaxSchemeInvalid &e) {
+            } catch (const ExceptionWithTitleText &e) {
                 QMessageBox::warning(this, tr("Invalid Data"), e.errorTitle() + "\n" + e.errorText());
             } catch (const std::exception &e) {
                 QMessageBox::warning(this, tr("Error"), e.what());

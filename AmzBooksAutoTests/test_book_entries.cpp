@@ -1,8 +1,7 @@
 #include <QtTest>
 #include "books/JournalEntry.h"
-#include "books/ExceptionBookEquality.h"
 #include "books/PurchaseInvoiceManager.h"
-#include "books/ExceptionFileError.h"
+#include "ExceptionWithTitleText.h"
 #include "books/JournalEntryFactory.h"
 #include "books/CompanyInfosTable.h"
 #include "books/BooksAccountsSalesTable.h"
@@ -79,7 +78,7 @@ void TestBookEntries::test_journal_entry_simple()
     // Should not throw (1.0 conversion rate, implicit or explicit)
     try {
         entry.convertRoundingIfNeeded(1.0);
-    } catch (const ExceptionBookEquality &e) {
+    } catch (const ExceptionWithTitleText &e) {
         QFAIL(QString("Exception thrown unexpectedly: %1").arg(e.what()).toUtf8().constData());
     }
 }
@@ -104,7 +103,7 @@ void TestBookEntries::test_rounding_within_limit()
 
     try {
         entry.convertRoundingIfNeeded(1.0); // maxRoundingDelta defaults to 0.1
-    } catch (const ExceptionBookEquality &e) {
+    } catch (const ExceptionWithTitleText &e) {
         QFAIL(e.what());
     }
     
@@ -145,10 +144,10 @@ void TestBookEntries::test_rounding_exceeds_limit()
     bool caught = false;
     try {
         entry.convertRoundingIfNeeded(1.0);
-    } catch (const ExceptionBookEquality &) {
+    } catch (const ExceptionWithTitleText &) {
         caught = true;
     }
-    QVERIFY2(caught, "ExceptionBookEquality should have been thrown for large difference");
+    QVERIFY2(caught, "ExceptionWithTitleText should have been thrown for large difference");
 }
 
 void TestBookEntries::test_currency_conversion()
@@ -172,7 +171,7 @@ void TestBookEntries::test_currency_conversion()
 
     try {
         entry.convertRoundingIfNeeded(0.85);
-    } catch (const ExceptionBookEquality &e) {
+    } catch (const ExceptionWithTitleText &e) {
         QFAIL(e.what());
     }
 
@@ -209,7 +208,7 @@ void TestBookEntries::test_currency_conversion_custom_delta()
     bool caught = false;
     try {
         entry.convertRoundingIfNeeded(1.0);
-    } catch (const ExceptionBookEquality &) {
+    } catch (const ExceptionWithTitleText &) {
         caught = true;
     }
     QVERIFY(caught);
@@ -217,7 +216,7 @@ void TestBookEntries::test_currency_conversion_custom_delta()
     // Should pass with custom delta 1.0
     try {
         entry.convertRoundingIfNeeded(1.0, 1.0);
-    } catch (const ExceptionBookEquality &e) {
+    } catch (const ExceptionWithTitleText &e) {
         QFAIL(e.what());
     }
 }
@@ -289,7 +288,7 @@ void TestBookEntries::test_raise_exception_balanced()
     // Should not throw
     try {
         entry.raiseExceptionIfDebitDifferentCredit();
-    } catch (const ExceptionBookEquality &e) {
+    } catch (const ExceptionWithTitleText &e) {
         QFAIL(QString("Exception thrown unexpectedly: %1").arg(e.what()).toUtf8().constData());
     }
 }
@@ -314,10 +313,10 @@ void TestBookEntries::test_raise_exception_unbalanced()
     bool caught = false;
     try {
         entry.raiseExceptionIfDebitDifferentCredit();
-    } catch (const ExceptionBookEquality &) {
+    } catch (const ExceptionWithTitleText &) {
         caught = true;
     }
-    QVERIFY2(caught, "ExceptionBookEquality should have been thrown for unbalanced entry");
+    QVERIFY2(caught, "ExceptionWithTitleText should have been thrown for unbalanced entry");
 }
 
 void TestBookEntries::test_multi_currency_entries()
@@ -359,7 +358,7 @@ void TestBookEntries::test_multi_currency_entries()
     // Should not throw when checked
     try {
         entry.raiseExceptionIfDebitDifferentCredit();
-    } catch (const ExceptionBookEquality &e) {
+    } catch (const ExceptionWithTitleText &e) {
         QFAIL(QString("Exception thrown unexpectedly: %1").arg(e.what()).toUtf8().constData());
     }
 }
@@ -543,7 +542,7 @@ void TestBookEntries::test_invoice_decode_error()
     bool caught = false;
     try {
         PurchaseInvoiceManager::decode(badFile);
-    } catch (const ExceptionFileError &e) {
+    } catch (const ExceptionWithTitleText &e) {
         caught = true;
         QCOMPARE(e.errorTitle(), QString("Invalid Filename"));
     }
@@ -554,7 +553,7 @@ void TestBookEntries::test_invoice_decode_error()
     caught = false;
     try {
         PurchaseInvoiceManager::decode(badDateFile);
-    } catch (const ExceptionFileError &e) {
+    } catch (const ExceptionWithTitleText &e) {
         caught = true;
         QCOMPARE(e.errorTitle(), QString("Invalid Date"));
     }

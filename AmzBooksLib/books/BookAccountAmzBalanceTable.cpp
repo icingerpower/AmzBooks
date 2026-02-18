@@ -1,5 +1,5 @@
 #include "BookAccountAmzBalanceTable.h"
-#include "ExceptionAccountMissing.h"
+#include "ExceptionWithTitleText.h"
 #include "CountriesEu.h"
 #include <QFile>
 #include <QTextStream>
@@ -49,8 +49,9 @@ QCoro::Task<BookAccountAmzBalanceTable::Accounts> BookAccountAmzBalanceTable::ge
             break;
         }
     }
-
-    throw ExceptionAccountMissing(amazonSite);
+    
+    ExceptionWithTitleText exception("Account Missing", amazonSite);
+    exception.raise();
 }
 
 void BookAccountAmzBalanceTable::addAmazon(const QString &amazonSite)

@@ -4,7 +4,7 @@
 #include "books/BooksConnections.h"
 #include "books/AbstractBooksTable.h"
 #include "banks/AbstractBankStatement.h"
-#include "books/ExceptionBookEquality.h"
+#include "ExceptionWithTitleText.h"
 #include "CurrencyRateManager.h"
 
 class ConcreteBooksTable : public AbstractBooksTable {
@@ -300,7 +300,7 @@ void TestBooksConnection::test_connect_disconnect()
         bool exceptionThrown = false;
         try {
             connections.tryToConnect(selection, &rateManager);
-        } catch (const ExceptionBookEquality &) {
+        } catch (const ExceptionWithTitleText &) {
             exceptionThrown = true;
         }
         
@@ -448,7 +448,7 @@ void TestBooksConnection::test_tryToConnect_overload()
         bool exceptionThrown = false;
         try {
             connections.tryToConnect(selection, &rateManager);
-        } catch (const ExceptionBookEquality &) {
+        } catch (const ExceptionWithTitleText &) {
             exceptionThrown = true;
         }
 
@@ -685,7 +685,7 @@ void TestBooksConnection::test_tryToConnect_more2()
         bool ex = false;
         try {
             connections.tryToConnect(selection, &rateManager);
-        } catch (const ExceptionBookEquality&) {
+        } catch (const ExceptionWithTitleText&) {
             ex = true;
         }
         

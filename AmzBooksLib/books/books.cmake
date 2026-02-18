@@ -20,29 +20,17 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/CompanyAddressTable.h
     ${CMAKE_CURRENT_LIST_DIR}/CompanyAddressTable.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionCompanyInfo.h
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionCompanyInfo.cpp
     ${CMAKE_CURRENT_LIST_DIR}/CompanyInfosTable.h
     ${CMAKE_CURRENT_LIST_DIR}/CompanyInfosTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/VatNumbersTable.h
     ${CMAKE_CURRENT_LIST_DIR}/VatNumbersTable.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionVatAccountExisting.h
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionVatAccountExisting.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionTaxSchemeInvalid.h
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionTaxSchemeInvalid.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionBookEquality.h
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionBookEquality.cpp
     ${CMAKE_CURRENT_LIST_DIR}/VatCountries.h
     ${CMAKE_CURRENT_LIST_DIR}/JournalEntry.h
     ${CMAKE_CURRENT_LIST_DIR}/JournalEntry.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PurchaseInvoiceManager.h
     ${CMAKE_CURRENT_LIST_DIR}/PurchaseInvoiceManager.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionFileError.h
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionFileError.cpp
     ${CMAKE_CURRENT_LIST_DIR}/JournalTable.h
     ${CMAKE_CURRENT_LIST_DIR}/JournalTable.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionVatAccount.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionVatAccount.h
     ${CMAKE_CURRENT_LIST_DIR}/JournalEntryFactory.cpp
     ${CMAKE_CURRENT_LIST_DIR}/FbaCentersTable.h
     ${CMAKE_CURRENT_LIST_DIR}/FbaCentersTable.cpp
@@ -54,8 +42,6 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/BooksAccountsSalesTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.h
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionAccountMissing.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/ExceptionAccountMissing.h
     ${CMAKE_CURRENT_LIST_DIR}/BooksConnections.h
     ${CMAKE_CURRENT_LIST_DIR}/BooksConnections.cpp
     ${CMAKE_CURRENT_LIST_DIR}/EntrySelfTable.h

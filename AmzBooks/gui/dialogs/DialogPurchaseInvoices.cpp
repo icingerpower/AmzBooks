@@ -2,7 +2,7 @@
 #include "ui_DialogPurchaseInvoices.h"
 #include <QFileInfo>
 #include <QMessageBox>
-#include "books/ExceptionFileError.h"
+#include "ExceptionWithTitleText.h"
 
 DialogPurchaseInvoices::DialogPurchaseInvoices(const QStringList &filePaths, QWidget *parent) :
     QDialog(parent),
@@ -67,7 +67,7 @@ void DialogPurchaseInvoices::_populateTable()
             
             m_validInvoices.append(info);
 
-        } catch (const ExceptionFileError &e) {
+        } catch (const ExceptionWithTitleText &e) {
             itemStatus->setText(tr("Invalid: %1").arg(e.errorTitle()));
             itemStatus->setForeground(QBrush(Qt::red));
             itemStatus->setToolTip(e.errorText());

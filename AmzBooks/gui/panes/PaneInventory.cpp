@@ -8,8 +8,7 @@
 #include "../../common/workingdirectory/WorkingDirectoryManager.h"
 
 #include "utils/CsvHeader.h"
-#include "ExceptionRateCurrency.h"
-#include "books/ExceptionFileError.h"
+#include "ExceptionWithTitleText.h"
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QLocale>
@@ -154,17 +153,14 @@ void PaneInventory::computeInventory()
         ui->labelTotalValue->setText(QString("%1 %2").arg(formattedValue, currency));
         
         ui->buttonExport->setEnabled(true);
-    } catch (const ExceptionRateCurrency &e) {
+    } catch (const ExceptionWithTitleText &e) {
         setCursor(Qt::ArrowCursor);
-        QMessageBox::warning(this, tr("Currency Error"), e.url());
+        QMessageBox::warning(this, e.errorTitle(), e.errorText());
     } catch (const CsvHeaderException &e) {
         setCursor(Qt::ArrowCursor);
         QMessageBox::warning(this, tr("Header Error"), 
                              tr("In file %1, missing columns in CSV:\n%2").arg(
                                  e.getFileName(), e.columnValuesError().join("\n")));
-    } catch (const ExceptionFileError &e) {
-        setCursor(Qt::ArrowCursor);
-        QMessageBox::warning(this, e.errorTitle(), e.errorText());
     } catch (const std::exception &e) {
         setCursor(Qt::ArrowCursor);
         QMessageBox::warning(this, tr("Error"), tr("An unexpected error occurred: %1").arg(e.what()));

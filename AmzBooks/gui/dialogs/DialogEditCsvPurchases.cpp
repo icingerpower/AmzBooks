@@ -3,7 +3,7 @@
 #include "profit/PurchaseFileSettingsTree.h"
 #include <QInputDialog>
 #include <QMessageBox>
-#include "orders/ExceptionParamValue.h"
+#include "ExceptionWithTitleText.h"
 
 DialogEditCsvPurchases::DialogEditCsvPurchases(
         const QDir &workingDir, QWidget *parent) :
@@ -52,7 +52,7 @@ void DialogEditCsvPurchases::addCandidate()
         try {
             m_model->addCandidate(index, text);
             ui->treeView->expand(index);
-        } catch (const ExceptionParamValue &e) {
+        } catch (const ExceptionWithTitleText &e) {
             QMessageBox::warning(this, e.errorTitle(), e.errorText());
         }
     }

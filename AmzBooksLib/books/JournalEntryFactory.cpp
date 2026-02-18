@@ -7,7 +7,7 @@
 #include "orders/ActivitySource.h"
 #include "orders/Shipment.h"
 #include "books/Activity.h"
-#include "orders/ExceptionParamValue.h"
+#include "ExceptionWithTitleText.h"
 #include "books/AbstractBooksTableBank.h"
 #include "banks/AbstractBankStatement.h"
 
@@ -281,9 +281,10 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
         // Add total (Revenue + VAT) to Customer Account
         QString custAcc = accounts.customerAccount;
         if (custAcc.isEmpty()) {
-            throw ExceptionParamValue(QObject::tr("Missing Customer Account"), 
+            ExceptionWithTitleText exception(QObject::tr("Missing Customer Account"), 
                 QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
                 .arg(taxSchemeToString(key.scheme)).arg(key.vatRate));
+            exception.raise();
         }
         
         receivableByAccount[custAcc][key.currency] += (revenueAmount + vatAmount);

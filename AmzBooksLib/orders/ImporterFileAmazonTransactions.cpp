@@ -47,21 +47,6 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::
 
     const auto *dataRode = reader.dataRode();
 
-    // Required columns
-    QStringList requiredColumns = {
-        "Transaction type",
-        "Order ID",
-        "Date",
-        "Total product charges",
-    };
-
-    for (const QString &col : requiredColumns) {
-         if (!dataRode->header.contains(col)) {
-             CsvHeaderException ex;
-             ex.setColumnValuesError({col});
-             throw ex;
-         }
-    }
 
     int indTransType = dataRode->header.pos("Transaction type");
     int indOrderId = dataRode->header.pos("Order ID");
@@ -69,23 +54,21 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::
     int indProductCharges = dataRode->header.pos("Total product charges");
     
     // Dynamic currency detection
-    QString currency;
-    
-    // Search for "Total (XXX)" column
-    QStringList headers = dataRode->header.getHeaderElements();
-    for (int i = 0; i < headers.size(); ++i) {
-        QString header = headers.at(i);
-        if (header.startsWith("Total (") && header.endsWith(")")) {
-            currency = header.mid(7, 3); // Extract XXX from Total (XXX)
-            break;
-        }
+    QList<QString> currencies = {
+        "EUR", "USD", "GBP", "CAD", "AUD", "JPY", "INR", "CNY", 
+        "MXN", "BRL", "TRY", "AED", "SAR", "PLN", "SEK", "EGP", "SGD", "NZD"
+    };
+    QStringList totalCandidates;
+    for (const auto &cur : currencies) {
+        totalCandidates << QString("Total (%1)").arg(cur);
     }
+
+    // This will throw CsvHeaderException if none are found, which matches the requirement
+    int indTotal = dataRode->header.pos(totalCandidates);
     
-    if (currency.isEmpty()) {
-        CsvHeaderException ex;
-        ex.setColumnValuesError({"Total (XXX)"});
-        throw ex; // Currency column is mandatory
-    }
+    // Extract currency from the found header
+    QString foundHeader = dataRode->header.getHeaderElements().at(indTotal);
+    QString currency = foundHeader.mid(7, 3); // Extract XXX from Total (XXX)
 
     for (const auto &line : dataRode->lines) {
         QString transType = line.value(indTransType);

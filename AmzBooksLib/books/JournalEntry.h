@@ -6,7 +6,7 @@
 #include <QList>
 #include <QHash>
 #include <QDate>
-#include "ExceptionBookEquality.h"
+#include "ExceptionWithTitleText.h"
 
 class JournalEntry
 {

@@ -5,7 +5,6 @@
 #include <QDebug>
 #include <QRegularExpression>
 #include <stdexcept>
-#include "ExceptionVatAccount.h"
 #include <optional>
 
 const QStringList BooksAccountsSalesTable::HEADER{
@@ -61,8 +60,9 @@ VatCountries BooksAccountsSalesTable::resolveVatCountries(
         return {TaxScheme::OutOfScope, "", "", ""};
 
     default:
-        throw ExceptionTaxSchemeInvalid("Invalid Tax Scheme", 
+        ExceptionWithTitleText exception("Invalid Tax Scheme", 
                                         "The tax scheme " + taxSchemeToString(taxScheme) + " is not supported for account resolution.");
+        exception.raise();
     }
 }
 
@@ -129,7 +129,8 @@ QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccou
             co_return *acc;
         }
         if (!retry) {
-             throw ExceptionVatAccount(errorTitle, errorText);
+             ExceptionWithTitleText exception(errorTitle, errorText);
+             exception.raise();
         }
         // If true (retry/added), loop again to check cache
     }
@@ -142,10 +143,10 @@ QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccou
                                    vatCountries.countryCodeFrom, 
                                    vatCountries.countryCodeTo, 
                                    QString::number(vatRate));
-    throw ExceptionVatAccount(errorTitle, errorText);
+    ExceptionWithTitleText exception(errorTitle, errorText);
+    exception.raise();
 }
 
-#include "ExceptionVatAccountExisting.h"
 
 // ... existing code ...
 
@@ -158,12 +159,13 @@ void BooksAccountsSalesTable::addAccount(
     // Validation: Check for duplicates using cache
     if (m_vatCountries_vatRate_accountsCache.contains(vatCountries)) {
         if (m_vatCountries_vatRate_accountsCache[vatCountries].contains(rateStr)) {
-             throw ExceptionVatAccountExisting(tr("Account Exists"), 
+             ExceptionWithTitleText exception(tr("Account Exists"), 
                 QString(tr("An account for scheme %1, from %2, to %3, rate %4 already exists."))
                     .arg(schemeStr)
                     .arg(vatCountries.countryCodeFrom)
                     .arg(vatCountries.countryCodeTo)
                     .arg(rateStr));
+             exception.raise();
         }
     }
 

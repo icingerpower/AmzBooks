@@ -79,11 +79,13 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
     int indMarketplace = dataRode->header.pos("MARKETPLACE");
     
     int indEventId = -1;
-    if (dataRode->header.contains("TRANSACTION_EVENT_ID")) indEventId = dataRode->header.pos("TRANSACTION_EVENT_ID");
-    else if (dataRode->header.contains("ORDER_ID")) indEventId = dataRode->header.pos("ORDER_ID");
+    if (dataRode->header.contains("TRANSACTION_EVENT_ID")) {
+        indEventId = dataRode->header.pos("TRANSACTION_EVENT_ID");
+    } else if (dataRode->header.contains("ORDER_ID")) {
+        indEventId = dataRode->header.pos("ORDER_ID");
+    }
 
     // Amounts
-    int indPriceExcl = dataRode->header.pos("PRICE_OF_ITEMS_AMT_VAT_EXCL");
     int indTotalVat = dataRode->header.pos("TOTAL_ACTIVITY_VALUE_VAT_AMT"); // Total VAT for the line? NO, standard says TOTAL_ACTIVITY_VALUE_VAT_AMT is total VAT amount.
     // Wait, let's double check columns. 
     // PRICE_OF_ITEMS_AMT_VAT_EXCL + SHIP_CHARGE... + GIFT...

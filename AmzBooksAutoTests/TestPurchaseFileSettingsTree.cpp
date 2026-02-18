@@ -1,7 +1,7 @@
 #include <QtTest>
 #include "profit/PurchaseFileSettingsTree.h"
 #include "profit/PurchaseFileSettingsTreeItem.h"
-#include "orders/ExceptionParamValue.h"
+#include "ExceptionWithTitleText.h"
 #include <QSignalSpy>
 #include <QDir>
 #include <QStandardPaths>
@@ -132,7 +132,7 @@ void TestPurchaseFileSettingsTree::testAddDuplicateCandidate()
     bool exceptionThrown = false;
     try {
         tree.addCandidate(skuIdx, "My SKU");
-    } catch (const ExceptionParamValue&) {
+    } catch (const ExceptionWithTitleText&) {
         exceptionThrown = true;
     }
     QVERIFY(exceptionThrown);
@@ -154,7 +154,7 @@ void TestPurchaseFileSettingsTree::testAddDuplicateCandidate()
     exceptionThrown = false;
     try {
         tree.addCandidate(skuIdx, titleName);
-    } catch (const ExceptionParamValue&) {
+    } catch (const ExceptionWithTitleText&) {
         exceptionThrown = true;
     }
     QVERIFY(exceptionThrown);

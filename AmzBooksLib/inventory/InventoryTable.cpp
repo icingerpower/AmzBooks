@@ -3,7 +3,7 @@
 #include "books/CompanyInfosTable.h"
 #include "CurrencyRateManager.h"
 #include "utils/CsvReader.h"
-#include "books/ExceptionFileError.h"
+#include "ExceptionWithTitleText.h"
 #include "profit/PurchaseFileSettingsTree.h"
 #include "profit/PurchaseFileSettingsTreeItem.h"
 #include <QDirIterator>
@@ -230,8 +230,9 @@ void InventoryTable::loadPurchases(QHash<QString, QList<PurchaseBatch>> &skuPurc
         }
         
         if (!validName) {
-            throw ExceptionFileError(tr("Invalid Filename"), 
+            ExceptionWithTitleText exception(tr("Invalid Filename"), 
                                      tr("File name must start with YYYY-MM-DD__: %1").arg(fileName));
+            exception.raise();
         }
         
         QDate batchDate = QDate::fromString(fileName.left(10), "yyyy-MM-dd");

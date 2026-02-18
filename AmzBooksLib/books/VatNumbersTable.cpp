@@ -6,7 +6,7 @@
 #include <QFileInfo>
 #include <QDir>
 #include <QDebug>
-#include "ExceptionCompanyInfo.h"
+#include "ExceptionWithTitleText.h"
 
 const QStringList VatNumbersTable::HEADER_IDS = { "Country", "VatNumber", "Id" };
 
@@ -42,7 +42,8 @@ void VatNumbersTable::addVatNumber(const QString &country, const QString &vatNum
     // Check exist
     for (const auto &item : m_data) {
         if (item.country == country) {
-            throw ExceptionCompanyInfo(tr("Duplicate Country"), tr("VAT Number for country %1 already exists").arg(country));
+            ExceptionWithTitleText exception(tr("Duplicate Country"), tr("VAT Number for country %1 already exists").arg(country));
+            exception.raise();
         }
     }
     
@@ -103,7 +104,8 @@ bool VatNumbersTable::setData(const QModelIndex &index, const QVariant &value, i
                      // Check duplicate
                      for (int i=0; i<m_data.size(); ++i) {
                          if (i != index.row() && m_data[i].country == newCountry) {
-                              throw ExceptionCompanyInfo(tr("Duplicate Country"), tr("VAT Number for country %1 already exists").arg(newCountry));
+                              ExceptionWithTitleText exception(tr("Duplicate Country"), tr("VAT Number for country %1 already exists").arg(newCountry));
+                              exception.raise();
                          }
                      }
                      m_data[index.row()].country = newCountry;

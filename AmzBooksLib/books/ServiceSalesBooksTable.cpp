@@ -4,8 +4,7 @@
 #include "orders/Shipment.h"
 #include "orders/InvoicingInfo.h"
 #include "books/Activity.h"
-#include "orders/ExceptionParamValue.h"
-#include "books/ExceptionBookEquality.h"
+#include "ExceptionWithTitleText.h"
 #include <QDebug>
 #include <QUuid>
 #include "orders/Result.h"
@@ -41,7 +40,8 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     
     // Check existence
     if (m_orderManager->containsOrder(orderId)) {
-        throw ExceptionParamValue(tr("Order Exists"), tr("The order ID %1 already exists.").arg(orderId));
+        ExceptionWithTitleText exception(tr("Order Exists"), tr("The order ID %1 already exists.").arg(orderId));
+        exception.raise();
     }
 
     // 2. Create Shipment / Activity
@@ -79,7 +79,8 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         }
         // Use ExceptionParamValue or standard exception for internal logic error?
         // ExceptionBookEquality was used before.
-        throw ExceptionBookEquality(tr("Error creating activity: %1").arg(errorMessages.join(", ")));
+        ExceptionWithTitleText exception(tr("Error creating activity"), tr("Error creating activity: %1").arg(errorMessages.join(", ")));
+        exception.raise();
     }
     
     QList<Activity> activities;

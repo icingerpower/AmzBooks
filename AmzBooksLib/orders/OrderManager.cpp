@@ -1303,7 +1303,7 @@ void OrderManager::deleteDatabase()
 QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>
 OrderManager::get_channel_site_ShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate &dateTo) const
 {
-    // TODO any shipment without an orderid and site should led to ExceptionAccountMissing
+    // TODO any shipment without an orderid and site should led to ExceptionWithTitleText
     return nullptr;
 }
 

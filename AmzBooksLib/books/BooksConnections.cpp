@@ -5,7 +5,7 @@
 #include "AbstractBooksTable.h"
 #include "AbstractBooksTableBank.h"
 #include "EntrySelfTable.h"
-#include "ExceptionBookEquality.h"
+#include "ExceptionWithTitleText.h"
 
 #include "CurrencyRateManager.h"
 
@@ -160,10 +160,12 @@ void BooksConnections::tryToConnect(
     double tolerance = std::max(0.005, 0.01 * maxAbs);
 
     if (std::abs(amountDiff) > tolerance) {
-         throw ExceptionBookEquality(QObject::tr("Amounts do not match: %1 vs %2 (Ref Currency: %3) (Diff %4 > Tol %5)")
+         ExceptionWithTitleText exception(QObject::tr("Book Equality Error"), 
+            QObject::tr("Amounts do not match: %1 vs %2 (Ref Currency: %3) (Diff %4 > Tol %5)")
                                     .arg(sumLeft).arg(sumRight)
                                     .arg(refCurrency)
                                     .arg(amountDiff).arg(tolerance));
+         exception.raise();
     }
     
     // Connect Cartesian Product

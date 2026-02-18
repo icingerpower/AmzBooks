@@ -76,12 +76,13 @@ void JournalEntry::raiseExceptionIfDebitDifferentCredit()
     diff = std::round(diff * 100.0) / 100.0;
     
     if (diff >= 0.01) { // More than 1 cent difference
-        throw ExceptionBookEquality(
+        ExceptionWithTitleText exception("Unbalanced Journal Entry",
             QString("Debit (%1) does not equal Credit (%2), difference: %3")
                 .arg(debitSum)
                 .arg(creditSum)
                 .arg(debitSum - creditSum)
         );
+        exception.raise();
     }
 }
 
@@ -103,7 +104,8 @@ void JournalEntry::convertRoundingIfNeeded(double currencyRate, double maxRoundi
     }
 
     if (diffAbs > maxRoundingDelta) {
-        throw ExceptionBookEquality(QString("JournalEntry imbalance (%1) exceeds limit (%2)").arg(diff).arg(maxRoundingDelta));
+        ExceptionWithTitleText exception("Rounding Error", QString("JournalEntry imbalance (%1) exceeds limit (%2)").arg(diff).arg(maxRoundingDelta));
+        exception.raise();
     }
 
     // Add rounding entry

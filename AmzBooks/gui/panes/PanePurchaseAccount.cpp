@@ -4,7 +4,7 @@
 
 #include "books/BookAccountPurchaseTable.h"
 #include "books/CompanyInfosTable.h"
-#include "books/ExceptionTaxSchemeInvalid.h"
+#include "ExceptionWithTitleText.h"
 #include "PanePurchaseAccount.h"
 #include "ui_PanePurchaseAccount.h"
 #include "gui/dialogs/DialogAddPurchaseAccount.h"
@@ -43,7 +43,7 @@ void PanePurchaseAccount::addRate()
                                   dialog.getVatRate(),
                                   dialog.getAccountDebit6(),
                                   dialog.getAccountCredit4());
-            } catch (const ExceptionTaxSchemeInvalid &e) {
+            } catch (const ExceptionWithTitleText &e) {
                 QMessageBox::warning(this, tr("Invalid Data"), e.errorTitle() + "\n" + e.errorText());
             } catch (const std::exception &e) {
                 QMessageBox::warning(this, tr("Error"), e.what());

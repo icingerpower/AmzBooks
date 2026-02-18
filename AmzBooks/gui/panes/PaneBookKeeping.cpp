@@ -29,7 +29,7 @@
 #include <QSet>
 
 #include "../../common/utils/CsvHeader.h"
-#include "books/ExceptionFileError.h"
+#include "ExceptionWithTitleText.h"
 #include "../dialogs/DialogPurchaseInvoices.h"
 #include "gui/dialogs/DialogEditServiceClients.h"
 #include "gui/dialogs/DialogAddSaleService.h"
@@ -574,7 +574,7 @@ void PaneBookKeeping::purchaseAdd()
              purchaseTable->load(info.date.year());
         }
 
-    } catch (const ExceptionFileError &e) {
+    } catch (const ExceptionWithTitleText &e) {
         QMessageBox::warning(this, e.errorTitle(), e.errorText());
     } catch (...) {
         QMessageBox::warning(this, tr("Error"), tr("Unknown error adding invoice."));
@@ -696,7 +696,7 @@ void PaneBookKeeping::bankAdd()
         bankTable->addFilePaths({fileName});
     } catch (const CsvHeaderException &e) {
         QMessageBox::warning(this, tr("Import Error"), tr("CSV Header Error: Missing columns %1").arg(e.columnValuesError().join(", ")));
-    } catch (const ExceptionFileError &e) {
+    } catch (const ExceptionWithTitleText &e) {
         QMessageBox::warning(this, e.errorTitle(), e.errorText());
     } catch (const std::exception &e) {
         QMessageBox::warning(this, tr("Import Error"), tr("Error importing file: %1").arg(e.what()));

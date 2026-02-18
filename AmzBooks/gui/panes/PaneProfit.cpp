@@ -13,8 +13,7 @@
 #include "utils/CsvHeader.h"
 #include "CountriesEu.h"
 #include "CurrencyRateManager.h"
-#include "ExceptionRateCurrency.h"
-#include "books/ExceptionFileError.h"
+#include "ExceptionWithTitleText.h"
 
 #include "PaneProfit.h"
 #include "ui_PaneProfit.h"
@@ -160,17 +159,14 @@ void PaneProfit::computeProfit()
         ui->treeViewProfit->header()->resizeSection(ProfitTree::COL_TOTAL_OTHER_FEES, 80);
         ui->treeViewProfit->header()->resizeSection(ProfitTree::COL_TOTAL_AMZ_COSTS, 100);
         _setFilterButtonsEnabled(true);
-    } catch (const ExceptionRateCurrency &e) {
+    } catch (const ExceptionWithTitleText &e) {
         setCursor(Qt::ArrowCursor);
-        QMessageBox::warning(this, tr("Currency Error"), e.url());
+        QMessageBox::warning(this, e.errorTitle(), e.errorText());
     } catch (const CsvHeaderException &e) {
         setCursor(Qt::ArrowCursor);
         QMessageBox::warning(this, tr("Header Error"), 
                              tr("In file %1, missing columns in CSV:\n%2").arg(
                                  e.getFileName(), e.columnValuesError().join("\n")));
-    } catch (const ExceptionFileError &e) {
-        setCursor(Qt::ArrowCursor);
-        QMessageBox::warning(this, e.errorTitle(), e.errorText());
     } catch (const std::exception &e) {
         setCursor(Qt::ArrowCursor);
         QMessageBox::warning(this, tr("Error"), tr("An unexpected error occurred: %1").arg(e.what()));

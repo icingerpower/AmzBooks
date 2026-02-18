@@ -1,4 +1,4 @@
-#include "ExceptionParamValue.h"
+#include "ExceptionWithTitleText.h"
 
 #include "AbstractImporter.h"
 
@@ -35,8 +35,9 @@ void AbstractImporter::load()
 void AbstractImporter::setParam(const QString& key, const QVariant& value)
 {
     if (!m_params.contains(key)) {
-        throw ExceptionParamValue("Unknown Parameter", 
+        ExceptionWithTitleText exception("Unknown Parameter", 
                                   QString("The parameter '%1' is not recognized by this importer.").arg(key));
+        exception.raise();
     }
     
     ParamInfo &info = m_params[key];
@@ -45,8 +46,9 @@ void AbstractImporter::setParam(const QString& key, const QVariant& value)
     if (info.validator) {
         auto result = info.validator(value);
         if (!result.first) {
-            throw ExceptionParamValue("Invalid Value", 
+            ExceptionWithTitleText exception("Invalid Value", 
                                       QString("Value for '%1' is invalid: %2").arg(info.label, result.second));
+            exception.raise();
         }
     }
     

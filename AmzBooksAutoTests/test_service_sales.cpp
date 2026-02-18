@@ -7,7 +7,7 @@
 #include "orders/OrderManager.h"
 #include "orders/Shipment.h"
 #include "orders/InvoicingInfo.h"
-#include "orders/ExceptionParamValue.h"
+#include "ExceptionWithTitleText.h"
 
 class TestServiceSales : public QObject
 {
@@ -83,7 +83,7 @@ private slots:
          bool exceptionCaught = false;
          try {
              table.createSale(&clientManager, 0, date, 500.0, "EUR", "INV-124");
-         } catch (const ExceptionParamValue &e) {
+         } catch (const ExceptionWithTitleText &e) {
              exceptionCaught = true;
          }
          QVERIFY(exceptionCaught);

@@ -5,10 +5,8 @@
 
 #include "BookAccountPurchaseTable.h"
 #include "CountriesEu.h"
-#include "ExceptionVatAccountExisting.h"
-#include "ExceptionTaxSchemeInvalid.h"
-#include "books/VatResolver.h"
-#include "ExceptionVatAccount.h"
+#include "ExceptionWithTitleText.h"
+#include "VatResolver.h"
 
 const QStringList BookAccountPurchaseTable::HEADER{
     QObject::tr("Country")
@@ -48,8 +46,9 @@ QString BookAccountPurchaseTable::getAccountsDebit6(const QString &countryCode) 
     if (m_cache.contains(countryCode)) {
         return m_cache[countryCode].debit6;
     }
-    throw ExceptionVatAccount(tr("Account Missing"),
+    ExceptionWithTitleText exception(tr("Account Missing"),
                               tr("No VAT Debit (6) account found for country %1").arg(countryCode));
+    exception.raise();
 }
 
 QString BookAccountPurchaseTable::getAccountsCredit4(const QString &countryCode) const
@@ -57,8 +56,9 @@ QString BookAccountPurchaseTable::getAccountsCredit4(const QString &countryCode)
     if (m_cache.contains(countryCode)) {
         return m_cache[countryCode].credit4;
     }
-    throw ExceptionVatAccount(tr("Account Missing"),
+    ExceptionWithTitleText exception(tr("Account Missing"),
                               tr("No VAT Credit (4) account found for country %1").arg(countryCode));
+    exception.raise();
 }
 
 // ... (existing code)
@@ -116,14 +116,16 @@ void BookAccountPurchaseTable::addAccount(
     }
     
     if (!isEuOrUk) {
-         throw ExceptionTaxSchemeInvalid("Invalid Country", "The country " + countryCode + " is not UK or an EU member.");
+         ExceptionWithTitleText exception("Invalid Country", "The country " + countryCode + " is not UK or an EU member.");
+         exception.raise();
     }
 
     // Validation 2: Existence check
     QString key = countryCode + "|" + QString::number(vatRate);
     if (m_existenceCache.contains(key)) {
-         throw ExceptionVatAccountExisting(tr("Account Exists"),
+         ExceptionWithTitleText exception(tr("Account Exists"),
             QString(tr("An account for country %1 and rate %2 already exists.")).arg(countryCode).arg(vatRate));
+         exception.raise();
     }
 
     QStringList row;

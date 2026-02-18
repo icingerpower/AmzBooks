@@ -8,8 +8,7 @@
 #include "books/TaxScheme.h"
 #include "CountriesEu.h"
 #include <QException>
-
-#include "ExceptionTaxSchemeInvalid.h"
+#include "ExceptionWithTitleText.h"
 #include <QCoroTask>
 #include <functional>
 
