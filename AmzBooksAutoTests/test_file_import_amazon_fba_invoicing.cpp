@@ -30,6 +30,7 @@ private slots:
     void test_vatEu_invoicingInfoIds();
     void test_invoicingInfo_validation();
     void test_vatEu_missingColumn();
+    void test_orderIdConnection();
 
 private:
     QString m_dataDir;
@@ -863,6 +864,43 @@ void TestFileImportAmazonFbaInvoicing::test_vatEu_invoicingInfoIds()
                  qPrintable(QString("InvoicingInfoWithId::shipmentOrRefundId '%1' is an order ID, not a shipment/refund ID")
                             .arg(info.shipmentOrRefundId)));
     }
+}
+
+
+void TestFileImportAmazonFbaInvoicing::test_orderIdConnection()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QString file = tempDir.filePath("order_store.csv");
+    
+    QFile f(file);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream out(&f);
+    
+    // Header
+    out << "\"Amazon Order Id\",\"Shipment ID\",\"Shipment Date\",\"Currency\",\"Item Price\",\"Item Tax\",\"FC\",\"Delivery Country Code\",\"Recipient Name\",\"Delivery Address 1\",\"Delivery City/Town\",\"Delivery Postcode\",\"Sales Channel\"\n";
+    
+    // 1. Order 1
+    out << "\"111-0000001-0000001\",\"SHIP001\",\"2025-01-01T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"John Doe\",\"Rue 1\",\"Paris\",\"75001\",\"Amazon.fr\"\n";
+    
+    // 2. Order 2
+    out << "\"111-0000001-0000002\",\"SHIP002\",\"2025-01-02T10:00:00+00:00\",\"EUR\",\"20.00\",\"4.00\",\"LYS4\",\"FR\",\"Jane Doe\",\"Rue 2\",\"Lyon\",\"69001\",\"Amazon.de\"\n";
+    
+    f.close();
+    
+    ImporterFileAmazonFbaInvoicing importer(tempDir.path());
+    auto task = importer.loadReport(file);
+    auto result = QCoro::waitFor(task);
+    
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QVERIFY(result.orderInfos);
+    
+    // Verify orderId_store
+    QCOMPARE(result.orderInfos->orderId_store.size(), 2);
+    QVERIFY(result.orderInfos->orderId_store.contains("111-0000001-0000001"));
+    QVERIFY(result.orderInfos->orderId_store.contains("111-0000001-0000002"));
+    QCOMPARE(result.orderInfos->orderId_store.value("111-0000001-0000001"), QString("Amazon.fr"));
+    QCOMPARE(result.orderInfos->orderId_store.value("111-0000001-0000002"), QString("Amazon.de"));
 }
 
 QTEST_GUILESS_MAIN(TestFileImportAmazonFbaInvoicing)

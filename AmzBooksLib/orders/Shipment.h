@@ -6,6 +6,8 @@
 #include <QJsonObject>
 #include <QList>
 
+class TaxResolver;
+class VatResolver;
 // Shipment = a business shipment event containing one aggregated Activity (overall net/VAT context)
 // plus detailed LineItems, with a reconciliation step to minimally adjust item VAT so the sum
 // matches the Activity totals.
@@ -14,6 +16,10 @@ class Shipment
 {
 public:
     explicit Shipment(QList<Activity> activities);
+    void computeTax(const TaxResolver *taxResolver
+                    , const VatResolver *vatResolver
+                    , const QString &vatTerritoryFrom
+                    , const QString &vatTerritoryTo);
     const QString& getId() const noexcept;
 
     const QList<Activity>& getActivities() const noexcept;

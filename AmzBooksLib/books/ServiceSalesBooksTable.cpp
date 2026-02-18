@@ -58,6 +58,7 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         activityId,                 // Activity ID
         serviceLabel,               // Sub ID (Storing Label here for persistence)
         date.startOfDay(),          // Date
+        date.startOfDay(),          // dateTimeTax (Assuming same as date for now)
         currency,                   // Currency
         "FR",                       // Country From (Placeholder)
         country,                    // Country To

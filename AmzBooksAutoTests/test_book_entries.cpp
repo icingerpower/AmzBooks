@@ -990,7 +990,7 @@ void TestBookEntries::test_factory_shipment_no_conversion()
     
     // Create activity
     auto activityResult = Activity::create(
-        "SHIP-001", "ACT-001", "", QDateTime::currentDateTime(),
+        "SHIP-001", "ACT-001", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(),
         "EUR", "FR", "FR", "FR",
         Amount{120.0, 20.0}, TaxSource::MarketplaceProvided,
         "FR", TaxScheme::DomesticVat, TaxJurisdictionLevel::Country,
@@ -1073,7 +1073,7 @@ void TestBookEntries::test_factory_shipment_with_conversion()
     
     // Create activity in USD
     auto activityResult = Activity::create(
-        "SHIP-002", "ACT-002", "", QDateTime::currentDateTime(),
+        "SHIP-002", "ACT-002", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(),
         "USD", "US", "US", "US",
         Amount{120.0, 0.0}, TaxSource::MarketplaceProvided,
         "US", TaxScheme::OutOfScope, TaxJurisdictionLevel::Country,
@@ -1143,42 +1143,42 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
     // 1. Domestic FR 20% EUR
     // Net 100, VAT 20
     activities.append(Activity::create(
-        "S1", "A1", "", today, "EUR", "FR", "FR", "FR",
+        "S1", "A1", "", today, today, "EUR", "FR", "FR", "FR",
         Amount{120.0, 20.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::DomesticVat, TaxJurisdictionLevel::Country, SaleType::Products
     ).value.value());
     
     // 2. OSS DE 19% EUR (IT->DE, declared in FR/Company? Or OSS Union)
     // Net 100, VAT 19
     activities.append(Activity::create(
-        "S2", "A2", "", today, "EUR", "IT", "DE", "DE",
+        "S2", "A2", "", today, today, "EUR", "IT", "DE", "DE",
         Amount{119.0, 19.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     ).value.value());
     
     // 3. Domestic FR 20% USD
     // Net 100, VAT 20
     activities.append(Activity::create(
-        "S3", "A3", "", today, "USD", "FR", "FR", "FR",
+        "S3", "A3", "", today, today, "USD", "FR", "FR", "FR",
         Amount{120.0, 20.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::DomesticVat, TaxJurisdictionLevel::Country, SaleType::Products
     ).value.value());
 
     // 4. OSS AT 20% EUR (IT->AT)
     // Net 100, VAT 20
     activities.append(Activity::create(
-        "S4", "A4", "", today, "EUR", "IT", "AT", "AT",
+        "S4", "A4", "", today, today, "EUR", "IT", "AT", "AT",
         Amount{120.0, 20.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     ).value.value());
     
     // 5. IOSS ES 21% EUR (CN->ES)
     // Net 100, VAT 21
     activities.append(Activity::create(
-        "S5", "A5", "", today, "EUR", "CN", "ES", "ES",
+        "S5", "A5", "", today, today, "EUR", "CN", "ES", "ES",
         Amount{121.0, 21.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::EuIoss, TaxJurisdictionLevel::Country, SaleType::Products
     ).value.value());
     
     // 6. Exempt CH 0% USD (FR->CH)
     // Net 100, VAT 0
     activities.append(Activity::create(
-        "S6", "A6", "", today, "USD", "FR", "CH", "CH",
+        "S6", "A6", "", today, today, "USD", "FR", "CH", "CH",
         Amount{100.0, 0.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::Exempt, TaxJurisdictionLevel::Country, SaleType::Products
     ).value.value());
 
@@ -1317,7 +1317,7 @@ void TestBookEntries::test_factory_single_shipment()
     
     // 3. Create shipment with single activity
     auto activityResult = Activity::create(
-        "ORDER-123", "ACT-001", "", QDateTime(QDate(2024, 6, 15), QTime(12, 0)),
+        "ORDER-123", "ACT-001", "", QDateTime(QDate(2024, 6, 15), QTime(12, 0)), QDateTime(QDate(2024, 6, 15), QTime(12, 0)),
         "EUR", "FR", "FR", "FR",
         Amount{120.0, 20.0}, TaxSource::MarketplaceProvided,
         "FR", TaxScheme::DomesticVat, TaxJurisdictionLevel::Country,

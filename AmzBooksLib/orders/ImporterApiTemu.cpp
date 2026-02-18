@@ -83,6 +83,11 @@ QMap<QString, AbstractImporter::ParamInfo> ImporterApiTemu::getRequiredParams() 
     return params;
 }
 
+bool ImporterApiTemu::recomputeTaxes() const
+{
+    return true;
+}
+
 QList<ImporterApiTemu::ShopConfig> ImporterApiTemu::getShops() const
 {
     QList<ShopConfig> shops;

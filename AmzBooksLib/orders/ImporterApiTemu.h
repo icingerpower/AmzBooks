@@ -24,6 +24,7 @@ public:
     ActivitySource getActivitySource() const override;
     QString getLabel() const override;
     QMap<QString, ParamInfo> getRequiredParams() const override;
+    bool recomputeTaxes() const override;
 
 protected:
     struct ShopConfig {

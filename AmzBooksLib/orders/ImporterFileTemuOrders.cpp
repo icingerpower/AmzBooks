@@ -99,6 +99,11 @@ QString ImporterFileTemuOrders::getUniqueReportId(const QString &filePath) const
     return QFileInfo(filePath).fileName();
 }
 
+bool ImporterFileTemuOrders::recomputeTaxes() const
+{
+    return true;
+}
+
 double ImporterFileTemuOrders::parseEuropeanPrice(const QString &priceStr)
 {
     // Handle European price format: "9,99€" or "0,00€"
@@ -313,6 +318,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuOrders::_loadRep
             orderItemId,          // activityId
             "",                   // subActivityId
             dt,                   // dateTime
+            dt,                   // dateTimeTax
             currency,             // currency
             originCountry,        // countryCodeFrom
             destCountry,          // countryCodeTo

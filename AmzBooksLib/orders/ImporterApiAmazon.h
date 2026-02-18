@@ -43,6 +43,7 @@ public:
     ActivitySource getActivitySource() const override;
     QString getLabel() const override;
     QMap<QString, ParamInfo> getRequiredParams() const override;
+    bool recomputeTaxes() const override;
 
 protected:
     // Common helper methods for Amazon SP-API

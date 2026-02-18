@@ -39,6 +39,11 @@ QString ImporterFileAmazonFbaInvoicing::getUniqueReportId(const QString &filePat
     return QFileInfo(filePath).fileName();
 }
 
+bool ImporterFileAmazonFbaInvoicing::recomputeTaxes() const
+{
+    return true;
+}
+
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::_loadReport(
     const QString &filePath,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
@@ -84,9 +89,10 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
     int idxItemTax = csvData->header.pos("Item Tax");
     int idxFC = csvData->header.pos("FC");
     int idxDelivCountry = csvData->header.pos(QStringList{"Delivery Country Code", "Shipping Country Code"});
-
+    
     // Optional columns
-    int idxShipItemId = getOptionalPos(QStringList{"Shipment Item ID", "Shipment Item Id"}); 
+    int idxSalesChannel = getOptionalPos(QStringList{"Sales Channel"});
+    //int idxShipItemId = getOptionalPos(QStringList{"Shipment Item ID", "Shipment Item Id"});
     int idxName = getOptionalPos(QStringList{"Recipient Name"});
     int idxAddr1 = getOptionalPos(QStringList{"Delivery Address 1", "Shipping Address 1"});
     int idxAddr2 = getOptionalPos(QStringList{"Delivery Address 2", "Shipping Address 2"});
@@ -111,7 +117,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         QString dateStr = line.value(idxDate);
         QDateTime dt = QDateTime::fromString(dateStr, Qt::ISODate);
         if (!dt.isValid()) {
-             ret.errorReturned = "Invalid date format: " + dateStr;
+             ret.errorReturned = QObject::tr("Invalid date format") + ": " + dateStr;
              co_return ret;
         }
 
@@ -133,12 +139,11 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         QString destCountry = line.value(idxDelivCountry);
         QString shippingCountry = originCountry; // From FC
 
-        QString eventId = shipId; // Unique ID for shipment? Or OrderId? Usually ShipmentId for FBA shipments.
+        const QString &eventId = orderId; // Unique ID for shipment? Or OrderId? Usually ShipmentId for FBA shipments.
         
         // Create Activity
         // Note: Using shipItemId as activityId to ensure uniqueness if multiple items per shipment
-        QString activityId = line.value(idxShipItemId); 
-        if (activityId.isEmpty()) activityId = orderId; // Fallback
+        const QString &activityId = shipId;
 
         // Determine Tax Scheme
         TaxScheme scheme = (shippingCountry == destCountry) ? TaxScheme::DomesticVat : TaxScheme::EuOssUnion;
@@ -148,6 +153,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
             activityId,
             "", // External link
             dt,
+            dt, // dateTimeTax same as dateTime
             line.value(idxCurrency),
             shippingCountry, // Departure
             destCountry,     // Arrival
@@ -192,6 +198,12 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
             ret.orderInfos->orderAddresses.append(addrTo);
             addedAddresses.insert(orderId);
         }
+        
+        QString salesChannel = "Amazon";
+        if (idxSalesChannel != -1) {
+            salesChannel = line.value(idxSalesChannel);
+        }
+        ret.orderInfos->orderId_store.insert(orderId, salesChannel);
     }
 
     // Min/Max dates

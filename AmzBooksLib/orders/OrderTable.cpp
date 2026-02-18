@@ -60,14 +60,7 @@ QVariant OrderTable::data(const QModelIndex &index, int role) const
     int rowIndex = index.row();
     const OrderRow &row = m_rows.at(rowIndex);
     
-    // Debugging crash
-    /*
-    if (index.row() == 0 && role == Qt::DisplayRole) {
-        qDebug() << "OrderTable::data row 0:" << row.orderId << row.date << row.amountTaxed;
-    }
-    */
-
-    if (role == Qt::DisplayRole) {
+    if (role == Qt::DisplayRole || role == Qt::EditRole) {
         switch (index.column()) {
         case COL_DATE: return row.date;
         case COL_ORDER_ID: return row.orderId;
@@ -131,11 +124,20 @@ void OrderTable::sort(int column, Qt::SortOrder order)
     emit layoutChanged();
 }
 
+Qt::ItemFlags OrderTable::flags(const QModelIndex &index) const
+{
+    return Qt::ItemIsSelectable | Qt::ItemIsEditable | Qt::ItemIsEnabled;
+}
+
 void OrderTable::buildRows(const QList<QSharedPointer<Shipment>> &shipments)
 {
     m_rows.clear();
     m_rows.reserve(shipments.size());
+    addRows(shipments);
+}
 
+void OrderTable::addRows(const QList<QSharedPointer<Shipment> > &shipments)
+{
     for (const auto &ship : shipments) {
         for (const auto &act : ship->getActivities()) {
             OrderRow row;
@@ -151,7 +153,7 @@ void OrderTable::buildRows(const QList<QSharedPointer<Shipment>> &shipments)
             row.taxJurisdiction = taxJurisdictionLevelToString(act.getTaxJurisdictionLevel());
             row.currency = act.getCurrency();
             row.amountTaxed = act.getAmountTaxed();
-            row.vatAmount = act.getAmountTaxesComputed();
+            row.vatAmount = act.getAmountTaxes();
             row.invoiceId = act.getInvoiceId();
             row.sourceShipment = ship;
             m_rows.append(row);
@@ -170,29 +172,8 @@ void OrderTable::buildRows(const QSharedPointer<QHash<QString, QHash<QString, QH
             QString site = itSite.key();
             for (auto itContext = itSite.value().constBegin(); itContext != itSite.value().constEnd(); ++itContext) {
                 // Should we use context for row data? It might be redundant with activity data but consistent.
-                
                 const auto &shipments = itContext.value().shipmentsRefundsSameActivity;
-                for (const auto &ship : shipments) {
-                    for (const auto &act : ship->getActivities()) {
-                        OrderRow row;
-                        row.date = act.getDateTime().date();
-                        row.orderId = act.getEventId();
-                        row.activityId = act.getActivityId();
-                        row.saleType = toString(act.getSaleType());
-                        row.countryFrom = act.getCountryCodeFrom();
-                        row.countryTo = act.getCountryCodeTo();
-                        row.vatPaidTo = act.getCountryCodeVatPaidTo();
-                        row.taxSource = taxSourceToString(act.getTaxSource());
-                        row.taxScheme = taxSchemeToString(act.getTaxScheme());
-                        row.taxJurisdiction = taxJurisdictionLevelToString(act.getTaxJurisdictionLevel());
-                        row.currency = act.getCurrency();
-                        row.amountTaxed = act.getAmountTaxed();
-                        row.vatAmount = act.getAmountTaxesComputed();
-                        row.invoiceId = act.getInvoiceId();
-                        row.sourceShipment = ship;
-                        m_rows.append(row);
-                    }
-                }
+                addRows(shipments);
             }
         }
     }

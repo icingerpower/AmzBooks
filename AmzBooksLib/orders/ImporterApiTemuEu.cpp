@@ -67,6 +67,11 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiTemuEu::_fetchInvoice
      co_return result;
 }
 
+bool ImporterApiTemuEu::recomputeTaxes() const
+{
+    return true;
+}
+
 QCoro::Task<void> ImporterApiTemuEu::fetchShopOrders(const ShopConfig& shop, const QDateTime& dateFrom, QSharedPointer<OrderInfos> targetInfos)
 {
     // TODO: Implement actual Temu API call

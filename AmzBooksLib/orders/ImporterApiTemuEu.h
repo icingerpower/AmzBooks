@@ -17,6 +17,7 @@ protected:
     QCoro::Task<ReturnOrderInfos> _fetchRefunds(const QDateTime &dateFrom) override;
     QCoro::Task<ReturnOrderInfos> _fetchAddresses(const QDateTime &dateFrom) override;
     QCoro::Task<ReturnOrderInfos> _fetchInvoiceInfos(const QDateTime &dateFrom) override;
+    bool recomputeTaxes() const override;
 
 private:
     QCoro::Task<void> fetchShopOrders(const ShopConfig& shop, const QDateTime& dateFrom, QSharedPointer<OrderInfos> targetInfos);

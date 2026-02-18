@@ -16,6 +16,9 @@
 #include "orders/Result.h"
 #include "orders/SaleType.h"
 
+class TaxResolver;
+class VatResolver;
+
 class Activity final
 {
 public:
@@ -23,6 +26,7 @@ public:
                                    QString activityId,              // Normalized immutable ID for this activity line, one per shipment/refund
                                    QString subActivityId,           // Optional sub-ID (e.g. for split lines)
                                    QDateTime dateTime,              // Bookkeeping datetime (recognition time)
+                                   QDateTime dateTimeTax,           // Tax calculation datetime (e.g. for VAT rate)
                                    QString currency,                // ISO 4217 (e.g., "EUR")
                                    QString countryCodeFrom,         // ISO 3166-1 alpha-2
                                    QString countryCodeTo,           // ISO 3166-1 alpha-2
@@ -37,6 +41,10 @@ public:
                                    QString vatTerritoryTo   = QString{},
                                    QString invoiceId        = QString{});
 
+    void computeTax(const TaxResolver *taxResolver
+                    , const VatResolver *vatResolver
+                    , const QString &vatTerritoryFrom
+                    , const QString &vatTerritoryTo);
     static Activity fromJson(const QJsonObject &json);
     QJsonObject toJson() const;
 
@@ -48,6 +56,7 @@ public:
     const QString& getActivityId() const noexcept;
     const QString& getSubActivityId() const noexcept;
     const QDateTime& getDateTime() const noexcept;
+    const QDateTime& getDateTimeTax() const noexcept;
     const QString& getCurrency() const noexcept;
     const QString& getCountryCodeFrom() const noexcept;
     const QString& getCountryCodeTo() const noexcept;
@@ -76,6 +85,7 @@ private:
              QString activityId,
              QString subActivityId,
              QDateTime dateTime,
+             QDateTime dateTimeTax,
              QString currency,
              QString countryCodeFrom,
              QString countryCodeTo,
@@ -95,6 +105,7 @@ private:
     QString m_activityId;
     QString m_subActivityId;
     QDateTime m_dateTime;
+    QDateTime m_dateTimeTax;
     QString m_currency;
     QString m_countryCodeFrom;
     QString m_countryCodeTo;

@@ -91,6 +91,11 @@ QMap<QString, AbstractImporter::ParamInfo> ImporterApiAmazon::getRequiredParams(
     return params;
 }
 
+bool ImporterApiAmazon::recomputeTaxes() const
+{
+    return false;
+}
+
 QCoro::Task<QString> ImporterApiAmazon::getAccessToken()
 {
     if (!m_tokenCache.accessToken.isEmpty() && m_tokenCache.expiration > QDateTime::currentDateTime().addSecs(300)) {

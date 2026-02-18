@@ -78,7 +78,7 @@ void TestOrderManager::test_recordShipmentDraft()
     ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
     
     // Create Activity with subId
-    auto actRes = Activity::create("evt1", "act1", "sub1", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+    auto actRes = Activity::create("evt1", "act1", "sub1", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     QVERIFY(actRes.errors.isEmpty());
     
@@ -96,7 +96,7 @@ void TestOrderManager::test_publish()
     OrderManager manager(tempDir.path());
     
     ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
-    auto actRes = Activity::create("evt1", "act1", "", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+    auto actRes = Activity::create("evt1", "act1", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     
     Shipment shipment({*actRes.value});
@@ -106,7 +106,7 @@ void TestOrderManager::test_publish()
     manager.publish(tomorrow);
     
     // Let's modify shipment source and record again
-    auto actRes2 = Activity::create("evt1", "act1", "", QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+    auto actRes2 = Activity::create("evt1", "act1", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
          Amount(120.0, 24.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment2({*actRes2.value});
     
@@ -124,14 +124,14 @@ void TestOrderManager::test_record_publish_update()
     ActivitySource source{ActivitySourceType::Report, "FR", "Amazon.fr", "GET_ORDERS_DATA"};
 
     // 1. Create a shipment
-    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment({*actRes.value});
     manager.recordShipmentFromSource(orderId, &source, &shipment, QDate());
     
     // 1.b Update again with modified hour (same day) -> Should NOT create double entry
     {
-        auto actResMod = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE",
+        auto actResMod = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)),  QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment shipmentMod({*actResMod.value});
         manager.recordShipmentFromSource(orderId, &source, &shipmentMod, QDate());
@@ -171,7 +171,7 @@ void TestOrderManager::test_record_publish_update()
     }
 
     // 4. Update the shipment with CONFLICT (new amount) => Check double entry created
-    auto actRes2 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes2 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment2({*actRes2.value});
     
@@ -202,7 +202,7 @@ void TestOrderManager::test_record_publish_update()
     }
 
     // 6. Update the shipment again ...
-    auto actRes3 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes3 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(300.0, 60.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment3({*actRes3.value});
     manager.recordShipmentFromSource(orderId, &source, &shipment3, dateIfConflict);
@@ -238,7 +238,7 @@ void TestOrderManager::test_record_publish_update()
     }
 
     // 9. Update the shipment again with conflict -> +2 records
-     auto actRes4 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+     auto actRes4 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(400.0, 80.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment4({*actRes4.value});
     
@@ -262,7 +262,7 @@ void TestOrderManager::test_activity_update_model()
     Address addr("John Doe", "Street", "", "", "City", "12345", "DE", "", "", "", "", "");
     ActivitySource source{ActivitySourceType::Report, "FR", "Amazon.fr", "GET_ORDERS_DATA"};
     
-    auto actRes = Activity::create("evt1", "act1", "sub1", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes = Activity::create("evt1", "act1", "sub1", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
          
     Shipment shipment({*actRes.value});
@@ -273,7 +273,7 @@ void TestOrderManager::test_activity_update_model()
     manager.publish(publishDate);
     
     // Update with Conflict
-    auto actResConf = Activity::create("evt1", "act1", "sub1", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actResConf = Activity::create("evt1", "act1", "sub1", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipmentConf({*actResConf.value});
     
@@ -301,7 +301,7 @@ void TestOrderManager::test_record_with_refund()
     QString orderId = "ord_ref";
     ActivitySource source{ActivitySourceType::Report, "FR", "Amazon.fr", "GET_REFUND_DATA"};
     
-    auto actRes = Activity::create("evt_ref", "act_ref", "sub1", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes = Activity::create("evt_ref", "act_ref", "sub1", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
          
     Refund refund({*actRes.value}); 
@@ -309,7 +309,7 @@ void TestOrderManager::test_record_with_refund()
     manager.recordShipmentFromSource(orderId, &source, &refund, QDate());
     
     // Update without conflict
-    auto actResUpd = Activity::create("evt_ref", "act_ref", "sub1", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE",
+    auto actResUpd = Activity::create("evt_ref", "act_ref", "sub1", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Refund refundUpd({*actResUpd.value});
     manager.recordShipmentFromSource(orderId, &source, &refundUpd, QDate());
@@ -327,7 +327,7 @@ void TestOrderManager::test_record_with_refund()
     
     // Update without conflict (after publish)
     // Same amount/taxes, just time changed
-    auto actResNoConf = Activity::create("evt_ref", "act_ref", "sub1", QDateTime(QDate(2023, 1, 1), QTime(14, 0)), "EUR", "FR", "DE", "DE",
+    auto actResNoConf = Activity::create("evt_ref", "act_ref", "sub1", QDateTime(QDate(2023, 1, 1), QTime(14, 0)), QDateTime(QDate(2023, 1, 1), QTime(14, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Refund refundNoConf({*actResNoConf.value});
     manager.recordShipmentFromSource(orderId, &source, &refundNoConf, QDate());
@@ -341,7 +341,7 @@ void TestOrderManager::test_record_with_refund()
     }
     
     // Update WITH conflict
-    auto actResConf = Activity::create("evt_ref", "act_ref", "sub1", QDateTime(QDate(2023, 1, 1), QTime(14, 0)), "EUR", "FR", "DE", "DE",
+    auto actResConf = Activity::create("evt_ref", "act_ref", "sub1", QDateTime(QDate(2023, 1, 1), QTime(14, 0)), QDateTime(QDate(2023, 1, 1), QTime(14, 0)), "EUR", "FR", "DE", "DE",
          Amount(150.0, 30.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Refund refundConf({*actResConf.value});
     manager.recordShipmentFromSource(orderId, &source, &refundConf, QDate(2023, 3, 1));
@@ -372,7 +372,7 @@ void TestOrderManager::test_getShipments()
 
     // 1. Create a shipment (Jan 1)
     // Amount 100 + 20 tax = 120
-    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment({*actRes.value});
     manager.recordShipmentFromSource(orderId, &source, &shipment, QDate());
@@ -383,7 +383,7 @@ void TestOrderManager::test_getShipments()
 
     // 3. Update with conflict (Feb 1)
     // New Amount 200 + 40 = 240
-    auto actResConf = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actResConf = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipmentConf({*actResConf.value});
     
@@ -424,7 +424,7 @@ void TestOrderManager::test_getShipments()
     // 5. Add a full refund on the last entry
     // Last entry is the "New Version" (240 EUR).
     // Create a Refund object matching it.
-    auto actResRef = Activity::create("evt1_ref", "act1_ref", "", QDateTime(QDate(2023, 2, 20), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actResRef = Activity::create("evt1_ref", "act1_ref", "", QDateTime(QDate(2023, 2, 20), QTime(10, 0)), QDateTime(QDate(2023, 2, 20), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(-200.0, -40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     
     Refund refund({*actResRef.value});
@@ -455,7 +455,7 @@ void TestOrderManager::test_invoicingInfos()
     ActivitySource source{ActivitySourceType::Report, "FR", "Amazon.fr", "GET_ORDERS_DATA"};
     
     // 1. Create Shipment
-    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment({*actRes.value});
     manager.recordShipmentFromSource(orderId, &source, &shipment, QDate());
@@ -480,7 +480,7 @@ void TestOrderManager::test_invoicingInfos()
     // If Published: check diff.
     
     // So update in place first (Draft -> Draft)
-    auto actRes2 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes2 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment2({*actRes2.value});
     manager.recordShipmentFromSource(orderId, &source, &shipment2, QDate());
@@ -502,7 +502,7 @@ void TestOrderManager::test_invoicingInfos()
     // 5. Update without conflict (e.g. date change, content same/close)
     // Actually, if content differs, it updates the Published revision in place IF no financial impact (taxes same).
     // Let's change time only.
-    auto actRes3 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes3 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE",
          Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment3({*actRes3.value});
     manager.recordShipmentFromSource(orderId, &source, &shipment3, QDate());
@@ -514,7 +514,7 @@ void TestOrderManager::test_invoicingInfos()
     
     // 6. Update with conflict -> Reversal + New Version
     // Change Amount
-    auto actRes4 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes4 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(300.0, 60.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment4({*actRes4.value});
     manager.recordShipmentFromSource(orderId, &source, &shipment4, QDate(2023, 3, 1));
@@ -556,7 +556,7 @@ void TestOrderManager::test_getActivitySource_ShipmentAndRefunds()
     
     // Helper to create and record
     auto createRecord = [&](const QString &id, ActivitySource *src, double amount) {
-        auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(amount, amount * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment shipment({*actRes.value});
         manager.recordShipmentFromSource("ord_" + id, src, &shipment, QDate());
@@ -577,7 +577,7 @@ void TestOrderManager::test_getActivitySource_ShipmentAndRefunds()
     // 3. Update A0 with conflict
     // Change Amount to trigger conflict
     QString idConf = "A0";
-    auto actResConf = Activity::create("evt_" + idConf, "act_" + idConf, "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actResConf = Activity::create("evt_" + idConf, "act_" + idConf, "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(999.0, 999.0 * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipmentConf({*actResConf.value});
     
@@ -615,7 +615,7 @@ void TestOrderManager::test_getShipmentOrRefundIfDifferent()
     ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
     
     // 1. Create a shipment
-    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment({*actRes.value});
     
@@ -631,7 +631,7 @@ void TestOrderManager::test_getShipmentOrRefundIfDifferent()
     QVERIFY(res == nullptr);
     
     // 5. Test Different Content (But same ID)
-    auto actResDiff = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE",
+    auto actResDiff = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipmentDiff({*actResDiff.value});
     
@@ -643,7 +643,7 @@ void TestOrderManager::test_getShipmentOrRefundIfDifferent()
     QCOMPARE(res->getActivities().first().getDateTime(), QDateTime(QDate(2023, 1, 1), QTime(10, 0)));
     
     // 6. Test Refund Scenario
-    auto actResRef = Activity::create("evt_ref", "act_ref", "", QDateTime(QDate(2023, 2, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actResRef = Activity::create("evt_ref", "act_ref", "", QDateTime(QDate(2023, 2, 1), QTime(10, 0)), QDateTime(QDate(2023, 2, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(-50.0, -10.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Refund refund({*actResRef.value});
     
@@ -655,7 +655,7 @@ void TestOrderManager::test_getShipmentOrRefundIfDifferent()
     QVERIFY(res == nullptr);
     
     // Test Different Refund
-     auto actResRefDiff = Activity::create("evt_ref", "act_ref", "", QDateTime(QDate(2023, 2, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+     auto actResRefDiff = Activity::create("evt_ref", "act_ref", "", QDateTime(QDate(2023, 2, 1), QTime(10, 0)), QDateTime(QDate(2023, 2, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(-60.0, -12.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Refund refundDiff({*actResRefDiff.value});
     
@@ -676,7 +676,7 @@ void TestOrderManager::test_store_recording_and_querying()
     
     // Create Shipments
     QString orderId1 = "ord_store_1";
-    auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment1({*actRes1.value});
     
@@ -684,7 +684,7 @@ void TestOrderManager::test_store_recording_and_querying()
     manager.recordOrder(orderId1, "Store1");
     
     QString orderId2 = "ord_store_2";
-    auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment2({*actRes2.value});
     
@@ -713,7 +713,7 @@ void TestOrderManager::test_remove_order()
 
     // Helper to create shipment
     auto createShip = [&](double amount, QTime time) -> Shipment {
-         auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), time), "EUR", "FR", "DE", "DE",
+         auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), time), QDateTime(QDate(2023, 1, 1), time), "EUR", "FR", "DE", "DE",
              Amount(amount, amount * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
          return Shipment({*actRes.value});
     };
@@ -779,7 +779,7 @@ void TestOrderManager::test_remove_order()
         manager.recordShipmentFromSource(orderId, &source, &s1, QDate());
         
         // Shipment 2 (Different Activity/ID)
-        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 1), QTime(11, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 1), QTime(11, 0)), QDateTime(QDate(2023, 1, 1), QTime(11, 0)), "EUR", "FR", "DE", "DE",
              Amount(50.0, 10.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment s2({*actRes2.value});
         manager.recordShipmentFromSource(orderId, &source, &s2, QDate());
@@ -855,7 +855,7 @@ void TestOrderManager::test_remove_shipmentRefundr()
 
     // Helper to create shipment
     auto createShip = [&](const QString &id, double amount, QTime time) -> Shipment {
-         auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(QDate(2023, 1, 1), time), "EUR", "FR", "DE", "DE",
+         auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(QDate(2023, 1, 1), time), QDateTime(QDate(2023, 1, 1), time), "EUR", "FR", "DE", "DE",
              Amount(amount, amount * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
          return Shipment({*actRes.value});
     };
@@ -1046,7 +1046,7 @@ void TestOrderManager::test_contains()
     
     ActivitySource source{ActivitySourceType::Report, "Amazon", "FR", "Report1"};
     auto createShip = [&](const QString &id) -> Shipment {
-         auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(QDate(2023, 1, 1), QTime(10,0)), "EUR", "FR", "DE", "DE",
+         auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(QDate(2023, 1, 1), QTime(10,0)), QDateTime(QDate(2023, 1, 1), QTime(10,0)), "EUR", "FR", "DE", "DE",
              Amount(10.0, 2.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
          return Shipment({*actRes.value});
     };
@@ -1077,14 +1077,14 @@ void TestOrderManager::test_getShipmentAndRefundsNoInvoices()
 
     // Helper to create shipment
     auto createShip = [&](const QString &id, double amount, QDate date, QTime time = QTime(10, 0)) -> Shipment {
-         auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(date, time), "EUR", "FR", "DE", "DE",
+         auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(date, time), QDateTime(date, time), "EUR", "FR", "DE", "DE",
              Amount(amount, amount * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
          return Shipment({*actRes.value});
     };
     
     // Helper to create refund
     auto createRefund = [&](const QString &id, double amount, QDate date, QTime time = QTime(10, 0)) -> Refund {
-         auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(date, time), "EUR", "FR", "DE", "DE",
+         auto actRes = Activity::create("evt_" + id, "act_" + id, "", QDateTime(date, time), QDateTime(date, time), "EUR", "FR", "DE", "DE",
              Amount(-amount, -amount * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
          return Refund({*actRes.value});
     };
@@ -1113,7 +1113,7 @@ void TestOrderManager::test_getShipmentAndRefundsNoInvoices()
     
     // 4. Update with conflict (Feb 15, 2023 - INSIDE requested range)
     // This creates a reversal and new version
-    auto actRes2 = Activity::create("evt_s1", "act_s1", "", QDateTime(dateJan1, QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes2 = Activity::create("evt_s1", "act_s1", "", QDateTime(dateJan1, QTime(10, 0)), QDateTime(dateJan1, QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment s1Updated({*actRes2.value});
     manager.recordShipmentFromSource(orderId, &source, &s1Updated, dateFeb15);
@@ -1379,13 +1379,13 @@ void TestOrderManager::test_get_channel_site_ShipmentAndRefundsConflicts()
     
     // 1. Create Shipments for Source A
     // Shipment 1: Normal
-    auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment s1({*actRes1.value});
     manager.recordShipmentFromSource("ord1", &sourceA, &s1, QDate());
     
     // Shipment 2: Will have conflict
-    auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment s2({*actRes2.value});
     manager.recordShipmentFromSource("ord2", &sourceA, &s2, QDate());
@@ -1395,13 +1395,13 @@ void TestOrderManager::test_get_channel_site_ShipmentAndRefundsConflicts()
     manager.publish(pubDate);
     
     // Update Shipment 2 with Conflict
-    auto actRes2Conf = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes2Conf = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(300.0, 60.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment s2Conf({*actRes2Conf.value});
     manager.recordShipmentFromSource("ord2", &sourceA, &s2Conf, QDate(2023, 3, 1));
     
     // Shipment 3 for Source B
-    auto actRes3 = Activity::create("evt3", "act3", "", QDateTime(QDate(2023, 1, 3), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes3 = Activity::create("evt3", "act3", "", QDateTime(QDate(2023, 1, 3), QTime(10, 0)), QDateTime(QDate(2023, 1, 3), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(50.0, 10.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment s3({*actRes3.value});
     manager.recordShipmentFromSource("ord3", &sourceB, &s3, QDate());
@@ -1457,7 +1457,7 @@ void TestOrderManager::test_get_channel_site_ShipmentAndRefunds()
     QDateTime start = QDateTime::currentDateTime();
     
     // 1. Record Shipment
-    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment s1({*actRes.value});
     manager.recordShipmentFromSource("ord1", &source, &s1, QDate());
@@ -1477,7 +1477,7 @@ void TestOrderManager::test_get_channel_site_ShipmentAndRefunds()
     QVERIFY(resultsPastPtr->isEmpty());
     
     // 4. Record another one
-    auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment s2({*actRes2.value});
     manager.recordShipmentFromSource("ord2", &source, &s2, QDate());
@@ -1508,7 +1508,7 @@ void TestOrderManager::test_get_channel_site_ShipmentAndRefunds()
     manager.publish(pubDate);
     
     // Update s2 with conflict
-    auto actRes2Conf = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes2Conf = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(500.0, 100.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment s2Conf({*actRes2Conf.value});
     manager.recordShipmentFromSource("ord2", &source, &s2Conf, QDate(2023, 3, 1));
@@ -1538,11 +1538,11 @@ void TestOrderManager::test_OrderTable()
     // Setup Dummy Data for Constructor 1 (QList<Shipment>)
     QList<QSharedPointer<Shipment>> shipmentsList;
     
-    auto act1 = Activity::create("ord1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE", 
+    auto act1 = Activity::create("ord1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", "DE", 
         Amount(100, 20), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act1.value}));
     
-    auto act2 = Activity::create("ord2", "act2", "", QDateTime(QDate(2023, 1, 5), QTime(12, 0)), "EUR", "FR", "DE", "DE", 
+    auto act2 = Activity::create("ord2", "act2", "", QDateTime(QDate(2023, 1, 5), QTime(12, 0)), QDateTime(QDate(2023, 1, 5), QTime(12, 0)), "EUR", "FR", "DE", "DE", 
         Amount(200, 40), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act2.value}));
     
@@ -1629,14 +1629,14 @@ void TestOrderManager::test_TaxAmountTable()
     // Shipment 1: USD 100 + 20 Tax. 
     // Untaxed: 100 * 0.95 = 95.0
     // Tax: 20 * 0.95 = 19.0
-    auto act1 = Activity::create("ord1", "act1", "", QDateTime(date1, QTime(12, 0)), "USD", "US", "DE", "DE", 
+    auto act1 = Activity::create("ord1", "act1", "", QDateTime(date1, QTime(12, 0)), QDateTime(date1, QTime(12, 0)), "USD", "US", "DE", "DE", 
         Amount(100, 20), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act1.value}));
     
     // Shipment 2: GBP 200 + 40 Tax.
     // Untaxed: 200 * 1.15 = 230.0
     // Tax: 40 * 1.15 = 46.0
-    auto act2 = Activity::create("ord2", "act2", "", QDateTime(date2, QTime(12, 0)), "GBP", "UK", "DE", "DE", 
+    auto act2 = Activity::create("ord2", "act2", "", QDateTime(date2, QTime(12, 0)), QDateTime(date2, QTime(12, 0)), "GBP", "UK", "DE", "DE", 
         Amount(200, 40), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act2.value}));
     
@@ -1645,7 +1645,7 @@ void TestOrderManager::test_TaxAmountTable()
     // Untaxed: 50 * 0.95 = 47.5
     // Tax: 10 * 0.95 = 9.5
     // Total Context 1: Untaxed = 95+47.5 = 142.5. Tax = 19+9.5 = 28.5. Total = 171.0
-    auto act3 = Activity::create("ord3", "act3", "", QDateTime(date1, QTime(12, 0)), "USD", "US", "DE", "DE", 
+    auto act3 = Activity::create("ord3", "act3", "", QDateTime(date1, QTime(12, 0)), QDateTime(date1, QTime(12, 0)), "USD", "US", "DE", "DE", 
         Amount(50, 10), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act3.value}));
 
@@ -1774,7 +1774,7 @@ void TestOrderManager::test_tryRecordRefund()
         OrderManager manager(tempDir.path());
         ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
 
-        auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         QVERIFY(actRes.errors.isEmpty());
         Shipment shipment({*actRes.value});
@@ -1795,12 +1795,12 @@ void TestOrderManager::test_tryRecordRefund()
         OrderManager manager(tempDir.path());
         ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
 
-        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment ship1({*actRes1.value});
         manager.recordShipmentFromSource("ord2", &source, &ship1, QDate());
 
-        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment ship2({*actRes2.value});
         manager.recordShipmentFromSource("ord2", &source, &ship2, QDate());
@@ -1820,12 +1820,12 @@ void TestOrderManager::test_tryRecordRefund()
         OrderManager manager(tempDir.path());
         ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
 
-        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment ship1({*actRes1.value});
         manager.recordShipmentFromSource("ord3", &source, &ship1, QDate());
 
-        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment ship2({*actRes2.value});
         manager.recordShipmentFromSource("ord3", &source, &ship2, QDate());
@@ -1846,12 +1846,12 @@ void TestOrderManager::test_tryRecordRefund()
         OrderManager manager(tempDir.path());
         ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
 
-        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment ship1({*actRes1.value});
         manager.recordShipmentFromSource("ord4", &source, &ship1, QDate());
 
-        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment ship2({*actRes2.value});
         manager.recordShipmentFromSource("ord4", &source, &ship2, QDate());
@@ -1881,12 +1881,12 @@ void TestOrderManager::test_tryRecordRefund()
         OrderManager manager(tempDir.path());
         ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
 
-        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment ship1({*actRes1.value});
         manager.recordShipmentFromSource("ord6", &source, &ship1, QDate());
 
-        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment ship2({*actRes2.value});
         manager.recordShipmentFromSource("ord6", &source, &ship2, QDate());
@@ -1912,12 +1912,12 @@ void TestOrderManager::test_tryRecordRefund()
         OrderManager manager(tempDir.path());
         ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
 
-        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes1 = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment ship1({*actRes1.value});
         manager.recordShipmentFromSource("ord7", &source, &ship1, QDate());
 
-        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", "DE",
              Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
         Shipment ship2({*actRes2.value});
         manager.recordShipmentFromSource("ord7", &source, &ship2, QDate());
@@ -2200,7 +2200,7 @@ void TestOrderManager::test_OrderInvoicingTable()
     result.shipments.clear();
     
     // Create a shipment
-    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
          Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment ship({*actRes.value});
     result.shipments.append(ship);

@@ -63,6 +63,7 @@ public:
     virtual QString getId() const = 0; // Won't be translated while getLabel will
     virtual QString getLabel() const = 0;
     virtual QMap<QString, ParamInfo> getRequiredParams() const = 0;
+    virtual bool recomputeTaxes() const = 0;
 
     const QMap<QString, ParamInfo> &getLoadedParamValues() const;
 

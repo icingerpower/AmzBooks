@@ -124,7 +124,8 @@ add_custom_command(TARGET TestFileImportAmazonTransactions POST_BUILD
 add_executable(TestFileImportAmazonFbaInvoicing test_file_import_amazon_fba_invoicing.cpp)
 add_test(NAME TestFileImportAmazonFbaInvoicing COMMAND TestFileImportAmazonFbaInvoicing)
 target_link_libraries(TestFileImportAmazonFbaInvoicing PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib QCoro::Core)
-target_include_directories(TestFileImportAmazonFbaInvoicing PRIVATE ../AmzBooksLib ../../common)
+    target_include_directories(TestFileImportAmazonFbaInvoicing PRIVATE ../AmzBooksLib ../../common)
+    # Force rebuild
 
 add_custom_command(TARGET TestFileImportAmazonFbaInvoicing POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_directory

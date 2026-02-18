@@ -32,6 +32,7 @@ public:
     QCoro::Task<ReturnOrderInfos> fetchRefunds(const QDateTime &dateFrom);
     QCoro::Task<ReturnOrderInfos> fetchAddresses(const QDateTime &dateFrom);
     QCoro::Task<ReturnOrderInfos> fetchInvoiceInfos(const QDateTime &dateFrom);
+    bool recomputeTaxes() const override;
 
 protected:
     virtual QCoro::Task<ReturnOrderInfos> _fetchShipments(const QDateTime &dateFrom) = 0;

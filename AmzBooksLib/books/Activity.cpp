@@ -4,6 +4,7 @@ Result<Activity> Activity::create(QString eventId,
                                   QString activityId,
                                   QString subActivityId,
                                   QDateTime dateTime,
+                                  QDateTime dateTimeTax,
                                   QString currency,
                                   QString countryCodeFrom,
                                   QString countryCodeTo,
@@ -29,6 +30,11 @@ Result<Activity> Activity::create(QString eventId,
     if (!dateTime.isValid()) {
         result.errors.append(ValidationError{"dateTime", "DateTime must be valid"});
     }
+    if (!dateTimeTax.isValid()) {
+        // Fallback or error? Usually we expect a valid tax date. 
+        // If caller passed invalid, we might error.
+        result.errors.append(ValidationError{"dateTimeTax", "DateTimeTax must be valid"});
+    }
     if (currency.isEmpty()) {
         result.errors.append(ValidationError{"currency", "Currency must not be empty"});
     }
@@ -45,6 +51,7 @@ Result<Activity> Activity::create(QString eventId,
                                       std::move(activityId),
                                       std::move(subActivityId),
                                       std::move(dateTime),
+                                      std::move(dateTimeTax),
                                       std::move(currency),
                                       std::move(countryCodeFrom),
                                       std::move(countryCodeTo),
@@ -64,11 +71,34 @@ Result<Activity> Activity::create(QString eventId,
     return result;
 }
 
+void Activity::computeTax(
+        const TaxResolver *taxResolver
+        , const VatResolver *vatResolver
+        , const QString &vatTerritoryFrom
+        , const QString &vatTerritoryTo)
+{
+    if (m_taxSource == TaxSource::MarketplaceProvided)
+    {
+        m_taxSource = TaxSource::ManualOverride;
+    }
+    else
+    {
+        m_taxSource = TaxSource::SelfComputed;
+    }
+    //TODO
+    // m_AmountTaxesComputed
+    // m_taxScheme
+    // m_taxJurisdictionLevel
+    // m_taxDeclaringCountryCode
+    // m_countryCodeVatPaidTo
+}
+
 bool Activity::isDifferentTaxes(const Activity &other) const
 {
     return getAmountTaxes() != other.getAmountTaxes()
             || m_currency != other.m_currency
             || m_dateTime.date() != other.m_dateTime.date()
+            || m_dateTimeTax.date() != other.m_dateTimeTax.date()
             || m_countryCodeFrom != other.m_countryCodeFrom
             || m_countryCodeTo != other.m_countryCodeTo
             || m_countryCodeVatPaidTo != other.m_countryCodeVatPaidTo
@@ -84,6 +114,7 @@ Activity::Activity(QString eventId,
                    QString activityId,
                    QString subActivityId,
                    QDateTime dateTime,
+                   QDateTime dateTimeTax,
                    QString currency,
                    QString countryCodeFrom,
                    QString countryCodeTo,
@@ -102,6 +133,7 @@ Activity::Activity(QString eventId,
     , m_activityId(std::move(activityId))
     , m_subActivityId(std::move(subActivityId))
     , m_dateTime(std::move(dateTime))
+    , m_dateTimeTax(std::move(dateTimeTax))
     , m_currency(std::move(currency))
     , m_countryCodeFrom(std::move(countryCodeFrom))
     , m_countryCodeTo(std::move(countryCodeTo))
@@ -156,6 +188,11 @@ const QString& Activity::getSubActivityId() const noexcept
 const QDateTime& Activity::getDateTime() const noexcept
 {
     return m_dateTime;
+}
+
+const QDateTime& Activity::getDateTimeTax() const noexcept
+{
+    return m_dateTimeTax;
 }
 
 const QString& Activity::getCurrency() const noexcept
@@ -272,6 +309,7 @@ QJsonObject Activity::toJson() const
         {"activityId", m_activityId},
         {"subActivityId", m_subActivityId},
         {"dateTime", m_dateTime.toString(Qt::ISODate)},
+        {"dateTimeTax", m_dateTimeTax.toString(Qt::ISODate)},
         {"currency", m_currency},
         {"countryCodeFrom", m_countryCodeFrom},
         {"countryCodeTo", m_countryCodeTo},
@@ -292,11 +330,18 @@ QJsonObject Activity::toJson() const
 
 Activity Activity::fromJson(const QJsonObject &json)
 {
+    QDateTime dt = QDateTime::fromString(json["dateTime"].toString(), Qt::ISODate);
+    QDateTime dtTax = dt;
+    if (json.contains("dateTimeTax")) {
+        dtTax = QDateTime::fromString(json["dateTimeTax"].toString(), Qt::ISODate);
+    }
+
     return Activity(
         json["eventId"].toString(),
         json["activityId"].toString(),
         json["subActivityId"].toString(),
-        QDateTime::fromString(json["dateTime"].toString(), Qt::ISODate),
+        dt,
+        dtTax,
         json["currency"].toString(),
         json["countryCodeFrom"].toString(),
         json["countryCodeTo"].toString(),

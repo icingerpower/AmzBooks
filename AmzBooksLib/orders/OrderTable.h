@@ -41,6 +41,7 @@ public:
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
     void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) override;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
 
 private:
     struct OrderRow {
@@ -66,6 +67,7 @@ private:
     static const QStringList COL_NAMES;
 
     void buildRows(const QList<QSharedPointer<Shipment>> &shipments);
+    void addRows(const QList<QSharedPointer<Shipment>> &shipments);
     void buildRows(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &data);
 };
 

@@ -32,6 +32,11 @@ QString ImporterFileAmazonVatEu::getUniqueReportId(const QString &filePath) cons
     return QFileInfo(filePath).fileName();
 }
 
+bool ImporterFileAmazonVatEu::recomputeTaxes() const
+{
+    return false;
+}
+
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadReport(
     const QString &filePath,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
@@ -139,13 +144,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
              result.orderInfos->orderId_store[eventId] = marketplace;
         }
 
-        // Date priority: TAX_CALCULATION_DATE > TRANSACTION_COMPLETE_DATE
-        QString dateStr;
-        if (indTaxCalcDate != -1 && !line.value(indTaxCalcDate).isEmpty()) {
-            dateStr = line.value(indTaxCalcDate);
-        } else {
-            dateStr = line.value(indDate);
-        }
+        QString dateStr = line.value(indDate);
         QDate date = parseDateFormats(dateStr, {"dd-MM-yyyy", "dd/MM/yyyy", "yyyy-MM-dd"});
         if (!date.isValid()) {
              // Fallback or skip?
@@ -212,11 +211,17 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         ::Amount amt(amountExcl + amountVat, amountVat);
         // Note: Amount constructor takes (Taxed, Tax). We construct Taxed from Excl+Vat to ensure consistency with Excl column. 
         
+        // Date parsing for TAX_CALCULATION_DATE
+        QString dateTaxStr = (indTaxCalcDate != -1) ? line.value(indTaxCalcDate) : "";
+        QDate dateTax = parseDateFormats(dateTaxStr, {"dd-MM-yyyy", "dd/MM/yyyy", "yyyy-MM-dd"});
+        if (!dateTax.isValid()) dateTax = date; // Fallback to transaction date if missing
+        
         auto actRes = Activity::create(
             eventId,
             actId,
             "", // subId
             date.startOfDay(),
+            dateTax.startOfDay(),
             currency,
             depart,
             arrival,

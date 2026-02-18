@@ -1,3 +1,6 @@
+#include "books/TaxResolver.h"
+#include "books/VatResolver.h"
+
 #include "Shipment.h"
 #include <QJsonArray>
 
@@ -6,11 +9,25 @@ Shipment::Shipment(QList<Activity> activities)
 {
 }
 
+void Shipment::computeTax(
+        const TaxResolver *taxResolver
+        , const VatResolver *vatResolver
+        , const QString &vatTerritoryFrom
+        , const QString &vatTerritoryTo)
+{
+    for (auto &activity : m_activities)
+    {
+        activity.computeTax(taxResolver, vatResolver, vatTerritoryFrom, vatTerritoryTo);
+    }
+}
+
 const QString &Shipment::getId() const noexcept
 {
     // Assuming at least one activity and they share the same base ID or the first one represents the group
     static QString empty;
-    if (m_activities.isEmpty()) return empty;
+    if (m_activities.isEmpty()) {
+        return empty;
+    }
     return m_activities.first().getActivityId();
 }
 

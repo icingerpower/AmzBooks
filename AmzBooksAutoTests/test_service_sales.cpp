@@ -355,7 +355,7 @@ void TestServiceSales::test_persistence()
          // Add Random Order (Amazon)
          ActivitySource sourceAmazon(ActivitySourceType::Report, "Amazon", "Report1");
          
-         auto actRes = Activity::create("AmazonOrder1", "Act1", "", QDateTime(QDate(2023, 5, 21), QTime(0,0)), "EUR", "FR", "DE", "DE", 
+         auto actRes = Activity::create("AmazonOrder1", "Act1", "", QDateTime(QDate(2023, 5, 21), QTime(0,0)), QDateTime(QDate(2023, 5, 21), QTime(0,0)), "EUR", "FR", "DE", "DE",
                           Amount(50.0, 0.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
          
          if (actRes.value) {

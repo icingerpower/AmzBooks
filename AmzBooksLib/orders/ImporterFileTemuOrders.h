@@ -15,6 +15,7 @@ public:
     QMap<QString, ParamInfo> getRequiredParams() const override;
 
     QString getUniqueReportId(const QString &filePath) const override;
+    bool recomputeTaxes() const override;
 
 protected:
     QCoro::Task<ReturnOrderInfos> _loadReport(

@@ -31,6 +31,11 @@ QString ImporterFileAmazonTransactions::getUniqueReportId(const QString &filePat
     return QFileInfo(filePath).fileName();
 }
 
+bool ImporterFileAmazonTransactions::recomputeTaxes() const
+{
+    return true;
+}
+
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::_loadReport(
     const QString &filePath,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
