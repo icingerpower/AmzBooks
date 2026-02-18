@@ -5,11 +5,10 @@
 #include "orders/TaxSource.h"
 #include "books/TaxScheme.h"
 #include "books/TaxJurisdictionLevel.h"
+#include <QDebug>
 
 const QStringList OrderTable::COL_NAMES = {
     QObject::tr("Date"),
-    QObject::tr("Channel"),
-    QObject::tr("Site"),
     QObject::tr("Order ID"),
     QObject::tr("Activity ID"),
     QObject::tr("Sale Type"),
@@ -58,13 +57,19 @@ QVariant OrderTable::data(const QModelIndex &index, int role) const
     if (!index.isValid() || index.row() >= m_rows.size())
         return QVariant();
 
-    const OrderRow &row = m_rows.at(index.row());
+    int rowIndex = index.row();
+    const OrderRow &row = m_rows.at(rowIndex);
+    
+    // Debugging crash
+    /*
+    if (index.row() == 0 && role == Qt::DisplayRole) {
+        qDebug() << "OrderTable::data row 0:" << row.orderId << row.date << row.amountTaxed;
+    }
+    */
 
     if (role == Qt::DisplayRole) {
         switch (index.column()) {
         case COL_DATE: return row.date;
-        case COL_CHANNEL: return row.channel;
-        case COL_SITE: return row.site;
         case COL_ORDER_ID: return row.orderId;
         case COL_ACTIVITY_ID: return row.activityId;
         case COL_SALE_TYPE: return row.saleType;
@@ -98,27 +103,29 @@ void OrderTable::sort(int column, Qt::SortOrder order)
     emit layoutAboutToBeChanged();
 
     std::sort(m_rows.begin(), m_rows.end(), [column, order](const OrderRow &a, const OrderRow &b) {
-        bool less = false;
+        // For descending order, swap the operands instead of negating the result.
+        // Negating (!less) violates strict weak ordering when a == b,
+        // because comp(a,b) and comp(b,a) would both return true → UB in std::sort.
+        const OrderRow &lhs = (order == Qt::AscendingOrder) ? a : b;
+        const OrderRow &rhs = (order == Qt::AscendingOrder) ? b : a;
+
         switch (column) {
-        case COL_DATE: less = a.date < b.date; break;
-        case COL_CHANNEL: less = a.channel.compare(b.channel, Qt::CaseInsensitive) < 0; break;
-        case COL_SITE: less = a.site.compare(b.site, Qt::CaseInsensitive) < 0; break;
-        case COL_ORDER_ID: less = a.orderId.compare(b.orderId, Qt::CaseInsensitive) < 0; break;
-        case COL_ACTIVITY_ID: less = a.activityId.compare(b.activityId, Qt::CaseInsensitive) < 0; break;
-        case COL_SALE_TYPE: less = a.saleType.compare(b.saleType, Qt::CaseInsensitive) < 0; break;
-        case COL_COUNTRY_FROM: less = a.countryFrom.compare(b.countryFrom, Qt::CaseInsensitive) < 0; break;
-        case COL_COUNTRY_TO: less = a.countryTo.compare(b.countryTo, Qt::CaseInsensitive) < 0; break;
-        case COL_VAT_PAID_TO: less = a.vatPaidTo.compare(b.vatPaidTo, Qt::CaseInsensitive) < 0; break;
-        case COL_TAX_SOURCE: less = a.taxSource.compare(b.taxSource, Qt::CaseInsensitive) < 0; break;
-        case COL_TAX_SCHEME: less = a.taxScheme.compare(b.taxScheme, Qt::CaseInsensitive) < 0; break;
-        case COL_TAX_JURISDICTION: less = a.taxJurisdiction.compare(b.taxJurisdiction, Qt::CaseInsensitive) < 0; break;
-        case COL_CURRENCY: less = a.currency.compare(b.currency, Qt::CaseInsensitive) < 0; break;
-        case COL_AMOUNT_TAXED: less = a.amountTaxed < b.amountTaxed; break;
-        case COL_VAT_AMOUNT: less = a.vatAmount < b.vatAmount; break;
-        case COL_INVOICE_ID: less = a.invoiceId.compare(b.invoiceId, Qt::CaseInsensitive) < 0; break;
-        default: less = a.date < b.date; break;
+        case COL_DATE: return lhs.date < rhs.date;
+        case COL_ORDER_ID: return lhs.orderId.compare(rhs.orderId, Qt::CaseInsensitive) < 0;
+        case COL_ACTIVITY_ID: return lhs.activityId.compare(rhs.activityId, Qt::CaseInsensitive) < 0;
+        case COL_SALE_TYPE: return lhs.saleType.compare(rhs.saleType, Qt::CaseInsensitive) < 0;
+        case COL_COUNTRY_FROM: return lhs.countryFrom.compare(rhs.countryFrom, Qt::CaseInsensitive) < 0;
+        case COL_COUNTRY_TO: return lhs.countryTo.compare(rhs.countryTo, Qt::CaseInsensitive) < 0;
+        case COL_VAT_PAID_TO: return lhs.vatPaidTo.compare(rhs.vatPaidTo, Qt::CaseInsensitive) < 0;
+        case COL_TAX_SOURCE: return lhs.taxSource.compare(rhs.taxSource, Qt::CaseInsensitive) < 0;
+        case COL_TAX_SCHEME: return lhs.taxScheme.compare(rhs.taxScheme, Qt::CaseInsensitive) < 0;
+        case COL_TAX_JURISDICTION: return lhs.taxJurisdiction.compare(rhs.taxJurisdiction, Qt::CaseInsensitive) < 0;
+        case COL_CURRENCY: return lhs.currency.compare(rhs.currency, Qt::CaseInsensitive) < 0;
+        case COL_AMOUNT_TAXED: return lhs.amountTaxed < rhs.amountTaxed;
+        case COL_VAT_AMOUNT: return lhs.vatAmount < rhs.vatAmount;
+        case COL_INVOICE_ID: return lhs.invoiceId.compare(rhs.invoiceId, Qt::CaseInsensitive) < 0;
+        default: return lhs.date < rhs.date;
         }
-        return (order == Qt::AscendingOrder) ? less : !less;
     });
 
     emit layoutChanged();
@@ -133,8 +140,6 @@ void OrderTable::buildRows(const QList<QSharedPointer<Shipment>> &shipments)
         for (const auto &act : ship->getActivities()) {
             OrderRow row;
             row.date = act.getDateTime().date();
-            row.channel = ""; // Not available in simple shipment list
-            row.site = "";    // Not available in simple shipment list
             row.orderId = act.getEventId();
             row.activityId = act.getActivityId();
             row.saleType = toString(act.getSaleType());
@@ -171,8 +176,6 @@ void OrderTable::buildRows(const QSharedPointer<QHash<QString, QHash<QString, QH
                     for (const auto &act : ship->getActivities()) {
                         OrderRow row;
                         row.date = act.getDateTime().date();
-                        row.channel = channel;
-                        row.site = site;
                         row.orderId = act.getEventId();
                         row.activityId = act.getActivityId();
                         row.saleType = toString(act.getSaleType());

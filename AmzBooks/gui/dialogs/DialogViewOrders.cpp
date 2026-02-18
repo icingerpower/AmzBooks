@@ -6,8 +6,12 @@
 #include "orders/OrderInvoicingTable.h"
 #include "orders/Shipment.h"
 #include "orders/Refund.h"
+#include <QStandardItemModel>
 
-DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfos, const CurrencyRateManager *currencyRateManager, const QString &destCurrency, QWidget *parent) :
+DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfos
+                                   , const CurrencyRateManager *currencyRateManager
+                                   , const QString &destCurrency
+                                   , QWidget *parent) :
     QDialog(parent),
     ui(new Ui::DialogViewOrders)
 {
@@ -47,6 +51,33 @@ DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfo
     m_invoicingTable = new OrderInvoicingTable(orderInfos.invoicingInfos, this);
     ui->tableViewInvoicing->setModel(m_invoicingTable);
     ui->tableViewInvoicing->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+
+    // Setup Refund Clues Table
+    m_refundClueModel = new QStandardItemModel(this);
+    m_refundClueModel->setColumnCount(3);
+    m_refundClueModel->setHorizontalHeaderLabels({tr("Order ID"), tr("Amount"), tr("Currency")});
+    for (auto it = orderInfos.orderId_refundClue.constBegin(); it != orderInfos.orderId_refundClue.constEnd(); ++it) {
+        QList<QStandardItem *> row;
+        row << new QStandardItem(it.key());
+        row << new QStandardItem(QString::number(it.value().value, 'f', 2));
+        row << new QStandardItem(it.value().currency);
+        m_refundClueModel->appendRow(row);
+    }
+    ui->tableViewRefundClues->setModel(m_refundClueModel);
+    ui->tableViewRefundClues->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+
+    // Setup Store Info Table
+    m_storeInfoModel = new QStandardItemModel(this);
+    m_storeInfoModel->setColumnCount(2);
+    m_storeInfoModel->setHorizontalHeaderLabels({tr("Event ID"), tr("Store")});
+    for (auto it = orderInfos.orderId_store.constBegin(); it != orderInfos.orderId_store.constEnd(); ++it) {
+        QList<QStandardItem *> row;
+        row << new QStandardItem(it.key());
+        row << new QStandardItem(it.value());
+        m_storeInfoModel->appendRow(row);
+    }
+    ui->tableViewStoreInfos->setModel(m_storeInfoModel);
+    ui->tableViewStoreInfos->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     
     // Connect buttons
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);

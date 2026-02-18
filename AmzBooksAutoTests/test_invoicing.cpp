@@ -443,7 +443,9 @@ void TestInvoicing::test_persistence()
         QString inv2 = generator.getBaseInvoiceNumber(QDate(2026, 10, 2), context, "Amazon", "amazon.fr");
         
         // Trigger save by generating invoice (mocking PDF path)
-        InvoicingInfo info(nullptr);
+        auto resInfo = InvoicingInfo::create(nullptr, {}, "DUMMY");
+        QVERIFY(resInfo.ok());
+        InvoicingInfo info = *resInfo.value;
         Address addr("", "", "", "", "", "", "", "", "", "", "", "");
         OrderManager orderManager(tempDir.path());
         generator.generateInvoice(inv1, "", tempDir.filePath("inv1.pdf"), addr, info, "ORD-1", orderManager);
@@ -570,18 +572,22 @@ void TestInvoicing::test_generateInvoice()
     QString invoiceNum = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr");
     
     // Create InvoicingInfo
-    InvoicingInfo info(nullptr); // no shipment pointer needed for this test part
-    info.setInvoiceNumber(invoiceNum);
+    // Create InvoicingInfo
+    // We need a valid object to pass to generateInvoice.
+    // Accessing result value directly. 
+    InvoicingInfo info = *InvoicingInfo::create(nullptr, {}, invoiceNum).value; // Safe because we provide number
+    
     // Add some items... but LineItem logic is complex to mock without full object graph?
     // InvoicingInfo stores LineItems. 
     // We need to create LineItem.
     // LineItem::create returns Result<LineItem>.
     auto resItem = LineItem::create("SKU1", "Product 1", 100.0, 0.20, 2);
     if (resItem.ok()) {
-        // info.setItems... requires Activity list too.
-        // This is getting complicated to unit test without mocking OrderManager/Activities.
-        // For now, let's test the file generation part with empty items if allowed,
-        // or just minimal set.
+        QList<LineItem> items;
+        items.append(*resItem.value);
+        // We can create a new info with items + number
+        auto resInfoWithItems = InvoicingInfo::create(nullptr, items, invoiceNum);
+        if (resInfoWithItems.ok()) info = *resInfoWithItems.value;
     }
     
     Address addr("John Doe", "123 Rue de la Paix", "", "", "Paris", "75000", "FR", "", "", "", "", "");

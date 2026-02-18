@@ -111,7 +111,9 @@ void TestServiceSales::test_InvoicingInfo_paymentDate()
     // VERIFY 1: InvoicingInfo without payment date returns order date
     {
         QDate orderDate(2025, 3, 15);
-        InvoicingInfo info(nullptr, {}, "INV-001", std::nullopt, std::nullopt);
+        auto res = InvoicingInfo::create(nullptr, {}, "INV-001", std::nullopt, std::nullopt);
+        QVERIFY(res.ok());
+        InvoicingInfo info = *res.value;
         QCOMPARE(info.getPaymentDate(orderDate), orderDate);
     }
     
@@ -119,13 +121,17 @@ void TestServiceSales::test_InvoicingInfo_paymentDate()
     {
         QDate orderDate(2025, 3, 15);
         QDate paymentDate(2025, 4, 30);
-        InvoicingInfo info(nullptr, {}, "INV-002", std::nullopt, paymentDate);
+        auto res = InvoicingInfo::create(nullptr, {}, "INV-002", std::nullopt, paymentDate);
+        QVERIFY(res.ok());
+        InvoicingInfo info = *res.value;
         QCOMPARE(info.getPaymentDate(orderDate), paymentDate);
     }
     
     // VERIFY 3: JSON round-trip without paymentDate
     {
-        InvoicingInfo original(nullptr, {}, "INV-003", "http://link.com", std::nullopt);
+        auto res = InvoicingInfo::create(nullptr, {}, "INV-003", "http://link.com", std::nullopt);
+        QVERIFY(res.ok());
+        InvoicingInfo original = *res.value;
         QJsonObject json = original.toJson();
         QVERIFY(!json.contains("paymentDate"));
         InvoicingInfo loaded = InvoicingInfo::fromJson(json);
@@ -137,7 +143,9 @@ void TestServiceSales::test_InvoicingInfo_paymentDate()
     // VERIFY 4: JSON round-trip with paymentDate
     {
         QDate paymentDate(2025, 5, 31);
-        InvoicingInfo original(nullptr, {}, "INV-004", std::nullopt, paymentDate);
+        auto res = InvoicingInfo::create(nullptr, {}, "INV-004", std::nullopt, paymentDate);
+        QVERIFY(res.ok());
+        InvoicingInfo original = *res.value;
         QJsonObject json = original.toJson();
         QVERIFY(json.contains("paymentDate"));
         QCOMPARE(json["paymentDate"].toString(), "2025-05-31");

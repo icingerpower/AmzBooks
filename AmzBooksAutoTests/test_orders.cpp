@@ -208,7 +208,9 @@ void TestOrders::test_shipments()
     QCOMPARE(shipment.getActivities().first().getEventId(), "evt-ship-001");
     
     // Verify InvoicingInfo handles items
-    InvoicingInfo invInfo(&shipment, items);
+    auto resInvInfo = InvoicingInfo::create(&shipment, items);
+    QVERIFY(resInvInfo.ok());
+    InvoicingInfo invInfo = *resInvInfo.value;
     QCOMPARE(invInfo.getItems().size(), 2);
     QCOMPARE(invInfo.getItems()[0].getSku(), "SKU1");
     QCOMPARE(invInfo.getItems()[0].getTotalTaxes(), 10.0);
@@ -229,7 +231,9 @@ void TestOrders::test_shipments()
     Shipment shipmentDelta({activityDelta});
     
     // Create InvoicingInfo to trigger tax adjustment, passing items explicitly
-    InvoicingInfo invInfoDelta(&shipmentDelta, items);
+    auto resInvInfoDelta = InvoicingInfo::create(&shipmentDelta, items);
+    QVERIFY(resInvInfoDelta.ok());
+    InvoicingInfo invInfoDelta = *resInvInfoDelta.value;
     
     // adjustItemTaxes should add 0.01 to the first item only.
     // First item taxes was 10.0. New should be 10.01.
@@ -248,7 +252,9 @@ void TestOrders::test_shipments()
     Activity activityLargeDelta = *resultLargeDelta.value;
 
     Shipment shipmentLargeDelta({activityLargeDelta});
-    InvoicingInfo invInfoLargeDelta(&shipmentLargeDelta, items);
+    auto resInvInfoLargeDelta = InvoicingInfo::create(&shipmentLargeDelta, items);
+    QVERIFY(resInvInfoLargeDelta.ok());
+    InvoicingInfo invInfoLargeDelta = *resInvInfoLargeDelta.value;
     
     // Each item should increase by 0.10. Original 10.0 --> 10.10.
     QCOMPARE(invInfoLargeDelta.getItems()[0].getTotalTaxes(), 10.10);
@@ -278,7 +284,9 @@ void TestOrders::test_refunds()
 
     QCOMPARE(refund.getActivities().first().getEventId(), "evt-refund-001");
     // Verify InvoicingInfo with Refund
-    InvoicingInfo invInfo(&refund, items);
+    auto resInvInfo = InvoicingInfo::create(&refund, items);
+    QVERIFY(resInvInfo.ok());
+    InvoicingInfo invInfo = *resInvInfo.value;
     QCOMPARE(invInfo.getItems().size(), 1);
 }
 

@@ -26,6 +26,10 @@ private slots:
     void test_invalidCsv();
     void test_realData();
     void test_crossVerifyVsEuVat();
+    void test_vatEu_invoicingInfo();
+    void test_vatEu_invoicingInfoIds();
+    void test_invoicingInfo_validation();
+    void test_vatEu_missingColumn();
 
 private:
     QString m_dataDir;
@@ -577,6 +581,288 @@ void TestFileImportAmazonFbaInvoicing::test_crossVerifyVsEuVat()
     QVERIFY(matches > 0);
     QVERIFY(fbaActivities.size() > 0);
     QVERIFY(vatActivities.size() > 0);
+}
+
+void TestFileImportAmazonFbaInvoicing::test_vatEu_invoicingInfo()
+{
+    QTemporaryDir tempDir;
+    QString file = tempDir.filePath("vat_eu_invoicing.csv");
+    QFile f(file);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream out(&f);
+
+    // Header
+    // Required columns for ImporterFileAmazonVatEu + optional invoice columns
+    out << "\"TRANSACTION_TYPE\",\"PRICE_OF_ITEMS_VAT_RATE_PERCENT\",\"TRANSACTION_COMPLETE_DATE\",\"TAX_CALCULATION_DATE\",\"VAT_CALCULATION_IMPUTATION_COUNTRY\",\"PRODUCT_TAX_CODE\",\"TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL\",\"PRICE_OF_ITEMS_AMT_VAT_EXCL\",\"TOTAL_ACTIVITY_VALUE_VAT_AMT\",\"VAT_INV_NUMBER\",\"TRANSACTION_CURRENCY_CODE\",\"MARKETPLACE\",\"INVOICE_URL\",\"TRANSACTION_EVENT_ID\",\"ACTIVITY_TRANSACTION_ID\",\"TAX_COLLECTION_RESPONSIBILITY\",\"TAX_REPORTING_SCHEME\",\"SALE_DEPART_COUNTRY\",\"SALE_ARRIVAL_COUNTRY\"\n";
+
+    // 1. Sale with Invoice Number and URL
+    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-001\",\"EUR\",\"amazon.fr\",\"http://invoice/1\",\"ORDER-001\",\"ACT-001\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+
+    // 2. Sale with Invoice Number, no URL
+    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-002\",\"EUR\",\"amazon.fr\",\"\",\"ORDER-002\",\"ACT-002\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+
+    // 3. Refund with Invoice Number and URL
+    out << "\"REFUND\",\"20.0\",\"17-01-2025\",\"18-01-2025\",\"FR\",\"PTC1\",\"-10.00\",\"-2.00\",\"-10.00\",\"-2.00\",\"INV-003\",\"EUR\",\"amazon.fr\",\"http://invoice/3\",\"ORDER-003\",\"ACT-003\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+
+    // 4. Sale without Invoice Number (Marketplace?)
+    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"\",\"EUR\",\"amazon.fr\",\"\",\"ORDER-004\",\"ACT-004\",\"MARKETPLACE\",\"UNION-OSS\",\"FR\",\"FR\"\n";
+
+    // 5. Valid Sale (to reach 80% - 4/5)
+    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-005\",\"EUR\",\"amazon.fr\",\"http://invoice/5\",\"ORDER-005\",\"ACT-005\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+
+    f.close();
+
+    ImporterFileAmazonVatEu importer(tempDir.path());
+    auto task = importer.loadReport(file);
+    auto result = QCoro::waitFor(task);
+
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QVERIFY(result.orderInfos);
+
+    // Total activities: 5
+    // Expected >= 80% have Invoice Number / Link / Payment Date
+    // Here we have 4 out of 5 with Invoice Number (80%)
+    
+    int countWithInvoiceId = 0;
+    int countTotal = 0;
+    
+    // Check Activities
+    for (const auto &s : result.orderInfos->shipments) {
+        for (const auto &a : s.getActivities()) {
+            countTotal++;
+            if (!a.getInvoiceId().isEmpty()) countWithInvoiceId++;
+            
+            // Check specific cases
+             if (a.getEventId() == "ORDER-001") {
+                 QCOMPARE(a.getInvoiceId(), "INV-001");
+             }
+        }
+    }
+    for (const auto &r : result.orderInfos->refunds) {
+        for (const auto &a : r.getActivities()) {
+            countTotal++;
+            if (!a.getInvoiceId().isEmpty()) countWithInvoiceId++;
+             if (a.getEventId() == "ORDER-003") {
+                 QCOMPARE(a.getInvoiceId(), "INV-003");
+             }
+        }
+    }
+    
+    QVERIFY(countTotal > 0);
+    // Requirement checking
+    qDebug() << "Complete Invoice IDs:" << countWithInvoiceId << "/" << countTotal;
+    // We expect 4/5 = 80%. 
+    // Is it strictly > ? "80% ... should have complete values". >= 80%.
+    QVERIFY(countWithInvoiceId * 100 >= countTotal * 80);
+
+
+    // Check InvoicingInfos
+    // We expect InvoicingInfo to be created for each shipment/refund
+    int infoCount = result.orderInfos->invoicingInfos.size();
+    int infoWithNum = 0;
+    int infoWithLink = 0;
+    int infoWithDate = 0;
+
+    QSet<QString> shipmentIds;
+    for(const auto &s : result.orderInfos->shipments) shipmentIds.insert(s.getId());
+    for(const auto &r : result.orderInfos->refunds) shipmentIds.insert(r.getId());
+
+    for (const auto &pair : result.orderInfos->invoicingInfos) {
+        const auto &info = pair.invoicingInfo;
+        
+        // Verify Shipment / refund ID should all be included in the ids of Shipment::getId() / Refund::getId()
+        // The ID in InvoicingInfos is the eventID (ORDER-XXX) or the ShipmentID depending on Importer.
+        // ImporterFileAmazonVatEu uses eventId as the key in invoicingInfos.
+        // But Shipment ID might be constructed from eventID?
+        // In ImporterFileAmazonVatEu:
+        // Shipment shipment(ts.activities); -> AbstractImporter logic: Shipment ID is usually unrelated unless set?
+        // Actually Shipment constructor generates a UUID if not provided?
+        // Or it takes activities. Activity has eventId.
+        // Let's check Shipment.h / cpp if needed, but assuming here:
+        // ImporterFileAmazonVatEu doesn't explicitly set Shipment ID, it uses default constructor taking activities.
+        // It does however append to `shipments`.
+        
+        // Wait, the user requirement: "Shipment / refund ID should all be included in the ids of Shipment::getId() / Refund::getId()"
+        // This likely refers to `pair.shipmentOrRefundId` matching one of the loaded shipments/refunds.
+        // `pair.shipmentOrRefundId` is set to `eventId` in `ImporterFileAmazonVatEu.cpp`.
+        // Does `Shipment::getId()` return `eventId`?
+        // Shipment usually has its own ID.
+        // If ImporterFileAmazonVatEu doesn't set ID, it might be random.
+        // But `Shipment` might derive ID from first activity?
+        // Generally good practice to link them.
+        // In `ImporterFileAmazonVatEu`, we do NOT set shipment ID explicitly.
+        // However, we set `eventId` in `invoicingInfos`.
+        
+        // Actually, `InvoicingInfoWithId` has `shipmentOrRefundId`.
+        // We should verify that this ID exists in the list of Shipments/Refunds *if* strictly linked.
+        // But here `eventId` (ORDER-XXX) is used.
+        // Check if Shipment::getId() == eventId?
+        // Probably not, unless Shipment logic validates it.
+        // But if `InvoicingInfo` is attached to a `Shipment`, maybe `shipmentOrRefundId` *should* be the Shipment ID.
+        // My implementation in `ImporterFileAmazonVatEu.cpp` used `eventId` as key.
+        // If validation fails, I might need to adjust Importer to use Shipment ID as key?
+        // But `Shipment` is created inside the loop.
+        // Let's verify what `Shipment::getId()` returns.
+        // Since I can't see Shipment.cpp right now, I'll assume I should verify if `pair.shipmentOrRefundId` acts as a valid foreign key?
+        // Or maybe just check complete values.
+        
+        if (info.getInvoiceNumber().has_value() && !info.getInvoiceNumber()->isEmpty()) {
+            infoWithNum++;
+        }
+        if (info.getInvoiceLink().has_value() && !info.getInvoiceLink()->isEmpty()) {
+            infoWithLink++;
+        }
+        
+        QDate dummyDefault(2000, 1, 1);
+        QDate pDate = info.getPaymentDate(dummyDefault);
+        
+        if (pDate != dummyDefault) {
+            infoWithDate++;
+        }
+    }
+
+    // 4/5 = 80%
+    QVERIFY(infoWithNum * 100 >= infoCount * 80);
+    QVERIFY(infoWithLink * 100 >= infoCount * 80);
+    QVERIFY(infoWithDate * 100 >= infoCount * 80);
+}
+
+void TestFileImportAmazonFbaInvoicing::test_invoicingInfo_validation()
+{
+    // Test strictly that we cannot create empty InvoicingInfo
+    auto res = InvoicingInfo::create(nullptr, {}, std::nullopt, std::nullopt, std::nullopt);
+    QVERIFY(!res.ok());
+    QVERIFY(!res.errors.isEmpty());
+    QVERIFY(res.errors.first().message.contains("must have at least one"));
+
+    // Valid cases
+    // 1. With Items
+    QList<LineItem> items;
+    auto itemRes = LineItem::create("SKU1", "Test", 10.0, 0.2, 1);
+    QVERIFY(itemRes.ok());
+    items.append(*itemRes.value);
+    auto res1 = InvoicingInfo::create(nullptr, items);
+    QVERIFY(res1.ok());
+
+    // 2. With Number
+    auto res2 = InvoicingInfo::create(nullptr, {}, "INV-001");
+    QVERIFY(res2.ok());
+
+    // 3. With Link
+    auto res3 = InvoicingInfo::create(nullptr, {}, std::nullopt, "http://link");
+    QVERIFY(res3.ok());
+}
+
+void TestFileImportAmazonFbaInvoicing::test_vatEu_missingColumn()
+{
+    QTemporaryDir tempDir;
+    QString file = tempDir.filePath("vat_eu_missing.csv");
+    QFile f(file);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream out(&f);
+
+    // Missing TRANSACTION_TYPE
+    out << "\"PRICE_OF_ITEMS_VAT_RATE_PERCENT\",\"TRANSACTION_COMPLETE_DATE\",\"TAX_CALCULATION_DATE\",\"VAT_CALCULATION_IMPUTATION_COUNTRY\",\"PRODUCT_TAX_CODE\",\"TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL\",\"PRICE_OF_ITEMS_AMT_VAT_EXCL\",\"TOTAL_ACTIVITY_VALUE_VAT_AMT\",\"VAT_INV_NUMBER\",\"TRANSACTION_CURRENCY_CODE\",\"MARKETPLACE\",\"INVOICE_URL\",\"TRANSACTION_EVENT_ID\",\"ACTIVITY_TRANSACTION_ID\",\"TAX_COLLECTION_RESPONSIBILITY\",\"TAX_REPORTING_SCHEME\",\"SALE_DEPART_COUNTRY\",\"SALE_ARRIVAL_COUNTRY\"\n";
+    out << "\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-001\",\"EUR\",\"amazon.fr\",\"http://invoice/1\",\"ORDER-001\",\"ACT-001\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+    f.close();
+
+    ImporterFileAmazonVatEu importer(tempDir.path());
+    bool exceptionCaught = false;
+    try {
+        auto task = importer.loadReport(file);
+        auto result = QCoro::waitFor(task);
+        if (!result.errorReturned.isEmpty() && result.errorReturned.contains("Missing column")) {
+            exceptionCaught = true;
+        }
+    } catch (const CsvHeaderException &e) {
+        exceptionCaught = true;
+        qDebug() << "Caught expected CsvHeaderException:" << e.what();
+    } catch (const std::exception &e) {
+        qDebug() << "Caught std::exception:" << e.what();
+         // If CsvHeaderException inherits std::exception, this might catch it if not caught above.
+         // Assuming we want CsvHeaderException specifically if types differ. 
+         // But here we just want to ensure it throws.
+        exceptionCaught = true;
+    } catch (...) {
+        qDebug() << "Caught unknown exception";
+        exceptionCaught = true;
+    }
+    
+    QVERIFY(exceptionCaught);
+}
+
+void TestFileImportAmazonFbaInvoicing::test_vatEu_invoicingInfoIds()
+{
+    // Create a CSV with multiple Sales and Refunds with different order IDs (eventId)
+    // and different activity IDs (actId). The test verifies that
+    // InvoicingInfoWithId::shipmentOrRefundId matches Shipment::getId() / Refund::getId()
+    // and NOT the order ID (eventId).
+    QTemporaryDir tempDir;
+    QString file = tempDir.filePath("vat_eu_ids_test.csv");
+    QFile f(file);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream out(&f);
+
+    // Header
+    out << "\"TRANSACTION_TYPE\",\"PRICE_OF_ITEMS_VAT_RATE_PERCENT\",\"TRANSACTION_COMPLETE_DATE\",\"TAX_CALCULATION_DATE\",\"VAT_CALCULATION_IMPUTATION_COUNTRY\",\"PRODUCT_TAX_CODE\",\"TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL\",\"PRICE_OF_ITEMS_AMT_VAT_EXCL\",\"TOTAL_ACTIVITY_VALUE_VAT_AMT\",\"VAT_INV_NUMBER\",\"TRANSACTION_CURRENCY_CODE\",\"MARKETPLACE\",\"INVOICE_URL\",\"TRANSACTION_EVENT_ID\",\"ACTIVITY_TRANSACTION_ID\",\"TAX_COLLECTION_RESPONSIBILITY\",\"TAX_REPORTING_SCHEME\",\"SALE_DEPART_COUNTRY\",\"SALE_ARRIVAL_COUNTRY\"\n";
+
+    // Sale 1: order=ORD-100, shipment=SHIP-A01
+    out << "\"SALE\",\"20.0\",\"10-01-2025\",\"10-01-2025\",\"FR\",\"PTC1\",\"50.00\",\"10.00\",\"10.00\",\"INV-A01\",\"EUR\",\"amazon.fr\",\"http://inv/a01\",\"ORD-100\",\"SHIP-A01\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+
+    // Sale 2: order=ORD-200, shipment=SHIP-B02
+    out << "\"SALE\",\"20.0\",\"11-01-2025\",\"11-01-2025\",\"DE\",\"PTC1\",\"30.00\",\"6.00\",\"6.00\",\"INV-B02\",\"EUR\",\"amazon.de\",\"http://inv/b02\",\"ORD-200\",\"SHIP-B02\",\"SELLER\",\"REGULAR\",\"DE\",\"DE\"\n";
+
+    // Refund 1: order=ORD-300, refund=REF-C03
+    out << "\"REFUND\",\"20.0\",\"12-01-2025\",\"12-01-2025\",\"FR\",\"PTC1\",\"-25.00\",\"-5.00\",\"-5.00\",\"INV-C03\",\"EUR\",\"amazon.fr\",\"http://inv/c03\",\"ORD-300\",\"REF-C03\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+
+    // Sale 3: same order as Sale 1 but different shipment: order=ORD-100, shipment=SHIP-D04
+    out << "\"SALE\",\"20.0\",\"13-01-2025\",\"13-01-2025\",\"FR\",\"PTC1\",\"15.00\",\"3.00\",\"3.00\",\"INV-D04\",\"EUR\",\"amazon.fr\",\"http://inv/d04\",\"ORD-100\",\"SHIP-D04\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+
+    f.close();
+
+    ImporterFileAmazonVatEu importer(tempDir.path());
+    auto task = importer.loadReport(file);
+    auto result = QCoro::waitFor(task);
+
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QVERIFY(result.orderInfos);
+
+    // We should have 3 shipments (SHIP-A01, SHIP-B02, SHIP-D04) and 1 refund (REF-C03)
+    QCOMPARE(result.orderInfos->shipments.size(), 3);
+    QCOMPARE(result.orderInfos->refunds.size(), 1);
+
+    // Collect all valid shipment/refund IDs
+    QSet<QString> validIds;
+    for (const auto &s : result.orderInfos->shipments) {
+        QString id = s.getId();
+        QVERIFY2(!id.isEmpty(), "Shipment ID should not be empty");
+        validIds.insert(id);
+    }
+    for (const auto &r : result.orderInfos->refunds) {
+        QString id = r.getId();
+        QVERIFY2(!id.isEmpty(), "Refund ID should not be empty");
+        validIds.insert(id);
+    }
+
+    qDebug() << "Valid shipment/refund IDs:" << validIds;
+    QCOMPARE(validIds.size(), 4); // SHIP-A01, SHIP-B02, SHIP-D04, REF-C03
+
+    // Verify that every InvoicingInfoWithId::shipmentOrRefundId is a valid shipment/refund ID
+    QVERIFY(!result.orderInfos->invoicingInfos.isEmpty());
+    for (const auto &info : result.orderInfos->invoicingInfos) {
+        QVERIFY2(validIds.contains(info.shipmentOrRefundId),
+                 qPrintable(QString("InvoicingInfoWithId::shipmentOrRefundId '%1' not found in shipment/refund IDs: %2")
+                            .arg(info.shipmentOrRefundId, QStringList(validIds.begin(), validIds.end()).join(", "))));
+    }
+
+    // Also verify no InvoicingInfo uses the order ID (eventId) as its key.
+    // This would be the bug if ts.eventId = eventId was used instead of ts.eventId = actId.
+    QSet<QString> orderIds = {"ORD-100", "ORD-200", "ORD-300"};
+    for (const auto &info : result.orderInfos->invoicingInfos) {
+        QVERIFY2(!orderIds.contains(info.shipmentOrRefundId),
+                 qPrintable(QString("InvoicingInfoWithId::shipmentOrRefundId '%1' is an order ID, not a shipment/refund ID")
+                            .arg(info.shipmentOrRefundId)));
+    }
 }
 
 QTEST_GUILESS_MAIN(TestFileImportAmazonFbaInvoicing)

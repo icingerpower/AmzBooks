@@ -19,8 +19,8 @@
 class Activity final
 {
 public:
-    static Result<Activity> create(QString eventId,                 // Order/shipment/refund/stock-move external ID (scoped by the owner entity)
-                                   QString activityId,              // Normalized immutable ID for this activity line
+    static Result<Activity> create(QString eventId,                 // Order/stock-move external ID (scoped by the owner entity)
+                                   QString activityId,              // Normalized immutable ID for this activity line, one per shipment/refund
                                    QString subActivityId,           // Optional sub-ID (e.g. for split lines)
                                    QDateTime dateTime,              // Bookkeeping datetime (recognition time)
                                    QString currency,                // ISO 4217 (e.g., "EUR")

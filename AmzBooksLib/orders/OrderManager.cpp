@@ -34,6 +34,7 @@ namespace {
 OrderManager::OrderManager(const QDir &workingDirectory)
 {
     m_filePathDb = workingDirectory.absoluteFilePath("Orders.db");
+    m_connectionName = QString("OrderManager_%1").arg(reinterpret_cast<quintptr>(this));
     initDb();
 }
 
@@ -42,11 +43,12 @@ OrderManager::~OrderManager()
     if (m_db.isOpen()) {
         m_db.close();
     }
+    QSqlDatabase::removeDatabase(m_connectionName);
 }
 
 void OrderManager::initDb()
 {
-    m_db = QSqlDatabase::addDatabase("QSQLITE");
+    m_db = QSqlDatabase::addDatabase("QSQLITE", m_connectionName);
     m_db.setDatabaseName(m_filePathDb);
     
     if (!m_db.open()) {
@@ -54,7 +56,7 @@ void OrderManager::initDb()
         return;
     }
 
-    QSqlQuery query;
+    QSqlQuery query(m_db);
     query.exec("PRAGMA foreign_keys = ON;");
 
     if (!query.exec(OrderManagerSql::CREATE_TABLE_ORDERS)) {
@@ -72,7 +74,8 @@ void OrderManager::initDb()
 
     // Migration: Add store column if missing
     {
-        QSqlQuery qMig("PRAGMA table_info(orders)");
+        QSqlQuery qMig(m_db);
+        qMig.exec("PRAGMA table_info(orders)");
         bool hasStore = false;
         while (qMig.next()) {
             if (qMig.value("name").toString() == "store") {
@@ -81,7 +84,7 @@ void OrderManager::initDb()
             }
         }
         if (!hasStore) {
-            QSqlQuery qAlter;
+            QSqlQuery qAlter(m_db);
             if (!qAlter.exec("ALTER TABLE orders ADD COLUMN store TEXT")) {
                 qWarning() << "Failed to add store column to orders:" << qAlter.lastError().text();
             }
@@ -90,7 +93,8 @@ void OrderManager::initDb()
 
     // Migration: Add inserted_at column if missing in orders
     {
-        QSqlQuery qMig("PRAGMA table_info(orders)");
+        QSqlQuery qMig(m_db);
+        qMig.exec("PRAGMA table_info(orders)");
         bool hasInsertedAt = false;
         while (qMig.next()) {
             if (qMig.value("name").toString() == "inserted_at") {
@@ -99,7 +103,7 @@ void OrderManager::initDb()
             }
         }
         if (!hasInsertedAt) {
-            QSqlQuery qAlter;
+            QSqlQuery qAlter(m_db);
             if (!qAlter.exec("ALTER TABLE orders ADD COLUMN inserted_at TEXT")) {
                 qWarning() << "Failed to add inserted_at column to orders:" << qAlter.lastError().text();
             }
@@ -108,7 +112,8 @@ void OrderManager::initDb()
 
     // Migration: Add inserted_at column if missing in shipments
     {
-        QSqlQuery qMig("PRAGMA table_info(shipments)");
+        QSqlQuery qMig(m_db);
+        qMig.exec("PRAGMA table_info(shipments)");
         bool hasInsertedAt = false;
         while (qMig.next()) {
             if (qMig.value("name").toString() == "inserted_at") {
@@ -117,7 +122,7 @@ void OrderManager::initDb()
             }
         }
         if (!hasInsertedAt) {
-            QSqlQuery qAlter;
+            QSqlQuery qAlter(m_db);
             if (!qAlter.exec("ALTER TABLE shipments ADD COLUMN inserted_at TEXT")) {
                 qWarning() << "Failed to add inserted_at column to shipments:" << qAlter.lastError().text();
             }
@@ -127,7 +132,7 @@ void OrderManager::initDb()
 
 QDateTime OrderManager::getLastDateTime(ActivitySource *activitySource) const
 {
-    QSqlQuery query;
+    QSqlQuery query(m_db);
     query.prepare("SELECT MAX(event_date) FROM shipments WHERE source_key = ?");
     query.addBindValue(getSourceKey(activitySource));
     if (query.exec() && query.next()) {
@@ -141,7 +146,7 @@ QDateTime OrderManager::getLastDateTime(ActivitySource *activitySource) const
 
 QDateTime OrderManager::getBeginDateTime(ActivitySource *activitySource) const
 {
-    QSqlQuery query;
+    QSqlQuery query(m_db);
     query.prepare("SELECT MIN(event_date) FROM shipments WHERE source_key = ?");
     query.addBindValue(getSourceKey(activitySource));
     if (query.exec() && query.next()) {
@@ -155,7 +160,7 @@ QDateTime OrderManager::getBeginDateTime(ActivitySource *activitySource) const
 
 bool OrderManager::containsOrder(const QString &orderId) const
 {
-    QSqlQuery q;
+    QSqlQuery q(m_db);
     q.prepare("SELECT 1 FROM orders WHERE id = ?");
     q.addBindValue(orderId);
     return q.exec() && q.next();
@@ -163,7 +168,7 @@ bool OrderManager::containsOrder(const QString &orderId) const
 
 bool OrderManager::containsShipmentOrRefund(const QString &shipmentOrRefundId) const
 {
-    QSqlQuery q;
+    QSqlQuery q(m_db);
     q.prepare("SELECT 1 FROM shipments WHERE id = ?");
     q.addBindValue(shipmentOrRefundId);
     return q.exec() && q.next();
@@ -177,7 +182,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
     if (!shipmentOrRefund) return;
     
     {
-        QSqlQuery qCheck;
+        QSqlQuery qCheck(m_db);
         qCheck.prepare("INSERT OR IGNORE INTO orders (id, inserted_at) VALUES (?, ?)");
         qCheck.addBindValue(orderId);
         qCheck.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
@@ -192,7 +197,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
     QString eventDate = shipmentOrRefund->getActivities().first().getDateTime().toString(Qt::ISODate);
     QString sourceKey = getSourceKey(activitySource);
 
-    QSqlQuery qSel;
+    QSqlQuery qSel(m_db);
     qSel.prepare("SELECT status, original_json, current_json FROM shipments WHERE id = ?");
     qSel.addBindValue(id);
     
@@ -201,7 +206,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
         QString currentJson = qSel.value("current_json").toString();
         
         if (status == "Draft") {
-            QSqlQuery qUpd;
+            QSqlQuery qUpd(m_db);
             qUpd.prepare("UPDATE shipments SET original_json = ?, current_json = ?, event_date = ?, source_key = ? WHERE id = ?");
             qUpd.addBindValue(jsonStr);
             qUpd.addBindValue(jsonStr); 
@@ -218,7 +223,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
             QString latestId = id; // Default to root if no revisions
 
             // Check if this content matches the LATEST PUBLISHED revision (if any)
-            QSqlQuery qLatest;
+            QSqlQuery qLatest(m_db);
             qLatest.prepare("SELECT id, current_json FROM shipments WHERE root_id = ? AND status = 'Published' ORDER BY event_date DESC, id DESC LIMIT 1");
             qLatest.addBindValue(id); // Search by root_id
             
@@ -245,7 +250,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                 QString reversalId = QString("%1-rev-%2").arg(id).arg(timestamp);
                 QString newVersionId = QString("%1-v-%2").arg(id).arg(timestamp);
                 
-                QSqlQuery qCheckDrafts;
+                QSqlQuery qCheckDrafts(m_db);
                 qCheckDrafts.prepare("SELECT id FROM shipments WHERE root_id = ? AND status = 'Draft'");
                 qCheckDrafts.addBindValue(id);
                 
@@ -255,7 +260,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                         draftsFound = true;
                          QString draftId = qCheckDrafts.value(0).toString();
                          if (draftId.contains("-v-")) {
-                             QSqlQuery qUpd;
+                             QSqlQuery qUpd(m_db);
                              qUpd.prepare("UPDATE shipments SET original_json = ?, current_json = ?, event_date = ?, source_key = ? WHERE id = ?");
                              qUpd.addBindValue(jsonStr);
                              qUpd.addBindValue(jsonStr);
@@ -271,7 +276,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                     // Create Double Entry
                     // Reversal of the LATEST VALID State (latestJson)
                     {
-                        QSqlQuery qInsRev;
+                        QSqlQuery qInsRev(m_db);
                         qInsRev.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, root_id, inserted_at) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?)");
                         qInsRev.addBindValue(reversalId);
                         qInsRev.addBindValue(orderId);
@@ -286,7 +291,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                     
                     // New Version
                     {
-                        QSqlQuery qInsNew;
+                        QSqlQuery qInsNew(m_db);
                         qInsNew.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, root_id, inserted_at) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?)");
                         qInsNew.addBindValue(newVersionId);
                         qInsNew.addBindValue(orderId);
@@ -302,7 +307,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                 } else if (contentDiffers) {
                 // No financial conflict, but content differs (e.g. date change in same month, or address)
                 // Update the LATEST revision in place
-                QSqlQuery qUpd;
+                QSqlQuery qUpd(m_db);
                 qUpd.prepare("UPDATE shipments SET current_json = ?, event_date = ?, source_key = ? WHERE id = ?");
                 qUpd.addBindValue(jsonStr);
                 qUpd.addBindValue(newDateIfConflict.isValid() ? newDateIfConflict.toString(Qt::ISODate) : eventDate);
@@ -312,7 +317,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
             }
         }
     } else {
-        QSqlQuery qIns;
+        QSqlQuery qIns(m_db);
         qIns.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, inserted_at) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?)");
         qIns.addBindValue(id);
         qIns.addBindValue(orderId);
@@ -334,7 +339,7 @@ void OrderManager::recordShipmentUpdated(const QString &orderId,
     QString id = shipmentOrRefund->getId();
     QString jsonStr = QJsonDocument(shipmentOrRefund->toJson()).toJson(QJsonDocument::Compact);
 
-    QSqlQuery qUpd;
+    QSqlQuery qUpd(m_db);
     qUpd.prepare("UPDATE shipments SET current_json = ? WHERE id = ?");
     qUpd.addBindValue(jsonStr);
     qUpd.addBindValue(id);
@@ -347,7 +352,7 @@ void OrderManager::removeOrder(const QString &orderId)
 
     // 1. Check if any shipment is Published
     {
-        QSqlQuery qCheck;
+        QSqlQuery qCheck(m_db);
         qCheck.prepare("SELECT COUNT(*) FROM shipments WHERE order_id = ? AND status = 'Published'");
         qCheck.addBindValue(orderId);
         if (qCheck.exec() && qCheck.next()) {
@@ -365,7 +370,7 @@ void OrderManager::removeOrder(const QString &orderId)
     // 2. Delete Invoicing Info
     // We delete where shipment_root_id corresponds to any shipment of this order.
     {
-        QSqlQuery qDelInv;
+        QSqlQuery qDelInv(m_db);
         qDelInv.prepare("DELETE FROM invoicing_infos WHERE shipment_root_id IN (SELECT id FROM shipments WHERE order_id = ?)");
         qDelInv.addBindValue(orderId);
         qDelInv.exec();
@@ -373,7 +378,7 @@ void OrderManager::removeOrder(const QString &orderId)
     
     // 3. Delete Shipments (and refunds which are stored in shipments table)
     {
-        QSqlQuery qDelShip;
+        QSqlQuery qDelShip(m_db);
         qDelShip.prepare("DELETE FROM shipments WHERE order_id = ?");
         qDelShip.addBindValue(orderId);
         qDelShip.exec();
@@ -381,7 +386,7 @@ void OrderManager::removeOrder(const QString &orderId)
 
     // 4. Delete Order
     {
-        QSqlQuery qDelOrd;
+        QSqlQuery qDelOrd(m_db);
         qDelOrd.prepare("DELETE FROM orders WHERE id = ?");
         qDelOrd.addBindValue(orderId);
         qDelOrd.exec();
@@ -398,7 +403,7 @@ void OrderManager::removeShipmenOrRefund(const QString &shipmentOrRefundId)
     bool isPublished = false;
 
     {
-        QSqlQuery q;
+        QSqlQuery q(m_db);
         q.prepare("SELECT COALESCE(root_id, id), order_id, status FROM shipments WHERE id = ?");
         q.addBindValue(shipmentOrRefundId);
         if (q.exec() && q.next()) {
@@ -417,7 +422,7 @@ void OrderManager::removeShipmenOrRefund(const QString &shipmentOrRefundId)
     // 2. Check if this is the only logical shipment (root) for the order
     int count = 0;
     {
-        QSqlQuery q;
+        QSqlQuery q(m_db);
         q.prepare("SELECT COUNT(DISTINCT COALESCE(root_id, id)) FROM shipments WHERE order_id = ?");
         q.addBindValue(orderId);
         if (q.exec() && q.next()) {
@@ -433,14 +438,14 @@ void OrderManager::removeShipmenOrRefund(const QString &shipmentOrRefundId)
         m_db.transaction();
         
         {
-            QSqlQuery qDelInv;
+            QSqlQuery qDelInv(m_db);
             qDelInv.prepare("DELETE FROM invoicing_infos WHERE shipment_root_id = ?");
             qDelInv.addBindValue(rootId);
             qDelInv.exec();
         }
         
         {
-            QSqlQuery qDelShip;
+            QSqlQuery qDelShip(m_db);
             qDelShip.prepare("DELETE FROM shipments WHERE root_id = ? OR id = ?");
             qDelShip.addBindValue(rootId);
             qDelShip.addBindValue(rootId);
@@ -454,14 +459,14 @@ void OrderManager::removeShipmenOrRefund(const QString &shipmentOrRefundId)
 void OrderManager::recordAddressTo(const QString &orderId, const Address &addressTo)
 {
     {
-        QSqlQuery qCheck;
+        QSqlQuery qCheck(m_db);
         qCheck.prepare("INSERT OR IGNORE INTO orders (id) VALUES (?)");
         qCheck.addBindValue(orderId);
         qCheck.exec();
     }
     
     QString jsonStr = QJsonDocument(addressTo.toJson()).toJson(QJsonDocument::Compact);
-    QSqlQuery qUpd;
+    QSqlQuery qUpd(m_db);
     qUpd.prepare("UPDATE orders SET address_json = ? WHERE id = ?");
     qUpd.addBindValue(jsonStr);
     qUpd.addBindValue(orderId);
@@ -470,7 +475,7 @@ void OrderManager::recordAddressTo(const QString &orderId, const Address &addres
 
 void OrderManager::recordOrder(const QString &orderId, const QString &store)
 {
-    QSqlQuery q;
+    QSqlQuery q(m_db);
     q.prepare("INSERT INTO orders (id, store, inserted_at) VALUES (?, ?, ?) "
               "ON CONFLICT(id) DO UPDATE SET store=excluded.store");
     q.addBindValue(orderId);
@@ -492,7 +497,7 @@ void OrderManager::recordInvoicingInfo(const QString &shipmentOrRefundId,
     // If 'shipmentOrRefundId' is a revision, we fetch its root. If it's already a root, we use it directly.
     QString rootId = shipmentOrRefundId;
     {
-        QSqlQuery q;
+        QSqlQuery q(m_db);
         q.prepare("SELECT COALESCE(root_id, id) FROM shipments WHERE id = ?");
         q.addBindValue(shipmentOrRefundId);
         if (q.exec() && q.next()) {
@@ -502,7 +507,7 @@ void OrderManager::recordInvoicingInfo(const QString &shipmentOrRefundId,
     
     // 2. Persist the Info
     // We use INSERT OR REPLACE to update existing info or create new one.
-    QSqlQuery q;
+    QSqlQuery q(m_db);
     q.prepare("INSERT OR REPLACE INTO invoicing_infos (shipment_root_id, json) VALUES (?, ?)");
     q.addBindValue(rootId);
     q.addBindValue(QString::fromUtf8(QJsonDocument(invoicingInfo->toJson()).toJson(QJsonDocument::Compact)));
@@ -534,7 +539,7 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
 
     QList<ShipmentInfo> shipments;
     {
-        QSqlQuery q;
+        QSqlQuery q(m_db);
         q.prepare("SELECT id, current_json, source_key FROM shipments WHERE order_id = ? AND id NOT LIKE '%-rev-%'");
         q.addBindValue(orderId);
         if (q.exec()) {
@@ -690,7 +695,7 @@ QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfo(const QString &ship
     // We need to look up the info using the stable root ID.
     QString rootId = shipmentId;
     {
-        QSqlQuery q;
+        QSqlQuery q(m_db);
         q.prepare("SELECT COALESCE(root_id, id) FROM shipments WHERE id = ?");
         q.addBindValue(shipmentId);
         if (q.exec() && q.next()) {
@@ -699,7 +704,7 @@ QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfo(const QString &ship
     }
     
     // 2. Retrieve Data
-    QSqlQuery q;
+    QSqlQuery q(m_db);
     q.prepare("SELECT json FROM invoicing_infos WHERE shipment_root_id = ?");
     q.addBindValue(rootId);
     if (q.exec() && q.next()) {
@@ -718,7 +723,7 @@ void OrderManager::publish(QDate &dateUntil)
     QString dateParam = dateUntil.toString(Qt::ISODate);
     
     // Process Drafts (Including Revisions)
-    QSqlQuery qDrafts;
+    QSqlQuery qDrafts(m_db);
     qDrafts.prepare("SELECT id, current_json, root_id FROM shipments WHERE status = 'Draft' AND (event_date IS NULL OR event_date <= ?)");
     qDrafts.addBindValue(dateParam);
     if (qDrafts.exec()) {
@@ -768,7 +773,7 @@ void OrderManager::publish(QDate &dateUntil)
                 // Or user meant "Activity" to be stored?
                 // I will store the whole shipment JSON as before, but create rows for each activity.
 
-                QSqlQuery qIns;
+                QSqlQuery qIns(m_db);
                 qIns.prepare("INSERT INTO financial_events (id, shipment_id, type, event_date, amount, currency, content_json) VALUES (?, ?, ?, ?, ?, ?, ?)");
                 qIns.addBindValue(invoiceId);
                 qIns.addBindValue(id);
@@ -783,7 +788,7 @@ void OrderManager::publish(QDate &dateUntil)
                 }
             }
             
-            QSqlQuery qUpd;
+            QSqlQuery qUpd(m_db);
             qUpd.prepare("UPDATE shipments SET status = 'Published', published_json = current_json, publication_date = ? WHERE id = ?");
             qUpd.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
             qUpd.addBindValue(id);
@@ -799,7 +804,7 @@ ActivityUpdate *OrderManager::createActivityUpdateModel(const QString &shipmentI
     ActivityUpdate *model = new ActivityUpdate(parent);
     QList<ActivityUpdateItem> items;
     
-    QSqlQuery q;
+    QSqlQuery q(m_db);
     q.prepare("SELECT event_date, type, id, amount, currency FROM financial_events WHERE shipment_id = ? OR shipment_id LIKE ? ORDER BY event_date DESC");
     q.addBindValue(shipmentId);
     q.addBindValue(shipmentId + "-%"); // Match revisions
@@ -836,7 +841,8 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
         queryStr += QString(" AND event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
     }
     
-    QSqlQuery query(queryStr);
+    QSqlQuery query(m_db);
+    query.exec(queryStr);
     
     while (query.next()) {
         QString jsonStr = query.value(0).toString();
@@ -913,7 +919,8 @@ QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManag
         queryStr += QString(" AND event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
     }
     
-    QSqlQuery query(queryStr);
+    QSqlQuery query(m_db);
+    query.exec(queryStr);
     
     while (query.next()) {
         QString jsonStr = query.value(0).toString();
@@ -989,7 +996,8 @@ OrderManager::get_channel_site_ShipmentAndRefundsInsertedAt(const QDate &dateFro
          queryStr += QString(" AND inserted_at < '%1'").arg(dateToInsertedDb.addDays(1).toString(Qt::ISODate));
     }
     
-    QSqlQuery query(queryStr);
+    QSqlQuery query(m_db);
+    query.exec(queryStr);
     while (query.next()) {
         QString jsonStr = query.value(0).toString();
         QString sourceKey = query.value(1).toString();
@@ -1076,7 +1084,7 @@ QSharedPointer<Shipment> OrderManager::getHeadShipment(const QString &id, QStrin
 {
     // 1. Check Drafts (including revisions)
     {
-        QSqlQuery q;
+        QSqlQuery q(m_db);
         q.prepare("SELECT id, current_json, status FROM shipments WHERE status = 'Draft' AND (root_id = ? OR id = ?) ORDER BY event_date DESC, id DESC LIMIT 1");
         q.addBindValue(id);
         q.addBindValue(id);
@@ -1090,7 +1098,7 @@ QSharedPointer<Shipment> OrderManager::getHeadShipment(const QString &id, QStrin
 
     // 2. Check Published Revisions
     {
-        QSqlQuery q;
+        QSqlQuery q(m_db);
         q.prepare("SELECT id, current_json, status FROM shipments WHERE status = 'Published' AND root_id = ? ORDER BY event_date DESC, id DESC LIMIT 1");
         q.addBindValue(id);
         if (q.exec() && q.next()) {
@@ -1103,7 +1111,7 @@ QSharedPointer<Shipment> OrderManager::getHeadShipment(const QString &id, QStrin
 
     // 3. Check Original (if not covered above)
     {
-         QSqlQuery q;
+         QSqlQuery q(m_db);
          q.prepare("SELECT id, current_json, status FROM shipments WHERE id = ?");
          q.addBindValue(id);
          if (q.exec() && q.next()) {
@@ -1157,7 +1165,8 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
         queryStr += QString(" AND s.event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
     }
 
-    QSqlQuery query(queryStr);
+    QSqlQuery query(m_db);
+    query.exec(queryStr);
 
     while (query.next()) {
         QString jsonStr = query.value(0).toString();
@@ -1232,7 +1241,8 @@ OrderManager::get_channel_site_ShipmentAndRefundsConflicts(const QDate &dateFrom
         queryStr += QString(" AND event_date < '%1'").arg(dateTo.addDays(1).toString(Qt::ISODate));
     }
     
-    QSqlQuery query(queryStr);
+    QSqlQuery query(m_db);
+    query.exec(queryStr);
     while (query.next()) {
         QString jsonStr = query.value(0).toString();
         QString sourceKey = query.value(1).toString();
@@ -1345,7 +1355,8 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
         OR s.id LIKE '%-v-%'
     ))";
     
-    QSqlQuery rootQuery(rootQueryStr);
+    QSqlQuery rootQuery(m_db);
+    rootQuery.exec(rootQueryStr);
     QSet<QString> rootIdsToProcess;
     while (rootQuery.next()) {
         rootIdsToProcess.insert(rootQuery.value("root_id").toString());
@@ -1374,7 +1385,8 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
     queryStr += quotedIds.join(", ") + ")";
     queryStr += " ORDER BY root_id, s.event_date";
     
-    QSqlQuery query(queryStr);
+    QSqlQuery query(m_db);
+    query.exec(queryStr);
     
     // Group shipments by root_id
     QHash<QString, ShipmentRefundsWithUpdates> groupedResults;

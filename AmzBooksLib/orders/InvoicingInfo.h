@@ -11,7 +11,7 @@ class Activity;
 class InvoicingInfo
 {
 public:
-    InvoicingInfo(const Shipment *shipmentOrRefund
+    static Result<InvoicingInfo> create(const Shipment *shipmentOrRefund
                   , QList<LineItem> invoiceLineItems = {}
                   , std::optional<QString> invoiceNumber = std::nullopt
                   , std::optional<QString> invoiceLink = std::nullopt
@@ -31,6 +31,12 @@ public:
     static InvoicingInfo fromJson(const QJsonObject &json);
 
 private:
+    InvoicingInfo(const Shipment *shipmentOrRefund
+                  , QList<LineItem> invoiceLineItems = {}
+                  , std::optional<QString> invoiceNumber = std::nullopt
+                  , std::optional<QString> invoiceLink = std::nullopt
+                  , std::optional<QDate> paymentDate = std::nullopt);
+
     void adjustItemTaxes(const QList<Activity> &activities);
     QList<LineItem> m_items;
     std::optional<QString> m_invoiceNumber;

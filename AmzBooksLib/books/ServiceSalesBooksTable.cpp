@@ -100,8 +100,14 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     // 4. Create and record InvoicingInfo with payment date
     // Use paymentDate only if it differs from orderDate (non-instant payment)
     std::optional<QDate> optPaymentDate = (paymentDate != date) ? std::optional<QDate>(paymentDate) : std::nullopt;
-    InvoicingInfo invoicingInfo(&shipment, {}, invoiceId, std::nullopt, optPaymentDate);
-    m_orderManager->recordInvoicingInfo(activityId, &invoicingInfo);
+    
+    auto resInfo = InvoicingInfo::create(&shipment, {}, invoiceId, std::nullopt, optPaymentDate);
+    if (resInfo.ok()) {
+        m_orderManager->recordInvoicingInfo(activityId, &resInfo.value.value());
+    } else {
+        QString err = resInfo.errors.isEmpty() ? "Unknown" : resInfo.errors.first().message;
+        qWarning() << "Failed to create InvoicingInfo for service sale:" << orderId << err;
+    }
     
     // 5. Add to AbstractBooksTable
     // add(rowId, bookId, date, amountFullOrig, currencyAmount, label, account1, account2, vatOrig, vatCountry, vatCurrency)

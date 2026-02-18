@@ -129,6 +129,7 @@ private:
     void initDb();
     
     QString m_filePathDb;
+    QString m_connectionName;
     QSqlDatabase m_db;
 
     enum class ConflictStatus {

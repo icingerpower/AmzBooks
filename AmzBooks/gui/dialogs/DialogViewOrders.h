@@ -29,6 +29,8 @@ private:
     TaxAmountTable *m_taxAmountTable;
     OrderAddressTable *m_addressTable;
     OrderInvoicingTable *m_invoicingTable;
+    class QStandardItemModel *m_refundClueModel;
+    class QStandardItemModel *m_storeInfoModel;
 };
 
 #endif // DIALOGVIEWORDERS_H

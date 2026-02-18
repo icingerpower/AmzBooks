@@ -114,8 +114,9 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
     // int indAsin = dataRode->header.pos("ASIN"); // Unused
     int indActivityId = dataRode->header.pos("ACTIVITY_TRANSACTION_ID"); // Unique ID per line
 
-    // Temporary map to aggregate items by Shipment ID
+    // Temporary map to aggregate items by Shipment ID (actId)
     struct TempShipment {
+        QString eventId; // Order ID (not the shipment ID)
         QString type; // SALE or REFUND
         QList<Activity> activities;
         QString invoiceNumber;
@@ -152,8 +153,12 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         }
 
         // Update range
-        if (result.orderInfos->dateMin.isNull() || date < result.orderInfos->dateMin) result.orderInfos->dateMin = date;
-        if (result.orderInfos->dateMax.isNull() || date > result.orderInfos->dateMax) result.orderInfos->dateMax = date;
+        if (result.orderInfos->dateMin.isNull() || date < result.orderInfos->dateMin) {
+            result.orderInfos->dateMin = date;
+        }
+        if (result.orderInfos->dateMax.isNull() || date > result.orderInfos->dateMax) {
+            result.orderInfos->dateMax = date;
+        }
 
         // Amounts
         // double amountIncl = line.value(indTotalIncl).toDouble(); // Unused
@@ -180,13 +185,20 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         QString taxResp = line.value(indTaxCollectionResp); // MARKETPLACE or SELLER
         QString schemeStr = line.value(indTaxScheme); // UNION-OSS, REGULAR, etc.
 
-        if (taxResp == "MARKETPLACE") scheme = TaxScheme::MarketplaceDeemedSupplier;
-        else if (schemeStr == "UNION-OSS") scheme = TaxScheme::EuOssUnion;
-        else {
+        if (taxResp == "MARKETPLACE") {
+            scheme = TaxScheme::MarketplaceDeemedSupplier;
+        } else if (schemeStr == "UNION-OSS") {
+            scheme = TaxScheme::EuOssUnion;
+        } else {
              // Fallback logic could be complex (Export, Domestic, etc.)
              // For now defaults to Unknown or infer from country
-             if (depart == arrival) scheme = TaxScheme::DomesticVat;
-             else if (!depart.isEmpty() && !arrival.isEmpty() && depart != arrival) scheme = TaxScheme::EuOssUnion; // Simplification?
+             if (depart == arrival) {
+                 scheme = TaxScheme::DomesticVat;
+             } else if (!depart.isEmpty()
+                        && !arrival.isEmpty()
+                        && depart != arrival) {
+                 scheme = TaxScheme::EuOssUnion; // Simplification?
+             }
         }
 
         TaxSource taxSource = TaxSource::MarketplaceProvided;
@@ -214,7 +226,9 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
             vatPaidTo, // Declaring country usually same as vatPaidTo in these reports
             scheme,
             TaxJurisdictionLevel::Country,
-            SaleType::Products
+            SaleType::Products,
+            "", "", // Territories
+            line.value(indInvNumber) // Invoice ID
         );
 
         if (!actRes.ok()) {
@@ -222,20 +236,24 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
              continue;
         }
         
-        // Use composite key to separate Sales and Refunds if they share the same EventID
-        QString mapKey = eventId + "_" + transType;
+        // Use actId as the map key — it's the true shipment/refund ID.
+        // eventId is the order ID, not the shipment ID.
+        QString mapKey = actId + "_" + transType;
         TempShipment &ts = shipmentMap[mapKey];
+        ts.eventId = actId;
         ts.type = transType;
         ts.date = date;
         ts.activities.append(actRes.value.value());
         ts.invoiceNumber = line.value(indInvNumber);
-        if (indInvUrl != -1) ts.invoiceUrl = line.value(indInvUrl);
+        if (indInvUrl != -1) {
+            ts.invoiceUrl = line.value(indInvUrl);
+        }
     }
     
     // Convert TempShipment to Shipment/Refund
     for (auto it = shipmentMap.begin(); it != shipmentMap.end(); ++it) {
-        QString eventId = it.key();
         TempShipment &ts = it.value();
+        QString eventId = ts.eventId;
         
         // Aggregate items for InvoicingInfo
         // We need to create LineItems. But ImporterFileAmazonVatEu requirements were just "Activity".
@@ -261,19 +279,28 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
             result.orderInfos->shipments.append(shipment);
             
             // Basic InvoicingInfo
-            InvoicingInfo info(&result.orderInfos->shipments.last());
-            // We can set Invoice Number
-            // We don't have detailed line items (description) easily unless we map them.
-            // Let's create dummy LineItems from activities if needed or just skip detailed items if acceptable.
-            
-            result.orderInfos->invoicingInfos.append({eventId, info});
+            auto infoRes = InvoicingInfo::create(&result.orderInfos->shipments.last(), {}, ts.invoiceNumber, ts.invoiceUrl, ts.date);
+
+            if (infoRes.ok()) {
+                result.orderInfos->invoicingInfos.append({eventId, *infoRes.value});
+            } else {
+                 QString err = infoRes.errors.isEmpty() ? "Unknown error" : infoRes.errors.first().message;
+                 qWarning() << "InvoicingInfo creation failed for SALE" << eventId << ":" << err;
+            }
+
         } else if (ts.type == "REFUND") {
             Refund refund(ts.activities);
             result.orderInfos->refunds.append(refund);
             
              // Refunds also have InvoicingInfo? yes.
-            InvoicingInfo info(&result.orderInfos->refunds.last());
-            result.orderInfos->invoicingInfos.append({eventId, info});
+            auto infoRes = InvoicingInfo::create(&result.orderInfos->refunds.last(), {}, ts.invoiceNumber, ts.invoiceUrl, ts.date);
+
+            if (infoRes.ok()) {
+                result.orderInfos->invoicingInfos.append({eventId, *infoRes.value});
+            } else {
+                 QString err = infoRes.errors.isEmpty() ? "Unknown error" : infoRes.errors.first().message;
+                 qWarning() << "InvoicingInfo creation failed for REFUND" << eventId << ":" << err;
+            }
         }
     }
 

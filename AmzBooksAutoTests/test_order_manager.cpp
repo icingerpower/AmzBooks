@@ -19,6 +19,7 @@
 #include <QDirIterator>
 #include <QSqlError>
 #include <QFile>
+#include "orders/OrderInvoicingTable.h"
 
 class TestOrderManager : public QObject
 {
@@ -48,6 +49,7 @@ private slots:
     void test_TaxAmountTable();
     void test_tryRecordRefund();
     void test_importOrderInvariance();
+    void test_OrderInvoicingTable();
 };
 
 void TestOrderManager::initTestCase()
@@ -459,7 +461,9 @@ void TestOrderManager::test_invoicingInfos()
     manager.recordShipmentFromSource(orderId, &source, &shipment, QDate());
     
     // 2. Add Invoicing Info
-    InvoicingInfo info(&shipment, {}, "INV-001");
+    auto resInfo = InvoicingInfo::create(&shipment, {}, "INV-001");
+    QVERIFY(resInfo.ok());
+    InvoicingInfo info = *resInfo.value;
     manager.recordInvoicingInfo(shipment.getId(), &info);
     
     // Check retrieval
@@ -743,7 +747,9 @@ void TestOrderManager::test_remove_order()
          manager.recordOrder(orderId, "MyStore");
          manager.recordAddressTo(orderId, addr);
          
-         InvoicingInfo invInfo(&s, {}, "INV-REM");
+         auto resInvInfo = InvoicingInfo::create(&s, {}, "INV-REM");
+         QVERIFY(resInvInfo.ok());
+         InvoicingInfo invInfo = *resInvInfo.value;
          manager.recordInvoicingInfo(s.getId(), &invInfo);
          
          // Verify exist
@@ -886,7 +892,9 @@ void TestOrderManager::test_remove_shipmentRefundr()
          manager.recordOrder(orderId, "MyStore");
          manager.recordAddressTo(orderId, addr);
          
-         InvoicingInfo invInfo(&s, {}, "INV-REM");
+         auto resInvInfo = InvoicingInfo::create(&s, {}, "INV-REM");
+         QVERIFY(resInvInfo.ok());
+         InvoicingInfo invInfo = *resInvInfo.value;
          manager.recordInvoicingInfo(s.getId(), &invInfo);
          
          // Verify exist
@@ -1098,7 +1106,9 @@ void TestOrderManager::test_getShipmentAndRefundsNoInvoices()
     manager.publish(pubDate1);
     
     // 3. Add invoicing info (so it has an invoice number)
-    InvoicingInfo invInfo(&s1, {}, "INV-001");
+    auto resInvInfo = InvoicingInfo::create(&s1, {}, "INV-001");
+    QVERIFY(resInvInfo.ok());
+    InvoicingInfo invInfo = *resInvInfo.value;
     manager.recordInvoicingInfo(s1.getId(), &invInfo);
     
     // 4. Update with conflict (Feb 15, 2023 - INSIDE requested range)
@@ -1171,7 +1181,9 @@ void TestOrderManager::test_getShipmentAndRefundsNoInvoices()
     QString orderId3 = "ord_with_inv";
     Shipment s3 = createShip("s3", 75.0, QDate(2023, 2, 20));
     manager.recordShipmentFromSource(orderId3, &source, &s3, QDate());
-    InvoicingInfo invInfo3(&s3, {}, "INV-003");
+    auto resInfo3 = InvoicingInfo::create(&s3, {}, "INV-003");
+    QVERIFY(resInfo3.ok());
+    InvoicingInfo invInfo3 = *resInfo3.value;
     manager.recordInvoicingInfo(s3.getId(), &invInfo3);
     
     results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
@@ -1253,7 +1265,9 @@ void TestOrderManager::test_getShipmentAndRefundsNoInvoices()
     QCOMPARE(results->size(), countBefore);  // VERIFY 23 - same count (still needs invoice)
     
     // Add invoice
-    InvoicingInfo invInfo9(&s9, {}, "INV-009");
+    auto resInfo = InvoicingInfo::create(&s9, {}, "INV-009");
+    QVERIFY(resInfo.ok());
+    InvoicingInfo invInfo9 = *resInfo.value;
     manager.recordInvoicingInfo(s9.getId(), &invInfo9);
     
     results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
@@ -1266,8 +1280,11 @@ void TestOrderManager::test_getShipmentAndRefundsNoInvoices()
         if (!grp.shipmentsRefundsSameActivity.isEmpty()) {
             QString rootId = grp.shipmentsRefundsSameActivity.first()->getId();
             Shipment temp({grp.shipmentsRefundsSameActivity.first()->getActivities()});
-            InvoicingInfo tempInfo(&temp, {}, "INV-TEMP-" + rootId);
-            manager.recordInvoicingInfo(rootId, &tempInfo);
+            auto resTemp = InvoicingInfo::create(&temp, {}, "INV-TEMP-" + rootId);
+            if (resTemp.ok()) {
+                InvoicingInfo tempInfo = *resTemp.value;
+                manager.recordInvoicingInfo(rootId, &tempInfo);
+            }
         }
     }
     
@@ -1311,7 +1328,9 @@ void TestOrderManager::test_getShipmentAndRefundsNoInvoices()
     QString orderId13 = "ord_empty_inv";
     Shipment s13 = createShip("s13", 13.0, QDate(2023, 2, 14));
     manager.recordShipmentFromSource(orderId13, &source, &s13, QDate());
-    InvoicingInfo emptyInvInfo(&s13, {}, std::nullopt); // No invoice number
+    auto resEmpty = InvoicingInfo::create(&s13, {}, std::nullopt, "http://dummy"); // No invoice number but valid object
+    QVERIFY(resEmpty.ok());
+    InvoicingInfo emptyInvInfo = *resEmpty.value;
     manager.recordInvoicingInfo(s13.getId(), &emptyInvInfo);
     
     results = manager.getShipmentAndRefundsNoInvoices(rangeDateFrom, rangeDateTo);
@@ -1570,20 +1589,12 @@ void TestOrderManager::test_OrderTable()
     
     // Row 0 should be ord2 (Jan 5)
     QCOMPARE(table2.data(table2.index(0, OrderTable::COL_ORDER_ID)).toString(), "ord2");
-    QCOMPARE(table2.data(table2.index(0, OrderTable::COL_CHANNEL)).toString(), "Chan2");
-    QCOMPARE(table2.data(table2.index(0, OrderTable::COL_SITE)).toString(), "Site2");
     QCOMPARE(table2.data(table2.index(0, OrderTable::COL_AMOUNT_TAXED)).toDouble(), 200.0);
     
     // Row 1 should be ord1 (Jan 1)
     QCOMPARE(table2.data(table2.index(1, OrderTable::COL_ORDER_ID)).toString(), "ord1");
-    QCOMPARE(table2.data(table2.index(1, OrderTable::COL_CHANNEL)).toString(), "Chan1");
-    QCOMPARE(table2.data(table2.index(1, OrderTable::COL_SITE)).toString(), "Site1");
     
     // Sort by Channel Ascending
-    table2.sort(OrderTable::COL_CHANNEL, Qt::AscendingOrder);
-    // Chan1 < Chan2
-    QCOMPARE(table2.data(table2.index(0, OrderTable::COL_CHANNEL)).toString(), "Chan1");
-    QCOMPARE(table2.data(table2.index(1, OrderTable::COL_CHANNEL)).toString(), "Chan2");
     
     // Check non-existent index
     QVERIFY(!table2.data(table2.index(100, 0)).isValid());
@@ -2178,6 +2189,65 @@ void TestOrderManager::test_importOrderInvariance()
     }
 
     qDebug() << "Import order invariance verified:" << shipments1.size() << "shipments match.";
+}
+
+
+void TestOrderManager::test_OrderInvoicingTable()
+{
+    // Simulation of PaneOrderFiles aggregation logic
+    AbstractImporter::OrderInfos result;
+    result.invoicingInfos.clear(); // Ensure clean start
+    result.shipments.clear();
+    
+    // Create a shipment
+    auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+         Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment ship({*actRes.value});
+    result.shipments.append(ship);
+    
+    // Create InvoicingInfo pointing to this shipment
+    // Note: InvoicingInfo constructor uses the pointer to adjust taxes but should NOT store it.
+    AbstractImporter::InvoicingInfoWithId infoWithId{
+        ship.getId(),
+        *InvoicingInfo::create(&result.shipments.last(), {}, "INV-001", "http://link", QDate(2023, 1, 2)).value
+    };
+    
+    result.invoicingInfos.append(infoWithId);
+    
+    // Simulate Aggregation
+    AbstractImporter::OrderInfos aggregated;
+    
+    // Append shipments (COPIES them)
+    aggregated.shipments.append(result.shipments);
+    
+    // Append infos (COPIES them)
+    // The copied infos were created using pointers to 'result.shipments'.
+    // If they held those pointers, they would now point to 'result.shipments'.
+    aggregated.invoicingInfos.append(result.invoicingInfos);
+    
+    // Destroy original result (simulate end of loop iteration)
+    result.shipments.clear();
+    result.invoicingInfos.clear();
+    // At this point, if InvoicingInfo held a pointer to result.shipments[0], it would be dangling.
+    
+    // Now use aggregated data in OrderInvoicingTable
+    OrderInvoicingTable table(aggregated.invoicingInfos);
+    
+    // Verify Table Data
+    QCOMPARE(table.rowCount(), 1);
+    QCOMPARE(table.columnCount(), OrderInvoicingTable::COL_COUNT);
+    
+    // Check Data Access - this would trigger segfault if dangling pointer is dereferenced
+    QCOMPARE(table.data(table.index(0, OrderInvoicingTable::COL_ID)).toString(), infoWithId.shipmentOrRefundId);
+    QCOMPARE(table.data(table.index(0, OrderInvoicingTable::COL_INVOICE_NUMBER)).toString(), QString("INV-001"));
+    
+    // Check COL_PAYMENT_DATE
+    QDate expectedDate(2023, 1, 2);
+    // Note: In Qt 6, toString(Qt::ISODate) outputs YYYY-MM-DD
+    QCOMPARE(table.data(table.index(0, OrderInvoicingTable::COL_PAYMENT_DATE)).toString(), expectedDate.toString(Qt::ISODate));
+    
+    // Check COL_LINK
+    QCOMPARE(table.data(table.index(0, OrderInvoicingTable::COL_LINK)).toString(), QString("http://link"));
 }
 
 QTEST_MAIN(TestOrderManager)

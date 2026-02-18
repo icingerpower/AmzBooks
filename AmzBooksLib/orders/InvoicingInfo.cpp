@@ -3,6 +3,25 @@
 #include <QJsonArray>
 #include <QJsonObject>
 
+Result<InvoicingInfo> InvoicingInfo::create(
+        const Shipment *shipmentOrRefund
+        , QList<LineItem> invoiceLineItems
+        , std::optional<QString> invoiceNumber
+        , std::optional<QString> invoiceLink
+        , std::optional<QDate> paymentDate)
+{
+    // Validation: At least one value needs to be provided to avoid an error
+    bool hasItems = !invoiceLineItems.isEmpty();
+    bool hasNumber = invoiceNumber.has_value() && !invoiceNumber->isEmpty();
+    bool hasLink = invoiceLink.has_value() && !invoiceLink->isEmpty();
+
+    if (!hasItems && !hasNumber && !hasLink) {
+        return {std::nullopt, {{"", "InvoicingInfo must have at least one of: invoiceLineItems, invoiceNumber, or invoiceLink."}}};
+    }
+
+    return {InvoicingInfo(shipmentOrRefund, invoiceLineItems, invoiceNumber, invoiceLink, paymentDate), {}};
+}
+
 InvoicingInfo::InvoicingInfo(
         const Shipment *shipmentOrRefund
         , QList<LineItem> invoiceLineItems
@@ -22,7 +41,7 @@ InvoicingInfo::InvoicingInfo(
 
 bool InvoicingInfo::isInvoiceDone() const
 {
-    return !m_invoiceNumber->isEmpty();
+    return m_invoiceNumber.has_value() && !m_invoiceNumber->isEmpty();
 }
 
 void InvoicingInfo::adjustItemTaxes(const QList<Activity> &activities)

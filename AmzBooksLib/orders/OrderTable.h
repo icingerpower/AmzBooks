@@ -17,8 +17,6 @@ class OrderTable : public QAbstractTableModel
 public:
     enum Columns {
         COL_DATE = 0,
-        COL_CHANNEL,
-        COL_SITE,
         COL_ORDER_ID,
         COL_ACTIVITY_ID,
         COL_SALE_TYPE,
@@ -47,8 +45,6 @@ public:
 private:
     struct OrderRow {
         QDate date;
-        QString channel;
-        QString site;
         QString orderId;
         QString activityId;
         QString saleType;
@@ -59,8 +55,8 @@ private:
         QString taxScheme;
         QString taxJurisdiction;
         QString currency;
-        double amountTaxed;
-        double vatAmount;
+        double amountTaxed = 0.0;
+        double vatAmount = 0.0;
         QString invoiceId;
         
         QSharedPointer<Shipment> sourceShipment;
