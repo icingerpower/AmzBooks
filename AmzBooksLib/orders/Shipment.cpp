@@ -42,9 +42,11 @@ QJsonObject Shipment::toJson() const
     for (const auto &act : m_activities) {
         arr.append(act.toJson());
     }
-    return QJsonObject{
-        {"activities", arr}
+    QJsonObject obj{
+        {"activities", arr},
+        {"isWrongIfConflict", m_isWrongIfConflict}
     };
+    return obj;
 }
 
 Shipment Shipment::fromJson(const QJsonObject &json)
@@ -59,6 +61,10 @@ Shipment Shipment::fromJson(const QJsonObject &json)
         // Migration / Backward compatibility for old format in DB or source
         list.append(Activity::fromJson(json["activity"].toObject()));
     }
-    return Shipment(list);
+    Shipment s(list);
+    if (json.contains("isWrongIfConflict")) {
+        s.setIsWrongIfConflict(json["isWrongIfConflict"].toBool());
+    }
+    return s;
 }
 

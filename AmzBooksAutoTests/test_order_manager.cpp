@@ -50,6 +50,7 @@ private slots:
     void test_tryRecordRefund();
     void test_importOrderInvariance();
     void test_OrderInvoicingTable();
+    void test_conflictResolution_isWrongIfConflict();
 };
 
 void TestOrderManager::initTestCase()
@@ -2046,11 +2047,11 @@ void TestOrderManager::test_importOrderInvariance()
 
                 // Record shipments
                 for (const auto &ship : result.orderInfos->shipments) {
-                    manager.recordShipmentFromSource(ship.getId(), &source, &ship, QDate());
+                    manager.recordShipmentFromSource(ship.getId(), &source, &ship, QDate(), run.importer->isWrongIfConflict());
                 }
                 // Record refunds
                 for (const auto &ref : result.orderInfos->refunds) {
-                    manager.recordShipmentFromSource(ref.getId(), &source, &ref, QDate());
+                    manager.recordShipmentFromSource(ref.getId(), &source, &ref, QDate(), run.importer->isWrongIfConflict());
                 }
                 // Record addresses
                 for (const auto &addr : result.orderInfos->orderAddresses) {
@@ -2250,6 +2251,125 @@ void TestOrderManager::test_OrderInvoicingTable()
     QCOMPARE(table.data(table.index(0, OrderInvoicingTable::COL_LINK)).toString(), QString("http://link"));
 }
 
+void TestOrderManager::test_conflictResolution_isWrongIfConflict()
+{
+    QTemporaryDir tempDir;
+    OrderManager manager(tempDir.path());
+    QString orderId = "ord_conf_logic";
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "FR", "Report1"};
+
+    // Helper to create shipment
+    auto createShip = [&](double amount) -> Shipment {
+         auto actRes = Activity::create("evt1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+             Amount(amount, amount * 0.2), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+         return Shipment({*actRes.value});
+    };
+
+    // 1. Initial Recording (WEAK)
+    {
+        Shipment s = createShip(100.0);
+        manager.recordShipmentFromSource(orderId, &source, &s, QDate(), true); // isWrongIfConflict = true
+        
+        // Verify recorded
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT current_json FROM shipments WHERE order_id = '" + orderId + "'");
+        QVERIFY(q.next());
+        QVERIFY(q.value(0).toString().contains("100"));
+    }
+
+    // 2. Weak Overwrite Weak -> Should Update
+    {
+        Shipment s = createShip(200.0);
+        manager.recordShipmentFromSource(orderId, &source, &s, QDate(), true); // Weak
+        
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT current_json FROM shipments WHERE order_id = '" + orderId + "'");
+        QVERIFY(q.next());
+        QVERIFY(q.value(0).toString().contains("200")); // Updated
+    }
+
+    // 3. Strong Overwrite Weak -> Should Update
+    {
+        Shipment s = createShip(300.0);
+        manager.recordShipmentFromSource(orderId, &source, &s, QDate(), false); // Strong
+        
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT current_json FROM shipments WHERE order_id = '" + orderId + "'");
+        QVERIFY(q.next());
+        QVERIFY(q.value(0).toString().contains("300")); // Updated
+    }
+
+    // 4. Weak Overwrite Strong -> Should NOT Update
+    {
+        Shipment s = createShip(400.0);
+        manager.recordShipmentFromSource(orderId, &source, &s, QDate(), true); // Weak
+        
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT current_json FROM shipments WHERE order_id = '" + orderId + "'");
+        QVERIFY(q.next());
+        // Should still be 300 (Strong wins)
+        QVERIFY2(q.value(0).toString().contains("300"), "Weak should not overwrite Strong");
+        QVERIFY(!q.value(0).toString().contains("400"));
+    }
+
+    // 5. Strong Overwrite Strong -> Should Update
+    {
+        Shipment s = createShip(500.0);
+        manager.recordShipmentFromSource(orderId, &source, &s, QDate(), false); // Strong
+        
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT current_json FROM shipments WHERE order_id = '" + orderId + "'");
+        QVERIFY(q.next());
+        QVERIFY(q.value(0).toString().contains("500")); // Updated
+    }
+    
+    // 6. Test with Refund
+    // Reset or new order
+    QString orderRefId = "ord_conf_ref";
+    {
+        auto actRes = Activity::create("evt_ref", "act_ref", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+             Amount(-100.0, -20.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Refund r({*actRes.value});
+        
+        manager.recordShipmentFromSource(orderRefId, &source, &r, QDate(), false); // Strong
+        
+        // Try overwrite with Weak
+        auto actRes2 = Activity::create("evt_ref", "act_ref", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+             Amount(-200.0, -40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Refund r2({*actRes2.value});
+        
+        manager.recordShipmentFromSource(orderRefId, &source, &r2, QDate(), true); // Weak
+        
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT current_json FROM shipments WHERE order_id = '" + orderRefId + "'");
+        QVERIFY(q.next());
+        QVERIFY(q.value(0).toString().contains("-100")); // Should NOT update
+    }
+
+    // 7. Verify Published Behavior (Standard Conflict Logic Applies regardless of flag, but verify flag is stored)
+    {
+        // Publish orderId
+        QDate futureDate(2025, 1, 1);
+        manager.publish(futureDate); // Future
+        
+        // Update with Weak Conflict
+        Shipment s = createShip(600.0);
+        manager.recordShipmentFromSource(orderId, &source, &s, QDate(2023, 2, 1), true); // Weak
+        
+        // Should create dual entry because Original was Published (Strong status)
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = '" + orderId + "'");
+        QVERIFY(q.next());
+        // 1 Original + 1 Reversal + 1 New = 3
+        QCOMPARE(q.value(0).toInt(), 3);
+        
+        // Verify the new draft has isWrongIfConflict = true
+         q.exec("SELECT current_json FROM shipments WHERE order_id = '" + orderId + "' AND current_json LIKE '%600%'");
+         QVERIFY(q.next());
+         QJsonObject json = QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
+         QVERIFY(json["isWrongIfConflict"].toBool() == true);
+    }
+}
+
 QTEST_MAIN(TestOrderManager)
 #include "test_order_manager.moc"
-

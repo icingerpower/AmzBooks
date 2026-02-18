@@ -96,7 +96,7 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     source.subchannel = "";
     source.reportOrMethode = ActivitySource::METHOD_USER_ENTRY;
     
-    m_orderManager->recordShipmentFromSource(orderId, &source, &shipment, date);
+    m_orderManager->recordShipmentFromSource(orderId, &source, &shipment, date, false);
     
     // 4. Create and record InvoicingInfo with payment date
     // Use paymentDate only if it differs from orderDate (non-instant payment)

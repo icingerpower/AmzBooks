@@ -4,8 +4,8 @@ project(AmzBooksAutoTests LANGUAGES CXX)
 
 enable_testing()
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Test)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Test Sql)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Test Sql)
 find_package(QCoro6 REQUIRED COMPONENTS Core)
 
 set(CMAKE_INCLUDE_CURRENT_DIR ON)
@@ -59,7 +59,7 @@ add_custom_command(TARGET TestVatRateResolver POST_BUILD
 
 add_executable(TestOrderManager test_order_manager.cpp)
 add_test(NAME TestOrderManager COMMAND TestOrderManager)
-target_link_libraries(TestOrderManager PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib QCoro::Core)
+target_link_libraries(TestOrderManager PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib QCoro::Core)
 target_include_directories(TestOrderManager PRIVATE ../AmzBooksLib ../../common)
 
 add_custom_command(TARGET TestOrderManager POST_BUILD
@@ -187,7 +187,7 @@ target_include_directories(TestBooksConnection PRIVATE ../AmzBooksLib)
 
 add_executable(TestServiceSales test_service_sales.cpp)
 add_test(NAME TestServiceSales COMMAND TestServiceSales)
-target_link_libraries(TestServiceSales PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_link_libraries(TestServiceSales PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib)
 target_include_directories(TestServiceSales PRIVATE ../AmzBooksLib)
 
 add_executable(TestInvoicing test_invoicing.cpp)

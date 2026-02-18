@@ -96,6 +96,11 @@ bool ImporterApiAmazon::recomputeTaxes() const
     return false;
 }
 
+bool ImporterApiAmazon::isWrongIfConflict() const
+{
+    return false;
+}
+
 QCoro::Task<QString> ImporterApiAmazon::getAccessToken()
 {
     if (!m_tokenCache.accessToken.isEmpty() && m_tokenCache.expiration > QDateTime::currentDateTime().addSecs(300)) {

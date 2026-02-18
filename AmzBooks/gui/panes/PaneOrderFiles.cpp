@@ -259,7 +259,8 @@ void PaneOrderFiles::importFile()
                            shipment.getId(),
                            &source,
                            &shipment,
-                           QDate() // No conflict date override
+                           QDate(), // No conflict date override
+                           importer->isWrongIfConflict()
                        );
                    }
                    
@@ -269,7 +270,8 @@ void PaneOrderFiles::importFile()
                            refund.getId(),
                            &source,
                            &refund,
-                           QDate()
+                           QDate(),
+                           importer->isWrongIfConflict()
                        );
                    }
                    

@@ -88,6 +88,11 @@ bool ImporterApiTemu::recomputeTaxes() const
     return true;
 }
 
+bool ImporterApiTemu::isWrongIfConflict() const
+{
+    return false;
+}
+
 QList<ImporterApiTemu::ShopConfig> ImporterApiTemu::getShops() const
 {
     QList<ShopConfig> shops;

@@ -25,6 +25,7 @@ public:
     QString getLabel() const override;
     QMap<QString, ParamInfo> getRequiredParams() const override;
     bool recomputeTaxes() const override;
+    bool isWrongIfConflict() const override;
 
 protected:
     struct ShopConfig {

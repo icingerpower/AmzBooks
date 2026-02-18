@@ -43,11 +43,13 @@ public:
     void recordShipmentFromSource(const QString &orderId,
                                   const ActivitySource *activitySource
                                   , const Shipment *shipmentOrRefund
-                                  , const QDate &newDateIfConflict); // Save if new. Replace if not published OR not Activity::isDifferentTaxese. Otherwise create double entry (refund / re-invoicing).
+                                  , const QDate &newDateIfConflict
+                                  , bool isWrongIfConflict = false); // Save if new. Replace if not published OR not Activity::isDifferentTaxese. Otherwise create double entry (refund / re-invoicing).
     void recordShipmentUpdated(const QString &orderId,
                                const ActivitySource *activitySource
                                , const Shipment *shipmentOrRefund
-                               , const QDate &newDateIfConflict); // Will record without erasing the original shipment (exception if shipment doesn't exist). // Save if new. Replace if not published OR not Activity::isDifferentTaxese. Otherwise create double entry (refund / re-invoicing).
+                               , const QDate &newDateIfConflict
+                               , bool isWrongIfConflict = false); // Will record without erasing the original shipment (exception if shipment doesn't exist). // Save if new. Replace if not published OR not Activity::isDifferentTaxese. Otherwise create double entry (refund / re-invoicing).
     void removeOrder(const QString &orderId);
     void removeShipmenOrRefund(const QString &shipmentOrRefundId);
     bool containsOrder(const QString &orderId) const;

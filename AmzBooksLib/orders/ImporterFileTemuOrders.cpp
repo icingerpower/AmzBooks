@@ -104,6 +104,11 @@ bool ImporterFileTemuOrders::recomputeTaxes() const
     return true;
 }
 
+bool ImporterFileTemuOrders::isWrongIfConflict() const
+{
+    return true;
+}
+
 double ImporterFileTemuOrders::parseEuropeanPrice(const QString &priceStr)
 {
     // Handle European price format: "9,99€" or "0,00€"

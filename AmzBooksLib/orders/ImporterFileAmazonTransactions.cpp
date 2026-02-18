@@ -36,6 +36,11 @@ bool ImporterFileAmazonTransactions::recomputeTaxes() const
     return true;
 }
 
+bool ImporterFileAmazonTransactions::isWrongIfConflict() const
+{
+    return true;
+}
+
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::_loadReport(
     const QString &filePath,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)

@@ -96,138 +96,147 @@ void TestFileImportAmazonFbaInvoicing::test_variedSituations()
     QTextStream out(&f);
     
     // Header
-    // Must include all mandatory: Amazon Order Id, Shipment ID, Shipment Date, Currency, Item Price, Item Tax, FC, Delivery Country Code
+    // Must include all mandatory: Amazon Order Id, Shipment ID, Shipment Date, Currency, Item Price, Item Tax, FC, Delivery Country Code, Sales Channel
     // And Address columns: Recipient Name, Delivery Address 1, Delivery City/Town, Delivery Postcode
-    out << "\"Amazon Order Id\",\"Shipment ID\",\"Shipment Item ID\",\"Shipment Date\",\"Currency\",\"Item Price\",\"Item Tax\",\"FC\",\"Delivery Country Code\",\"Recipient Name\",\"Delivery Address 1\",\"Delivery City/Town\",\"Delivery Postcode\",\"Delivery County\",\"Delivery Phone Number\",\"Delivery Address 2\",\"Delivery Address 3\",\"Buyer E-mail\",\"Merchant Order ID\"\n";
+    out << "\"Amazon Order Id\",\"Shipment ID\",\"Shipment Item ID\",\"Shipment Date\",\"Currency\",\"Item Price\",\"Item Tax\",\"FC\",\"Delivery Country Code\",\"Sales Channel\",\"Recipient Name\",\"Delivery Address 1\",\"Delivery City/Town\",\"Delivery Postcode\",\"Delivery County\",\"Delivery Phone Number\",\"Delivery Address 2\",\"Delivery Address 3\",\"Buyer E-mail\",\"Merchant Order ID\"\n";
     
     // 1. DE -> FR (Valid) - FC: LEJ1 (DE)
-    out << "\"111-0000001-0000001\",\"SHIP001\",\"ITEM001\",\"2025-01-01T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"John Doe\",\"Rue 1\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000001\",\"SHIP001\",\"ITEM001\",\"2025-01-01T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"John Doe\",\"Rue 1\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 2. FR -> FR (Domestic) - FC: LYS4 (FR)
-    out << "\"111-0000001-0000002\",\"SHIP002\",\"ITEM002\",\"2025-01-02T10:00:00+00:00\",\"EUR\",\"20.00\",\"4.00\",\"LYS4\",\"FR\",\"Jane Doe\",\"Rue 2\",\"Lyon\",\"69001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000002\",\"SHIP002\",\"ITEM002\",\"2025-01-02T10:00:00+00:00\",\"EUR\",\"20.00\",\"4.00\",\"LYS4\",\"FR\",\"amazon.fr\",\"Jane Doe\",\"Rue 2\",\"Lyon\",\"69001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 3. PL -> FR (Distance) - FC: XWR3 (PL)
-    out << "\"111-0000001-0000003\",\"SHIP003\",\"ITEM003\",\"2025-01-03T10:00:00+00:00\",\"EUR\",\"30.00\",\"6.00\",\"XWR3\",\"FR\",\"Bob Smith\",\"Rue 3\",\"Marseille\",\"13001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000003\",\"SHIP003\",\"ITEM003\",\"2025-01-03T10:00:00+00:00\",\"EUR\",\"30.00\",\"6.00\",\"XWR3\",\"FR\",\"amazon.fr\",\"Bob Smith\",\"Rue 3\",\"Marseille\",\"13001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 4. Zero Tax
-    out << "\"111-0000001-0000004\",\"SHIP004\",\"ITEM004\",\"2025-01-04T10:00:00+00:00\",\"EUR\",\"40.00\",\"0.00\",\"LEJ1\",\"DE\",\"Alice\",\"Weg 1\",\"Berlin\",\"10115\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000004\",\"SHIP004\",\"ITEM004\",\"2025-01-04T10:00:00+00:00\",\"EUR\",\"40.00\",\"0.00\",\"LEJ1\",\"DE\",\"amazon.de\",\"Alice\",\"Weg 1\",\"Berlin\",\"10115\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 5. Negative Price (Refund?) - Usually handled by Refund reports but ensuring parsing works
-    out << "\"111-0000001-0000005\",\"SHIP005\",\"ITEM005\",\"2025-01-05T10:00:00+00:00\",\"EUR\",\"-10.00\",\"-2.00\",\"LEJ1\",\"FR\",\"Refund User\",\"Rue 4\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000005\",\"SHIP005\",\"ITEM005\",\"2025-01-05T10:00:00+00:00\",\"EUR\",\"-10.00\",\"-2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Refund User\",\"Rue 4\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 6. Unknown FC (Should Fail? No, test expects handled or error caught. Importer returns error for unknown FC)
     // We will test unknown FC in a separate file or catch it.
     // Let's stick to valid FCs for this "varied situations" test to verify FIELDS, unless we want to verify 20 different valid situations.
     
     // 7. Different Currency (USD)
-    out << "\"111-0000001-0000007\",\"SHIP007\",\"ITEM007\",\"2025-01-07T10:00:00+00:00\",\"USD\",\"15.00\",\"0.00\",\"LEJ1\",\"US\",\"US User\",\"Road 1\",\"NY\",\"10001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000007\",\"SHIP007\",\"ITEM007\",\"2025-01-07T10:00:00+00:00\",\"USD\",\"15.00\",\"0.00\",\"LEJ1\",\"US\",\"amazon.com\",\"US User\",\"Road 1\",\"NY\",\"10001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 8. Empty Name
-    out << "\"111-0000001-0000008\",\"SHIP008\",\"ITEM008\",\"2025-01-08T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"\",\"Rue 5\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000008\",\"SHIP008\",\"ITEM008\",\"2025-01-08T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"\",\"Rue 5\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 9. FC with space? " LYS4 "
-    out << "\"111-0000001-0000009\",\"SHIP009\",\"ITEM009\",\"2025-01-09T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\" LYS4 \",\"FR\",\"Space FC\",\"Rue 6\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000009\",\"SHIP009\",\"ITEM009\",\"2025-01-09T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\" LYS4 \",\"FR\",\"amazon.fr\",\"Space FC\",\"Rue 6\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     // NOTE: CsvReader might assume trim or Importer needs to trim FC. 
     // FbaCentersTable map likely strict. Test will fail if not trimmed.
     
     // 10. Max Date
-    out << "\"111-0000001-0000010\",\"SHIP010\",\"ITEM010\",\"2099-12-31T23:59:59+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"Future\",\"Rue 7\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000010\",\"SHIP010\",\"ITEM010\",\"2099-12-31T23:59:59+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Future\",\"Rue 7\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 11. Min Amount
-    out << "\"110-0000001-0000011\",\"SHIP011\",\"ITEM011\",\"2025-01-11T10:00:00+00:00\",\"EUR\",\"0.01\",\"0.00\",\"LEJ1\",\"FR\",\"Tiny\",\"Rue 8\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"110-0000001-0000011\",\"SHIP011\",\"ITEM011\",\"2025-01-11T10:00:00+00:00\",\"EUR\",\"0.01\",\"0.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Tiny\",\"Rue 8\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 12. Huge Amount
-    out << "\"111-0000001-0000012\",\"SHIP012\",\"ITEM012\",\"2025-01-12T10:00:00+00:00\",\"EUR\",\"99999.00\",\"20000.00\",\"LEJ1\",\"FR\",\"Rich\",\"Rue 9\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000012\",\"SHIP012\",\"ITEM012\",\"2025-01-12T10:00:00+00:00\",\"EUR\",\"99999.00\",\"20000.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Rich\",\"Rue 9\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 13. Address with quotes (csv escape)
-    out << "\"111-0000001-0000013\",\"SHIP013\",\"ITEM013\",\"2025-01-13T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"O\"\"Neil\",\"Rue 10\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000013\",\"SHIP013\",\"ITEM013\",\"2025-01-13T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"O\"\"Neil\",\"Rue 10\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 14. FC requiring fallback? (No fallback allowed).
     // Test a valid FC that is known but obscure. "WRO5" (PL).
-    out << "\"111-0000001-0000014\",\"SHIP014\",\"ITEM014\",\"2025-01-14T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"WRO5\",\"DE\",\"PL Origin\",\"Rue 11\",\"Berlin\",\"10115\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000014\",\"SHIP014\",\"ITEM014\",\"2025-01-14T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"WRO5\",\"DE\",\"amazon.de\",\"PL Origin\",\"Rue 11\",\"Berlin\",\"10115\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 15. Same Order, Multiple Items (Same Shipment)
-    out << "\"111-0000001-0000015\",\"SHIP015\",\"ITEM015A\",\"2025-01-15T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"Multi Item\",\"Rue 12\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
-    out << "\"111-0000001-0000015\",\"SHIP015\",\"ITEM015B\",\"2025-01-15T10:00:00+00:00\",\"EUR\",\"5.00\",\"1.00\",\"LEJ1\",\"FR\",\"Multi Item\",\"Rue 12\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000015\",\"SHIP015\",\"ITEM015A\",\"2025-01-15T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Multi Item\",\"Rue 12\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000015\",\"SHIP015\",\"ITEM015B\",\"2025-01-15T10:00:00+00:00\",\"EUR\",\"5.00\",\"1.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Multi Item\",\"Rue 12\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 16. Same Order, Different Shipment (Split)
-    out << "\"111-0000001-0000016\",\"SHIP016A\",\"ITEM016A\",\"2025-01-16T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"Split Order\",\"Rue 13\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
-    out << "\"111-0000001-0000016\",\"SHIP016B\",\"ITEM016B\",\"2025-01-16T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LYS4\",\"FR\",\"Split Order\",\"Rue 13\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000016\",\"SHIP016A\",\"ITEM016A\",\"2025-01-16T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Split Order\",\"Rue 13\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000016\",\"SHIP016B\",\"ITEM016B\",\"2025-01-16T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LYS4\",\"FR\",\"amazon.fr\",\"Split Order\",\"Rue 13\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 17. Address with unicode
-    out << "\"111-0000001-0000017\",\"SHIP017\",\"ITEM017\",\"2025-01-17T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"José\",\"Rue 14\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000017\",\"SHIP017\",\"ITEM017\",\"2025-01-17T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"José\",\"Rue 14\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 18. FC with extra spaces " LEJ1 "
-    out << "\"111-0000001-0000018\",\"SHIP018\",\"ITEM018\",\"2025-01-18T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\" LEJ1 \",\"FR\",\"Spaces\",\"Rue 15\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000018\",\"SHIP018\",\"ITEM018\",\"2025-01-18T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\" LEJ1 \",\"FR\",\"amazon.fr\",\"Spaces\",\"Rue 15\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 19. Item with 0 price 0 tax (Free replacement?)
-    out << "\"111-0000001-0000019\",\"SHIP019\",\"ITEM019\",\"2025-01-19T10:00:00+00:00\",\"EUR\",\"0.00\",\"0.00\",\"LEJ1\",\"FR\",\"Free\",\"Rue 16\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000019\",\"SHIP019\",\"ITEM019\",\"2025-01-19T10:00:00+00:00\",\"EUR\",\"0.00\",\"0.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Free\",\"Rue 16\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 20. FC in IT (MXP5)
-    out << "\"111-0000001-0000020\",\"SHIP020\",\"ITEM020\",\"2025-01-20T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.20\",\"MXP5\",\"IT\",\"Italy\",\"Via Roma\",\"Rome\",\"00100\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000020\",\"SHIP020\",\"ITEM020\",\"2025-01-20T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.20\",\"MXP5\",\"IT\",\"amazon.it\",\"Italy\",\"Via Roma\",\"Rome\",\"00100\",\"\",\"\",\"\",\"\",\"\",\n";
 
     f.close();
     
     ImporterFileAmazonFbaInvoicing importer(tempDir.path()); // Working dir needs fbacenters.csv? 
     // FbaCentersTable auto-fills if empty. So it should work.
     
-    auto task = importer.loadReport(file);
-    auto result = QCoro::waitFor(task);
-    
-    if (!result.errorReturned.isEmpty()) {
-        qDebug() << "Import Error:" << result.errorReturned;
-    }
-    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
-    QVERIFY(result.orderInfos);
-    
-    // Verify Counts
-    // Lines: 21 lines of data.
-    // Case 15 has 2 items same shipment -> 1 Shipment, 2 Activities? 
-    // Importer creates Shipment per row. 
-    // Wait, Importer implementation I wrote: `ret.orderInfos->shipments.append(shipment);` per row.
-    // So 21 shipments in list.
-    // However, logic should probably merge? AbstractImporter logic usually returns list of Shipments.
-    // OrderManager merges them.
-    // So 21 Shipments is expected here.
-    QCOMPARE(result.orderInfos->shipments.size(), 21);
-    
-    // Verify specific values
-    // Case 1: DE (LEJ1) -> FR
-    auto s1 = result.orderInfos->shipments.first(); // Assuming order preserved
-    auto a1 = s1.getActivities().first();
-    QCOMPARE(a1.getCountryCodeFrom(), "DE");
-    QCOMPARE(a1.getCountryCodeTo(), "FR");
-    QCOMPARE(a1.getAmountTaxed(), 12.00); // 10 + 2
-    
-    // Case 2: FR (LYS4) -> FR
-    auto s2 = result.orderInfos->shipments[1];
-    auto a2 = s2.getActivities().first();
-    QCOMPARE(a2.getCountryCodeFrom(), "FR");
-    QCOMPARE(a2.getCountryCodeTo(), "FR");
-    
-    // Case 9: " LYS4 " -> FR if trimmed or resolved.
-    // If logic fails, error returned. Since no error, it passed.
-    // Check if country correct. LYS4 is FR.
-    // Index 7 (Cases 1,2,3,4,5,7,8,9)
-    auto s9 = result.orderInfos->shipments[7];
-    QCOMPARE(s9.getActivities().first().getCountryCodeFrom(), "FR");
-    
-    // Addresses
-    // 20 orders (Case 15 same order).
-    // result.orderInfos->orderAddresses should have 20 unique OrderIDs if I implemented map/set logic.
-    // I used `addedAddresses` set in the loop.
-    // Recount: Cases 1-5 (5), 7-14 (8), 15 (1), 16 (1), 17-20 (4). Total = 19.
-    QCOMPARE(result.orderInfos->orderAddresses.size(), 19);
-    
-    // Check Address Case 15
-    bool found15 = false;
-    for(const auto &a : result.orderInfos->orderAddresses) {
-        if(a.orderId == "111-0000001-0000015") {
-            found15 = true;
-            QCOMPARE(a.address.getFullName(), "Multi Item");
+    try {
+        auto task = importer.loadReport(file);
+        auto result = QCoro::waitFor(task);
+        
+        if (!result.errorReturned.isEmpty()) {
+            qDebug() << "Import Error:" << result.errorReturned;
         }
+        QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+        QVERIFY(result.orderInfos);
+        
+        // Verify Counts
+        // Lines: 21 lines of data.
+        // Case 15 has 2 items same shipment -> 1 Shipment, 2 Activities? 
+        // Importer creates Shipment per row. 
+        // Wait, Importer implementation I wrote: `ret.orderInfos->shipments.append(shipment);` per row.
+        // So 21 shipments in list.
+        // However, logic should probably merge? AbstractImporter logic usually returns list of Shipments.
+        // OrderManager merges them.
+        // So 21 Shipments is expected here.
+        QCOMPARE(result.orderInfos->shipments.size(), 21);
+        
+        // Verify specific values
+        // Case 1: DE (LEJ1) -> FR
+        auto s1 = result.orderInfos->shipments.first(); // Assuming order preserved
+        auto a1 = s1.getActivities().first();
+        QCOMPARE(a1.getCountryCodeFrom(), "DE");
+        QCOMPARE(a1.getCountryCodeTo(), "FR");
+        QCOMPARE(a1.getAmountTaxed(), 12.00); // 10 + 2
+        
+        // Case 2: FR (LYS4) -> FR
+        auto s2 = result.orderInfos->shipments[1];
+        auto a2 = s2.getActivities().first();
+        QCOMPARE(a2.getCountryCodeFrom(), "FR");
+        QCOMPARE(a2.getCountryCodeTo(), "FR");
+        
+        // Case 9: " LYS4 " -> FR if trimmed or resolved.
+        // If logic fails, error returned. Since no error, it passed.
+        // Check if country correct. LYS4 is FR.
+        // Index 7 (Cases 1,2,3,4,5,7,8,9)
+        auto s9 = result.orderInfos->shipments[7];
+        QCOMPARE(s9.getActivities().first().getCountryCodeFrom(), "FR");
+        
+        // Addresses
+        // 20 orders (Case 15 same order).
+        // result.orderInfos->orderAddresses should have 20 unique OrderIDs if I implemented map/set logic.
+        // I used `addedAddresses` set in the loop.
+        // Recount: Cases 1-5 (5), 7-14 (8), 15 (1), 16 (1), 17-20 (4). Total = 19.
+        QCOMPARE(result.orderInfos->orderAddresses.size(), 19);
+        
+        // Check Address Case 15
+        bool found15 = false;
+        for(const auto &a : result.orderInfos->orderAddresses) {
+            if(a.orderId == "111-0000001-0000015") {
+                found15 = true;
+                QCOMPARE(a.address.getFullName(), "Multi Item");
+            }
+        }
+        QVERIFY(found15);
+
+    } catch (const CsvHeaderException &e) {
+        QFAIL(qPrintable(e.getErrorColumns("Missing columns in " + e.getFileName())));
+    } catch (const std::exception &e) {
+        QFAIL(e.what());
+    } catch (...) {
+        QFAIL("Caught unknown exception");
     }
-    QVERIFY(found15);
 }
 
 void TestFileImportAmazonFbaInvoicing::test_invalidCsv()

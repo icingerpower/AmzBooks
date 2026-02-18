@@ -177,7 +177,8 @@ bool OrderManager::containsShipmentOrRefund(const QString &shipmentOrRefundId) c
 void OrderManager::recordShipmentFromSource(const QString &orderId,
                                             const ActivitySource *activitySource,
                                             const Shipment *shipmentOrRefund,
-                                            const QDate &newDateIfConflict)
+                                            const QDate &newDateIfConflict,
+                                            bool isWrongIfConflict)
 {
     if (!shipmentOrRefund) return;
     
@@ -189,12 +190,22 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
         if (!qCheck.exec()) qWarning() << "Failed to insert order:" << qCheck.lastError();
     }
 
-    QString id = shipmentOrRefund->getId();
-    QJsonObject content = shipmentOrRefund->toJson();
+    // Set isWrongIfConflict flag on the shipment before serialization
+    // We need to copy because the input is const
+    QSharedPointer<Shipment> shipCopy;
+    if (auto ref = dynamic_cast<const Refund*>(shipmentOrRefund)) {
+         shipCopy = QSharedPointer<Refund>::create(*ref);
+    } else {
+         shipCopy = QSharedPointer<Shipment>::create(*shipmentOrRefund);
+    }
+    shipCopy->setIsWrongIfConflict(isWrongIfConflict);
+
+    QString id = shipCopy->getId();
+    QJsonObject content = shipCopy->toJson();
     QString jsonStr = QJsonDocument(content).toJson(QJsonDocument::Compact);
     // Use the first activity date as the event date
-    if (shipmentOrRefund->getActivities().isEmpty()) return;
-    QString eventDate = shipmentOrRefund->getActivities().first().getDateTime().toString(Qt::ISODate);
+    if (shipCopy->getActivities().isEmpty()) return;
+    QString eventDate = shipCopy->getActivities().first().getDateTime().toString(Qt::ISODate);
     QString sourceKey = getSourceKey(activitySource);
 
     QSqlQuery qSel(m_db);
@@ -206,6 +217,18 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
         QString currentJson = qSel.value("current_json").toString();
         
         if (status == "Draft") {
+            // Check conflict strength
+            Shipment currentShip = Shipment::fromJson(QJsonDocument::fromJson(currentJson.toUtf8()).object());
+            bool existingIsWrong = currentShip.isWrongIfConflict();
+            bool incomingIsWrong = isWrongIfConflict;
+
+            // If existing is STRONG (false) and incoming is WEAK (true), we do NOT overwrite
+            if (!existingIsWrong && incomingIsWrong) {
+                // Existing wins. Do nothing.
+                return;
+            }
+            // Else: Incoming wins (Weak overwrites Weak, Strong overwrites Weak, Strong overwrites Strong)
+
             QSqlQuery qUpd(m_db);
             qUpd.prepare("UPDATE shipments SET original_json = ?, current_json = ?, event_date = ?, source_key = ? WHERE id = ?");
             qUpd.addBindValue(jsonStr);
@@ -333,11 +356,22 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
 void OrderManager::recordShipmentUpdated(const QString &orderId,
                                          const ActivitySource *activitySource,
                                          const Shipment *shipmentOrRefund,
-                                         const QDate &newDateIfConflict)
+                                         const QDate &newDateIfConflict,
+                                         bool isWrongIfConflict)
 {
     if (!shipmentOrRefund) return;
-    QString id = shipmentOrRefund->getId();
-    QString jsonStr = QJsonDocument(shipmentOrRefund->toJson()).toJson(QJsonDocument::Compact);
+    
+    // Clone and set flag
+    QSharedPointer<Shipment> shipCopy;
+    if (auto ref = dynamic_cast<const Refund*>(shipmentOrRefund)) {
+         shipCopy = QSharedPointer<Refund>::create(*ref);
+    } else {
+         shipCopy = QSharedPointer<Shipment>::create(*shipmentOrRefund);
+    }
+    shipCopy->setIsWrongIfConflict(isWrongIfConflict);
+
+    QString id = shipCopy->getId();
+    QString jsonStr = QJsonDocument(shipCopy->toJson()).toJson(QJsonDocument::Compact);
 
     QSqlQuery qUpd(m_db);
     qUpd.prepare("UPDATE shipments SET current_json = ? WHERE id = ?");
@@ -627,7 +661,7 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
             source.reportOrMethode = parts[3];
         }
 
-        recordShipmentFromSource(orderId, &source, &refund, QDate::currentDate());
+        recordShipmentFromSource(orderId, &source, &refund, QDate::currentDate(), false);
         return QString{}; // Success
     };
 

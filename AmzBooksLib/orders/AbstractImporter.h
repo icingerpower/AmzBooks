@@ -64,6 +64,7 @@ public:
     virtual QString getLabel() const = 0;
     virtual QMap<QString, ParamInfo> getRequiredParams() const = 0;
     virtual bool recomputeTaxes() const = 0;
+    virtual bool isWrongIfConflict() const = 0; // If 2 drafts conflicts, if one is wrong if conflict, we take data of the one not wrong
 
     const QMap<QString, ParamInfo> &getLoadedParamValues() const;
 

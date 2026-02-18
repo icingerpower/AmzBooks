@@ -16,6 +16,7 @@ class Shipment
 {
 public:
     explicit Shipment(QList<Activity> activities);
+    virtual ~Shipment() = default;
     void computeTax(const TaxResolver *taxResolver
                     , const VatResolver *vatResolver
                     , const QString &vatTerritoryFrom
@@ -27,8 +28,12 @@ public:
     static Shipment fromJson(const QJsonObject &json);
     QJsonObject toJson() const;
 
+    bool isWrongIfConflict() const { return m_isWrongIfConflict; }
+    void setIsWrongIfConflict(bool val) { m_isWrongIfConflict = val; }
+
 protected:
     QList<Activity> m_activities;
+    bool m_isWrongIfConflict = false;
 };
 
 #endif // SHIPMENT_H

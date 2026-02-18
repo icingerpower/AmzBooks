@@ -362,7 +362,7 @@ void TestServiceSales::test_persistence()
              QList<Activity> acts;
              acts.append(*actRes.value);
              Shipment shipment(acts);
-             orderManager.recordShipmentFromSource("AmazonOrder1", &sourceAmazon, &shipment, QDate(2023, 5, 21));
+             orderManager.recordShipmentFromSource("AmazonOrder1", &sourceAmazon, &shipment, QDate(2023, 5, 21), false);
          }
      }
      

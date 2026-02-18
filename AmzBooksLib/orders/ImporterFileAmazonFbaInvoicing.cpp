@@ -44,6 +44,11 @@ bool ImporterFileAmazonFbaInvoicing::recomputeTaxes() const
     return true;
 }
 
+bool ImporterFileAmazonFbaInvoicing::isWrongIfConflict() const
+{
+    return true;
+}
+
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::_loadReport(
     const QString &filePath,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
@@ -89,9 +94,9 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
     int idxItemTax = csvData->header.pos("Item Tax");
     int idxFC = csvData->header.pos("FC");
     int idxDelivCountry = csvData->header.pos(QStringList{"Delivery Country Code", "Shipping Country Code"});
-    
+    int idxSalesChannel = csvData->header.pos("Sales Channel");
+
     // Optional columns
-    int idxSalesChannel = getOptionalPos(QStringList{"Sales Channel"});
     //int idxShipItemId = getOptionalPos(QStringList{"Shipment Item ID", "Shipment Item Id"});
     int idxName = getOptionalPos(QStringList{"Recipient Name"});
     int idxAddr1 = getOptionalPos(QStringList{"Delivery Address 1", "Shipping Address 1"});
@@ -109,9 +114,11 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
     for (const auto &line : csvData->lines) {
         if (line.isEmpty()) continue;
         
-        QString orderId = line.value(idxOrderId);
-        QString shipId = line.value(idxShipId);
-        if (orderId.isEmpty() || shipId.isEmpty()) continue;
+        const QString &orderId = line.value(idxOrderId);
+        const QString &shipId = line.value(idxShipId);
+        if (orderId.isEmpty() || shipId.isEmpty()) {
+            continue;
+        }
 
         // Date
         QString dateStr = line.value(idxDate);
@@ -145,26 +152,23 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         // Note: Using shipItemId as activityId to ensure uniqueness if multiple items per shipment
         const QString &activityId = shipId;
 
-        // Determine Tax Scheme
-        TaxScheme scheme = (shippingCountry == destCountry) ? TaxScheme::DomesticVat : TaxScheme::EuOssUnion;
-
         auto actResult = Activity::create(
-            eventId, 
-            activityId,
-            "", // External link
-            dt,
-            dt, // dateTimeTax same as dateTime
-            line.value(idxCurrency),
-            shippingCountry, // Departure
-            destCountry,     // Arrival
-            destCountry,     // Declaring (Assumption: OSS or Dest)
-            amount,
-            TaxSource::MarketplaceProvided, // Amazon handles text?
-            destCountry, // Tax Liability Country
-            scheme, 
-            TaxJurisdictionLevel::Country,
-            SaleType::Products
-        );
+                    eventId,
+                    activityId,
+                    "", // External link
+                    dt,
+                    dt, // dateTimeTax same as dateTime
+                    line.value(idxCurrency),
+                    shippingCountry, // Departure
+                    destCountry,     // Arrival
+                    QString{},     // Declaring (Assumption: OSS or Dest)
+                    amount,
+                    TaxSource::Unknown,
+                    QString{}, // Tax Liability Country
+                    TaxScheme::Unknown,
+                    TaxJurisdictionLevel::Unknown,
+                    SaleType::Products
+                    );
 
         if (!actResult.ok()) {
             ret.errorReturned = "Activity Create Error: Validation Failed";
@@ -199,10 +203,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
             addedAddresses.insert(orderId);
         }
         
-        QString salesChannel = "Amazon";
-        if (idxSalesChannel != -1) {
-            salesChannel = line.value(idxSalesChannel);
-        }
+        const QString &salesChannel = line.value(idxSalesChannel);
         ret.orderInfos->orderId_store.insert(orderId, salesChannel);
     }
 

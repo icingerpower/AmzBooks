@@ -202,14 +202,14 @@ void PaneOrderApis::import()
 
             // Process Shipments
             for (const auto &shipment : aggregatedInfos.shipments) {
-                 manager.recordShipmentFromSource(shipment.getId(), &source, &shipment, QDate());
+                 manager.recordShipmentFromSource(shipment.getId(), &source, &shipment, QDate(), false);
                  newActivities.append(shipment.getActivities());
             }
             importedCount += aggregatedInfos.shipments.size();
 
             // Process Refunds
             for (const auto &refund : aggregatedInfos.refunds) {
-                manager.recordShipmentFromSource(refund.getId(), &source, &refund, QDate());
+                manager.recordShipmentFromSource(refund.getId(), &source, &refund, QDate(), false);
                 newActivities.append(refund.getActivities());
             }
             importedCount += aggregatedInfos.refunds.size();

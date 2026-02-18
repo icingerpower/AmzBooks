@@ -16,6 +16,7 @@ public:
 
     QString getUniqueReportId(const QString &filePath) const override;
     bool recomputeTaxes() const override;
+    bool isWrongIfConflict() const override;
 
 protected:
     QCoro::Task<ReturnOrderInfos> _loadReport(
