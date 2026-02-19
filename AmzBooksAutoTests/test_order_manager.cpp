@@ -51,6 +51,7 @@ private slots:
     void test_importOrderInvariance();
     void test_OrderInvoicingTable();
     void test_conflictResolution_isWrongIfConflict();
+    void test_inventoryMove();
 };
 
 void TestOrderManager::initTestCase()
@@ -2379,6 +2380,88 @@ void TestOrderManager::test_conflictResolution_isWrongIfConflict()
          QJsonObject json = QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
          QVERIFY(json["isWrongIfConflict"].toBool() == true);
     }
+}
+
+void TestOrderManager::test_inventoryMove()
+{
+    // ── Setup ──────────────────────────────────────────────────────────────
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());                                               // 1
+    OrderManager manager(tempDir.path());
+
+    // ── Empty DB: both getters return empty hashes ─────────────────────────
+    QVERIFY(manager.getInventoryImported(2024, 1, "FR").isEmpty());           // 2
+    QVERIFY(manager.getInventoryExported(2024, 1, "PL").isEmpty());           // 3
+
+    // ── Single move: appears as import to "FR" and export from "PL" ────────
+    manager.recordInventoryMove(2024, 1, "PL", "FR", "TXN-001", "SKU-A", 5);
+
+    auto imp1 = manager.getInventoryImported(2024, 1, "FR");
+    QVERIFY(!imp1.isEmpty());                                                 // 4
+    QVERIFY(imp1.contains("SKU-A"));                                          // 5
+    QCOMPARE(imp1["SKU-A"], 5);                                               // 6
+
+    auto exp1 = manager.getInventoryExported(2024, 1, "PL");
+    QVERIFY(!exp1.isEmpty());                                                 // 7
+    QVERIFY(exp1.contains("SKU-A"));                                          // 8
+    QCOMPARE(exp1["SKU-A"], 5);                                               // 9
+
+    // ── Filters: wrong country returns empty ────────────────────────────────
+    QVERIFY(manager.getInventoryImported(2024, 1, "DE").isEmpty());           // 10
+    QVERIFY(manager.getInventoryExported(2024, 1, "DE").isEmpty());           // 11
+
+    // ── Filters: wrong year returns empty ──────────────────────────────────
+    QVERIFY(manager.getInventoryImported(2023, 1, "FR").isEmpty());           // 12
+    QVERIFY(manager.getInventoryExported(2023, 1, "PL").isEmpty());           // 13
+
+    // ── Filters: wrong month returns empty ─────────────────────────────────
+    QVERIFY(manager.getInventoryImported(2024, 2, "FR").isEmpty());           // 14
+    QVERIFY(manager.getInventoryExported(2024, 2, "PL").isEmpty());           // 15
+
+    // ── Two moves of the same SKU are aggregated ───────────────────────────
+    manager.recordInventoryMove(2024, 1, "PL", "FR", "TXN-002", "SKU-A", 3);
+    QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 8);       // 16 (5+3)
+    QCOMPARE(manager.getInventoryExported(2024, 1, "PL")["SKU-A"], 8);       // 17
+
+    // ── Multiple distinct SKUs are all returned ────────────────────────────
+    manager.recordInventoryMove(2024, 1, "PL", "FR", "TXN-003", "SKU-B", 10);
+    auto imp2 = manager.getInventoryImported(2024, 1, "FR");
+    QVERIFY(imp2.contains("SKU-B"));                                          // 18
+    QCOMPARE(imp2.size(), 2);                                                 // 19 (SKU-A + SKU-B)
+    QCOMPARE(imp2["SKU-B"], 10);                                              // 20
+
+    // ── Different source country doesn't bleed into unrelated exports ──────
+    manager.recordInventoryMove(2024, 1, "DE", "FR", "TXN-004", "SKU-C", 7);
+    auto imp3 = manager.getInventoryImported(2024, 1, "FR");
+    QVERIFY(imp3.contains("SKU-C"));                                          // 21
+    QCOMPARE(imp3.size(), 3);                                                 // 22 (A + B + C)
+    QVERIFY(!manager.getInventoryExported(2024, 1, "PL").contains("SKU-C")); // 23
+    auto expDE = manager.getInventoryExported(2024, 1, "DE");
+    QVERIFY(expDE.contains("SKU-C"));                                         // 24
+    QCOMPARE(expDE["SKU-C"], 7);                                              // 25
+
+    // ── Re-recording same id replaces the row (INSERT OR REPLACE) ──────────
+    // TXN-001 changes from 5 → 99; running total for SKU-A becomes 99+3 = 102
+    manager.recordInventoryMove(2024, 1, "PL", "FR", "TXN-001", "SKU-A", 99);
+    QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 102);      // 26
+
+    // ── Different month is isolated from month 1 ───────────────────────────
+    manager.recordInventoryMove(2024, 3, "PL", "FR", "TXN-005", "SKU-A", 20);
+    QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 102);      // 27 unchanged
+    QCOMPARE(manager.getInventoryImported(2024, 3, "FR")["SKU-A"], 20);       // 28
+
+    // ── Empty transactionId raises an exception ────────────────────────────
+    bool exceptionRaised = false;
+    try {
+        manager.recordInventoryMove(2024, 1, "PL", "FR", "", "SKU-X", 1);
+    } catch (...) {
+        exceptionRaised = true;
+    }
+    QVERIFY(exceptionRaised);                                                  // 29
+
+    // ── A country can be an exporter in one move and an importer in another
+    manager.recordInventoryMove(2024, 1, "FR", "IT", "TXN-006", "SKU-D", 4);
+    QVERIFY(manager.getInventoryExported(2024, 1, "FR").contains("SKU-D"));   // 30
 }
 
 QTEST_MAIN(TestOrderManager)

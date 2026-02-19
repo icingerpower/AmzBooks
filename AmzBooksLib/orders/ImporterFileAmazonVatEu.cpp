@@ -120,8 +120,11 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
     int indTaxScheme = dataRode->header.pos("TAX_REPORTING_SCHEME");
     int indTaxCollectionResp = dataRode->header.pos("TAX_COLLECTION_RESPONSIBILITY");
 
-    // int indSellerSku = dataRode->header.pos("SELLER_SKU"); // Unused
-    // int indAsin = dataRode->header.pos("ASIN"); // Unused
+    int indSellerSku = dataRode->header.contains("SELLER_SKU") ? dataRode->header.pos("SELLER_SKU") : -1;
+    int indQty = dataRode->header.contains("QTY") ? dataRode->header.pos("QTY") : -1;
+    // Physical departure/arrival countries (distinct from SALE_DEPART/ARRIVAL_COUNTRY which are empty for FC_TRANSFER)
+    int indDepartCountry = dataRode->header.contains("DEPARTURE_COUNTRY") ? dataRode->header.pos("DEPARTURE_COUNTRY") : -1;
+    int indArrivalCountry = dataRode->header.contains("ARRIVAL_COUNTRY") ? dataRode->header.pos("ARRIVAL_COUNTRY") : -1;
     int indActivityId = dataRode->header.pos("ACTIVITY_TRANSACTION_ID"); // Unique ID per line
 
     // Temporary map to aggregate items by Shipment ID (actId)
@@ -137,6 +140,28 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
 
     for (const auto &line : dataRode->lines) {
         QString transType = line.value(indTransType);
+
+        if (transType == "FC_TRANSFER") {
+            if (indSellerSku >= 0 && indQty >= 0 && indDepartCountry >= 0 && indArrivalCountry >= 0) {
+                QString eventId = (indEventId >= 0) ? line.value(indEventId) : QString();
+                QString sku  = line.value(indSellerSku);
+                int     qty  = line.value(indQty).toInt();
+                QString from = line.value(indDepartCountry);
+                QString to   = line.value(indArrivalCountry);
+                QDate   date = parseDateFormats(line.value(indDate), {"dd-MM-yyyy", "dd/MM/yyyy", "yyyy-MM-dd"});
+                if (!eventId.isEmpty() && !sku.isEmpty() && qty > 0 && !from.isEmpty() && !to.isEmpty() && from != to && date.isValid()) {
+                    auto &move = result.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits[date.year()][date.month()][from][to][eventId];
+                    move.sku = sku;
+                    move.units += qty;
+                    if (result.orderInfos->dateMin.isNull() || date < result.orderInfos->dateMin)
+                        result.orderInfos->dateMin = date;
+                    if (result.orderInfos->dateMax.isNull() || date > result.orderInfos->dateMax)
+                        result.orderInfos->dateMax = date;
+                }
+            }
+            continue;
+        }
+
         if (transType != "SALE" && transType != "REFUND") continue;
 
         QString eventId = (indEventId != -1) ? line.value(indEventId) : "";

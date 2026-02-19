@@ -32,6 +32,10 @@ public:
         double value;
         QString currency;
     };
+    struct InventoryMove{
+        QString sku;
+        int units = 0;
+    };
 
     struct OrderInfos{
         QList<InvoicingInfoWithId> invoicingInfos;
@@ -40,7 +44,7 @@ public:
         QList<Refund> refunds;
         QHash<QString, Amount> orderId_refundClue;
         QHash<QString, QString> orderId_store;
-        QHash<QString, QHash<QString, QHash<QString, int>>> countryFrom_countryTo_sku_movedUnits;
+        QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> year_month_countryFrom_countryTo_id_SkuMovedUnits;
         QDate dateMin;
         QDate dateMax;
     };

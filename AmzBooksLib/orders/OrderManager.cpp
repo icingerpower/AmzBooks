@@ -17,6 +17,7 @@
 #include "InvoicingInfo.h"
 #include "Address.h"
 #include "ActivityUpdate.h"
+#include "ExceptionWithTitleText.h"
 
 namespace {
     QString getSourceKey(const ActivitySource *source) {
@@ -70,6 +71,9 @@ void OrderManager::initDb()
     }
     if (!query.exec(OrderManagerSql::CREATE_TABLE_INVOICING_INFOS)) {
          qWarning() << "Failed to create invoicing_infos table:" << query.lastError().text();
+    }
+    if (!query.exec(OrderManagerSql::CREATE_TABLE_INVENTORY_MOVES)) {
+         qWarning() << "Failed to create inventory_moves table:" << query.lastError().text();
     }
 
     // Migration: Add store column if missing
@@ -505,6 +509,71 @@ void OrderManager::recordAddressTo(const QString &orderId, const Address &addres
     qUpd.addBindValue(jsonStr);
     qUpd.addBindValue(orderId);
     if (!qUpd.exec()) qWarning() << "Failed to update address:" << qUpd.lastError();
+}
+
+void OrderManager::recordInventoryMove(
+        int year
+        , int month
+        , const QString &countryCodeFrom
+        , const QString &countryCodeTo
+        , const QString &transactionId
+        , const QString &sku
+        , int units)
+{
+    if (transactionId.isEmpty()) {
+        ExceptionWithTitleText ex("Invalid Inventory Move",
+                                  "transactionId cannot be empty");
+        ex.raise();
+    }
+    QSqlQuery q(m_db);
+    q.prepare("INSERT OR REPLACE INTO inventory_moves "
+              "(id, year, month, country_from, country_to, sku, units) "
+              "VALUES (?, ?, ?, ?, ?, ?, ?)");
+    q.addBindValue(transactionId);
+    q.addBindValue(year);
+    q.addBindValue(month);
+    q.addBindValue(countryCodeFrom);
+    q.addBindValue(countryCodeTo);
+    q.addBindValue(sku);
+    q.addBindValue(units);
+    if (!q.exec())
+        qWarning() << "Failed to record inventory move:" << q.lastError();
+}
+
+QHash<QString, int> OrderManager::getInventoryImported(
+        int year, int month, const QString &countryCodeTo) const
+{
+    QHash<QString, int> sku_units;
+    QSqlQuery q(m_db);
+    q.prepare("SELECT sku, SUM(units) FROM inventory_moves "
+              "WHERE year = ? AND month = ? AND country_to = ? "
+              "GROUP BY sku");
+    q.addBindValue(year);
+    q.addBindValue(month);
+    q.addBindValue(countryCodeTo);
+    if (q.exec()) {
+        while (q.next())
+            sku_units[q.value(0).toString()] = q.value(1).toInt();
+    }
+    return sku_units;
+}
+
+QHash<QString, int> OrderManager::getInventoryExported(
+        int year, int month, const QString &countryCodeFrom) const
+{
+    QHash<QString, int> sku_units;
+    QSqlQuery q(m_db);
+    q.prepare("SELECT sku, SUM(units) FROM inventory_moves "
+              "WHERE year = ? AND month = ? AND country_from = ? "
+              "GROUP BY sku");
+    q.addBindValue(year);
+    q.addBindValue(month);
+    q.addBindValue(countryCodeFrom);
+    if (q.exec()) {
+        while (q.next())
+            sku_units[q.value(0).toString()] = q.value(1).toInt();
+    }
+    return sku_units;
 }
 
 void OrderManager::recordOrder(const QString &orderId, const QString &store)

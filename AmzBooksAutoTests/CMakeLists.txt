@@ -178,6 +178,17 @@ add_custom_command(TARGET TestFileImportTemuOrders POST_BUILD
     $<TARGET_FILE_DIR:TestFileImportTemuOrders>/data/temu-orders
 )
 
+add_executable(TestImporterFileTemuVatEu test_importer_file_temu_vat_eu.cpp)
+add_test(NAME TestImporterFileTemuVatEu COMMAND TestImporterFileTemuVatEu)
+target_link_libraries(TestImporterFileTemuVatEu PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib QCoro::Core)
+target_include_directories(TestImporterFileTemuVatEu PRIVATE ../AmzBooksLib ../../common)
+
+add_custom_command(TARGET TestImporterFileTemuVatEu POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/temu-vat-reports
+    $<TARGET_FILE_DIR:TestImporterFileTemuVatEu>/data/temu-vat-reports
+)
+
 
 add_executable(TestBooksConnection test_books_connections.cpp)
 add_test(NAME TestBooksConnection COMMAND TestBooksConnection)

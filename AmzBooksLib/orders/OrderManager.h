@@ -58,6 +58,16 @@ public:
                          const QString &store); // Replace if exists
     void recordAddressTo(const QString &orderId,
                          const Address &addressTo); // Replace if exists
+    void recordInventoryMove(int year
+                             , int month
+                             , const QString &countryCodeFrom
+                             , const QString &countryCodeTo
+                             , const QString &transactionId // Triggers ExceptionWithTitleText is empty
+                             , const QString &sku
+                             , int units
+                             );
+    QHash<QString, int> getInventoryImported(int year, int month, const QString &countryCodeTo) const;
+    QHash<QString, int> getInventoryExported(int year, int month, const QString &countryCodeFrom) const;
     // Records invoicing information (number, link, items) for a given shipment (or its root).
     // The info is stored by shipment root ID, ensuring access across all revisions/conflicts.
     void recordInvoicingInfo(const QString &shipmentOrRefundId,

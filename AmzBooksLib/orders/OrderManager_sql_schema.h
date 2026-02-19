@@ -51,6 +51,19 @@ const QString CREATE_TABLE_INVOICING_INFOS = R"(
     )
 )";
 
+const QString CREATE_TABLE_INVENTORY_MOVES = R"(
+    CREATE TABLE IF NOT EXISTS inventory_moves (
+        id           TEXT    NOT NULL,  -- TRANSACTION_EVENT_ID
+        year         INTEGER NOT NULL,
+        month        INTEGER NOT NULL,
+        country_from TEXT    NOT NULL,
+        country_to   TEXT    NOT NULL,
+        sku          TEXT    NOT NULL,
+        units        INTEGER NOT NULL,
+        PRIMARY KEY (id)
+    )
+)";
+
 } // namespace OrderManagerSql
 
 #endif // ORDERMANAGER_SQL_SCHEMA_H
