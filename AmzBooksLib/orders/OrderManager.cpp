@@ -182,7 +182,8 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                                             const ActivitySource *activitySource,
                                             const Shipment *shipmentOrRefund,
                                             const QDate &newDateIfConflict,
-                                            bool isWrongIfConflict)
+                                            bool isWrongIfConflict,
+                                            bool fixTaxDate)
 {
     if (!shipmentOrRefund) return;
     
@@ -206,6 +207,32 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
 
     QString id = shipCopy->getId();
     QJsonObject content = shipCopy->toJson();
+
+    // If requested, inherit the tax date from the earliest existing shipment recorded
+    // for the same orderId. This is useful for refunds where the tax date is not
+    // explicitly provided in the source report (e.g. Temu EU VAT returns).
+    if (fixTaxDate) {
+        QSqlQuery qOrig(m_db);
+        qOrig.prepare("SELECT current_json FROM shipments WHERE order_id = ? ORDER BY event_date ASC LIMIT 1");
+        qOrig.addBindValue(orderId);
+        if (qOrig.exec() && qOrig.next()) {
+            QJsonDocument origDoc = QJsonDocument::fromJson(qOrig.value(0).toString().toUtf8());
+            QJsonArray origActs = origDoc.object()["activities"].toArray();
+            if (!origActs.isEmpty()) {
+                QString origTaxDate = origActs[0].toObject()["dateTimeTax"].toString();
+                if (!origTaxDate.isEmpty()) {
+                    QJsonArray acts = content["activities"].toArray();
+                    for (int i = 0; i < acts.size(); ++i) {
+                        QJsonObject act = acts[i].toObject();
+                        act["dateTimeTax"] = origTaxDate;
+                        acts[i] = act;
+                    }
+                    content["activities"] = acts;
+                }
+            }
+        }
+    }
+
     QString jsonStr = QJsonDocument(content).toJson(QJsonDocument::Compact);
     // Use the first activity date as the event date
     if (shipCopy->getActivities().isEmpty()) return;

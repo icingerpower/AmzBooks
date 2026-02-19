@@ -58,6 +58,12 @@ public:
     static QStringList getCurrencies();
 
     static const QStringList DEFAULT_AMAZON_SITES;
+
+    // Converts a country name (in English or French) or an existing 2-letter ISO code
+    // to the ISO 3166-1 alpha-2 code. Case-insensitive.
+    // If the input is already a 2-letter code it is returned uppercased.
+    // Returns the trimmed input unchanged (with a warning) when the name is unknown.
+    static QString toCode(const QString &nameOrCode);
 };
 
 #endif // COUNTRIESEU_H

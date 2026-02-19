@@ -307,7 +307,8 @@ void PaneOrderFiles::importFile()
                            &source,
                            &refund,
                            QDate(),
-                           importer->isWrongIfConflict()
+                           importer->isWrongIfConflict(),
+                           importer->fixRefundDate()
                        );
                    }
                    

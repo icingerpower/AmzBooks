@@ -75,6 +75,11 @@ Result<Activity> Activity::create(QString eventId,
     return result;
 }
 
+void Activity::setTaxDate(const QDateTime &taxDate)
+{
+    m_dateTimeTax = taxDate;
+}
+
 void Activity::computeTax(
         const TaxResolver *taxResolver
         , const VatResolver *vatResolver

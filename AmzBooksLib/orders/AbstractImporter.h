@@ -70,6 +70,7 @@ public:
     virtual QMap<QString, ParamInfo> getRequiredParams() const = 0;
     virtual bool recomputeTaxes() const = 0;
     virtual bool isWrongIfConflict() const = 0; // If 2 drafts conflicts, if one is wrong if conflict, we take data of the one not wrong
+    virtual bool fixRefundDate() const = 0; //The refund tax date of refund is wrong and need to be fixed when the refund is added in the OrderManager, but using the tax date of the original order
 
     const QMap<QString, ParamInfo> &getLoadedParamValues() const;
 

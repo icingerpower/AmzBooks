@@ -91,3 +91,118 @@ const QStringList CountriesEu::DEFAULT_AMAZON_SITES = {
     "amazon.co.uk",
     "amazon.co.jp"
 };
+
+QString CountriesEu::toCode(const QString &nameOrCode)
+{
+    QString trimmed = nameOrCode.trimmed();
+    if (trimmed.isEmpty())
+        return trimmed;
+
+    // If already a 2-letter code, normalise to upper-case and return.
+    if (trimmed.length() == 2)
+        return trimmed.toUpper();
+
+    static const QMap<QString, QString> nameMap = {
+        // --- English names (all 27 EU members + common extras) ---
+        {"austria",              "AT"},
+        {"belgium",              "BE"},
+        {"bulgaria",             "BG"},
+        {"cyprus",               "CY"},
+        {"czech republic",       "CZ"},
+        {"czechia",              "CZ"},
+        {"germany",              "DE"},
+        {"denmark",              "DK"},
+        {"estonia",              "EE"},
+        {"spain",                "ES"},
+        {"finland",              "FI"},
+        {"france",               "FR"},
+        {"greece",               "GR"},
+        {"croatia",              "HR"},
+        {"hungary",              "HU"},
+        {"ireland",              "IE"},
+        {"italy",                "IT"},
+        {"lithuania",            "LT"},
+        {"luxembourg",           "LU"},
+        {"latvia",               "LV"},
+        {"malta",                "MT"},
+        {"netherlands",          "NL"},
+        {"poland",               "PL"},
+        {"portugal",             "PT"},
+        {"romania",              "RO"},
+        {"sweden",               "SE"},
+        {"slovenia",             "SI"},
+        {"slovakia",             "SK"},
+        // Former / special
+        {"united kingdom",       "GB"},
+        {"great britain",        "GB"},
+        {"uk",                   "GB"},
+        {"northern ireland",     "XI"},
+        {"monaco",               "MC"},
+        // Non-EU frequently encountered
+        {"switzerland",          "CH"},
+        {"norway",               "NO"},
+        {"united states",        "US"},
+        {"united states of america", "US"},
+        {"usa",                  "US"},
+        {"canada",               "CA"},
+        {"japan",                "JP"},
+        {"china",                "CN"},
+        {"turkey",               "TR"},
+        // --- French names (all 27 EU members + common extras) ---
+        {"allemagne",            "DE"},
+        {"autriche",             "AT"},
+        {"belgique",             "BE"},
+        {"bulgarie",             "BG"},
+        {"chypre",               "CY"},
+        {"croatie",              "HR"},
+        {"danemark",             "DK"},
+        {"espagne",              "ES"},
+        {"estonie",              "EE"},
+        {"finlande",             "FI"},
+        {"grèce",                "GR"},
+        {"grece",                "GR"},
+        {"hongrie",              "HU"},
+        {"irlande",              "IE"},
+        {"italie",               "IT"},
+        {"lettonie",             "LV"},
+        {"lituanie",             "LT"},
+        {"luxembourg",           "LU"}, // same in FR/EN
+        {"malte",                "MT"},
+        {"pays-bas",             "NL"},
+        {"pays bas",             "NL"},
+        {"pologne",              "PL"},
+        {"portugal",             "PT"}, // same in FR/EN
+        {"republique tcheque",   "CZ"},
+        {"république tchèque",   "CZ"},
+        {"republique tchèque",   "CZ"},
+        {"roumanie",             "RO"},
+        {"slovaquie",            "SK"},
+        {"slovénie",             "SI"},
+        {"slovenie",             "SI"},
+        {"suède",                "SE"},
+        {"suede",                "SE"},
+        // Former / special
+        {"royaume-uni",          "GB"},
+        {"royaume uni",          "GB"},
+        {"irlande du nord",      "XI"},
+        // Non-EU frequently encountered
+        {"suisse",               "CH"},
+        {"norvège",              "NO"},
+        {"norvege",              "NO"},
+        {"états-unis",           "US"},
+        {"etats-unis",           "US"},
+        {"états unis",           "US"},
+        {"etats unis",           "US"},
+        {"chine",                "CN"},
+        {"japon",                "JP"},
+        {"turquie",              "TR"},
+        {"canada",               "CA"}, // same in FR/EN
+    };
+
+    QString lower = trimmed.toLower();
+    if (nameMap.contains(lower))
+        return nameMap[lower];
+
+    qWarning() << "CountriesEu::toCode: unknown country name:" << nameOrCode;
+    return trimmed;
+}

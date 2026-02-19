@@ -26,6 +26,7 @@ public:
     QMap<QString, ParamInfo> getRequiredParams() const override;
     bool recomputeTaxes() const override;
     bool isWrongIfConflict() const override;
+    bool fixRefundDate() const override;
 
 protected:
     struct ShopConfig {

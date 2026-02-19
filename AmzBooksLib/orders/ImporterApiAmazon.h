@@ -45,6 +45,7 @@ public:
     QMap<QString, ParamInfo> getRequiredParams() const override;
     bool recomputeTaxes() const override;
     bool isWrongIfConflict() const override;
+    bool fixRefundDate() const override;
 
 protected:
     // Common helper methods for Amazon SP-API

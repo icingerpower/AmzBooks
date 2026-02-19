@@ -32,8 +32,9 @@ public:
     QCoro::Task<ReturnOrderInfos> fetchRefunds(const QDateTime &dateFrom);
     QCoro::Task<ReturnOrderInfos> fetchAddresses(const QDateTime &dateFrom);
     QCoro::Task<ReturnOrderInfos> fetchInvoiceInfos(const QDateTime &dateFrom);
-    virtual bool isWrongIfConflict() const override { return false; } // If 2 drafts conflicts, if one is wrong if conflict, we take data of the one not wrong
-    virtual bool recomputeTaxes() const override { return false; }
+    bool isWrongIfConflict() const override;
+    bool recomputeTaxes() const override;
+    bool fixRefundDate() const override;
 
 protected:
     virtual QCoro::Task<ReturnOrderInfos> _fetchShipments(const QDateTime &dateFrom) = 0;

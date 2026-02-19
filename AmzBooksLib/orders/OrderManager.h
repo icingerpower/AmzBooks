@@ -44,7 +44,9 @@ public:
                                   const ActivitySource *activitySource
                                   , const Shipment *shipmentOrRefund
                                   , const QDate &newDateIfConflict
-                                  , bool isWrongIfConflict = false); // Save if new. Replace if not published OR not Activity::isDifferentTaxese. Otherwise create double entry (refund / re-invoicing).
+                                  , bool isWrongIfConflict = false
+                                  , bool fixTaxDate = false); // Save if new. Replace if not published OR not Activity::isDifferentTaxese. Otherwise create double entry (refund / re-invoicing).
+                                                              // fixTaxDate: if true and an existing shipment is found for the same orderId, its tax date is applied to all activities of the incoming shipment (useful for refunds where the tax date is not explicitly available).
     void recordShipmentUpdated(const QString &orderId,
                                const ActivitySource *activitySource
                                , const Shipment *shipmentOrRefund

@@ -83,3 +83,18 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> AbstractImporterApi::fetchInvoic
     }
     co_return result;
 }
+
+bool AbstractImporterApi::isWrongIfConflict() const
+{
+    return false;
+}
+
+bool AbstractImporterApi::recomputeTaxes() const
+{
+    return true;
+}
+
+bool AbstractImporterApi::fixRefundDate() const
+{
+    return false;
+}

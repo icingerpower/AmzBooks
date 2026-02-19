@@ -93,6 +93,11 @@ bool ImporterApiTemu::isWrongIfConflict() const
     return false;
 }
 
+bool ImporterApiTemu::fixRefundDate() const
+{
+    return true;
+}
+
 QList<ImporterApiTemu::ShopConfig> ImporterApiTemu::getShops() const
 {
     QList<ShopConfig> shops;

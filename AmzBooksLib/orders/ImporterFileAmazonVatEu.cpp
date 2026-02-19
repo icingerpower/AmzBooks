@@ -42,6 +42,11 @@ bool ImporterFileAmazonVatEu::isWrongIfConflict() const
     return false;
 }
 
+bool ImporterFileAmazonVatEu::fixRefundDate() const
+{
+    return false;
+}
+
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadReport(
     const QString &filePath,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)

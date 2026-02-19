@@ -1,4 +1,5 @@
 #include "ImporterFileTemuOrders.h"
+#include "CountriesEu.h"
 #include "books/Activity.h"
 #include "orders/Shipment.h"
 #include "utils/CsvReader.h"
@@ -7,66 +8,6 @@
 #include <QDebug>
 #include <QRegularExpression>
 #include <QLocale>
-
-namespace {
-    QString countryNameToCode(const QString &countryName)
-    {
-        static const QMap<QString, QString> countryMap = {
-            {"france", "FR"},
-            {"germany", "DE"},
-            {"italy", "IT"},
-            {"spain", "ES"},
-            {"portugal", "PT"},
-            {"belgium", "BE"},
-            {"netherlands", "NL"},
-            {"austria", "AT"},
-            {"poland", "PL"},
-            {"czech republic", "CZ"},
-            {"czechia", "CZ"},
-            {"sweden", "SE"},
-            {"denmark", "DK"},
-            {"finland", "FI"},
-            {"ireland", "IE"},
-            {"greece", "GR"},
-            {"hungary", "HU"},
-            {"romania", "RO"},
-            {"bulgaria", "BG"},
-            {"slovakia", "SK"},
-            {"croatia", "HR"},
-            {"slovenia", "SI"},
-            {"luxembourg", "LU"},
-            {"estonia", "EE"},
-            {"latvia", "LV"},
-            {"lithuania", "LT"},
-            {"malta", "MT"},
-            {"cyprus", "CY"},
-            {"united kingdom", "GB"},
-            {"uk", "GB"},
-            {"switzerland", "CH"},
-            {"norway", "NO"},
-            {"united states", "US"},
-            {"usa", "US"}
-        };
-        
-        QString lowerName = countryName.trimmed().toLower();
-        
-        // Check direct match
-        if (countryMap.contains(lowerName))
-        {
-            return countryMap[lowerName];
-        }
-        
-        // If already a 2-letter code, return as is
-        if (countryName.trimmed().length() == 2)
-        {
-            return countryName.trimmed().toUpper();
-        }
-        
-        // Fallback: return original trimmed (might be a code already)
-        qWarning() << "Unknown country name:" << countryName;
-        return countryName.trimmed();
-    }
-}
 
 DECLARE_IMPORTER_FILE(ImporterFileTemuOrders)
 
@@ -105,6 +46,11 @@ bool ImporterFileTemuOrders::recomputeTaxes() const
 }
 
 bool ImporterFileTemuOrders::isWrongIfConflict() const
+{
+    return true;
+}
+
+bool ImporterFileTemuOrders::fixRefundDate() const
 {
     return true;
 }
@@ -301,7 +247,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuOrders::_loadRep
         }
 
         // Destination country - convert name to ISO code
-        QString destCountry = countryNameToCode(line.value(idxCountry));
+        QString destCountry = CountriesEu::toCode(line.value(idxCountry));
         
         // For Temu EU, assume shipping from FR (France based on data)
         QString originCountry = "FR";

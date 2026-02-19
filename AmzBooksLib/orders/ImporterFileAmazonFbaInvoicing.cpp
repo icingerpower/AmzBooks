@@ -51,6 +51,11 @@ bool ImporterFileAmazonFbaInvoicing::isWrongIfConflict() const
     return true;
 }
 
+bool ImporterFileAmazonFbaInvoicing::fixRefundDate() const
+{
+    return false;
+}
+
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::_loadReport(
     const QString &filePath,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)

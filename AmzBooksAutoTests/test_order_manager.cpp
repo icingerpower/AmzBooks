@@ -52,6 +52,7 @@ private slots:
     void test_OrderInvoicingTable();
     void test_conflictResolution_isWrongIfConflict();
     void test_inventoryMove();
+    void test_fixTaxDate();
 };
 
 void TestOrderManager::initTestCase()
@@ -2462,6 +2463,188 @@ void TestOrderManager::test_inventoryMove()
     // ── A country can be an exporter in one move and an importer in another
     manager.recordInventoryMove(2024, 1, "FR", "IT", "TXN-006", "SKU-D", 4);
     QVERIFY(manager.getInventoryExported(2024, 1, "FR").contains("SKU-D"));   // 30
+}
+
+// ---------------------------------------------------------------------------
+// test_fixTaxDate
+// Verifies that the fixTaxDate=true parameter causes recordShipmentFromSource
+// to inherit the tax date of the earliest existing shipment for the same
+// orderId, and that fixTaxDate=false leaves the tax date unchanged.
+// Three independent setups are used, each with a fresh QTemporaryDir.
+// ---------------------------------------------------------------------------
+void TestOrderManager::test_fixTaxDate()
+{
+    ActivitySource source{ActivitySourceType::Report, "Temu", "temu.com", "TemuVatEu"};
+
+    // -----------------------------------------------------------------------
+    // Setup 1 — fixTaxDate=true: refund borrows the tax date of the sale
+    // -----------------------------------------------------------------------
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        OrderManager manager(tempDir.path());
+
+        const QDateTime saleDateTime   = QDateTime(QDate(2023, 1, 15), QTime(10, 0));
+        const QDateTime saleTaxDate    = QDateTime(QDate(2023, 1,  1), QTime( 0, 0));
+        const QDateTime refundDateTime = QDateTime(QDate(2023, 5, 20), QTime(10, 0));
+        const QDateTime refundTaxDate  = QDateTime(QDate(2023, 5, 20), QTime( 0, 0));
+
+        // Record the original sale (fixTaxDate=false – normal recording)
+        auto saleRes = Activity::create(
+            "evtA", "actA_sale", "",
+            saleDateTime, saleTaxDate,
+            "EUR", "FR", "DE", false, "DE",
+            Amount(100.0, 20.0), TaxSource::MarketplaceProvided,
+            "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        QVERIFY(saleRes.errors.isEmpty());                                    // 1
+        Shipment sale({*saleRes.value});
+        manager.recordShipmentFromSource("ord_fix1", &source, &sale, QDate(), false, false);
+
+        // Record the refund with fixTaxDate=true — its tax date must be replaced
+        // by the sale's tax date (2023-01-01) even though the refund carries 2023-05-20.
+        auto refRes = Activity::create(
+            "evtA", "actA_refund", "",
+            refundDateTime, refundTaxDate,
+            "EUR", "FR", "DE", false, "DE",
+            Amount(-100.0, -20.0), TaxSource::MarketplaceProvided,
+            "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        QVERIFY(refRes.errors.isEmpty());                                     // 2
+        Refund refund({*refRes.value});
+        manager.recordShipmentFromSource("ord_fix1", &source, &refund, QDate(), false, true);
+
+        // Two separate entries must exist (different shipment IDs)
+        {
+            QSqlQuery q(manager.m_db);
+            q.exec("SELECT COUNT(*) FROM shipments");
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 2);                                  // 3
+        }
+
+        // Sale's stored JSON must still carry the original tax date (2023-01-01)
+        {
+            QSqlQuery q(manager.m_db);
+            q.prepare("SELECT current_json FROM shipments WHERE id = 'actA_sale'");
+            q.exec();
+            QVERIFY(q.next());                                                // 4
+            QVERIFY(q.value(0).toString().contains("2023-01-01"));            // 5
+        }
+
+        // Refund's stored JSON must carry the BORROWED tax date (2023-01-01)
+        // and its own event dateTime (2023-05-20)
+        {
+            QSqlQuery q(manager.m_db);
+            q.prepare("SELECT current_json FROM shipments WHERE id = 'actA_refund'");
+            q.exec();
+            QVERIFY(q.next());                                                // 6
+            QString json = q.value(0).toString();
+            // Tax date was replaced with the sale's tax date
+            QVERIFY(json.contains("2023-01-01"));                             // 7
+            // Event dateTime of the refund itself is preserved
+            QVERIFY(json.contains("2023-05-20"));                             // 8
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Setup 2 — fixTaxDate=false: refund keeps its own tax date unchanged
+    // -----------------------------------------------------------------------
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        OrderManager manager(tempDir.path());
+
+        const QDateTime saleTaxDate    = QDateTime(QDate(2023, 2,  1), QTime( 0, 0));
+        const QDateTime refundDateTime = QDateTime(QDate(2023, 6, 20), QTime(10, 0));
+        const QDateTime refundTaxDate  = QDateTime(QDate(2023, 6, 20), QTime( 0, 0));
+
+        auto saleRes = Activity::create(
+            "evtB", "actB_sale", "",
+            QDateTime(QDate(2023, 2, 15), QTime(10, 0)), saleTaxDate,
+            "EUR", "FR", "DE", false, "DE",
+            Amount(200.0, 40.0), TaxSource::MarketplaceProvided,
+            "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        QVERIFY(saleRes.errors.isEmpty());                                    // 9
+        Shipment sale({*saleRes.value});
+        manager.recordShipmentFromSource("ord_fix2", &source, &sale, QDate(), false, false);
+
+        auto refRes = Activity::create(
+            "evtB", "actB_refund", "",
+            refundDateTime, refundTaxDate,
+            "EUR", "FR", "DE", false, "DE",
+            Amount(-200.0, -40.0), TaxSource::MarketplaceProvided,
+            "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        QVERIFY(refRes.errors.isEmpty());                                     // 10
+        Refund refund({*refRes.value});
+        // fixTaxDate=false → refund tax date must stay as-is
+        manager.recordShipmentFromSource("ord_fix2", &source, &refund, QDate(), false, false);
+
+        // Two entries in DB
+        {
+            QSqlQuery q(manager.m_db);
+            q.exec("SELECT COUNT(*) FROM shipments");
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 2);                                  // 11
+        }
+
+        // Refund JSON must carry its OWN tax date (2023-06-20), not the sale's (2023-02-01)
+        {
+            QSqlQuery q(manager.m_db);
+            q.prepare("SELECT current_json FROM shipments WHERE id = 'actB_refund'");
+            q.exec();
+            QVERIFY(q.next());                                                // 12
+            QString json = q.value(0).toString();
+            QVERIFY(json.contains("2023-06-20"));                             // 13  own tax date kept
+            QVERIFY(!json.contains("2023-02-01"));                            // 14  sale date NOT copied
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // Setup 3 — fixTaxDate=true but no prior shipment exists for this orderId:
+    //           the refund's own tax date must remain unchanged.
+    // -----------------------------------------------------------------------
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        OrderManager manager(tempDir.path());
+
+        const QDateTime refundDateTime = QDateTime(QDate(2023, 7, 15), QTime(10, 0));
+        const QDateTime refundTaxDate  = QDateTime(QDate(2023, 7, 15), QTime( 0, 0));
+
+        auto refRes = Activity::create(
+            "evtC", "actC_refund", "",
+            refundDateTime, refundTaxDate,
+            "EUR", "FR", "DE", false, "DE",
+            Amount(-50.0, -10.0), TaxSource::MarketplaceProvided,
+            "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        QVERIFY(refRes.errors.isEmpty());                                     // 15
+        Refund refund({*refRes.value});
+        // fixTaxDate=true but "ord_fix3" has no prior shipment → no-op
+        manager.recordShipmentFromSource("ord_fix3", &source, &refund, QDate(), false, true);
+
+        // Only the refund exists
+        {
+            QSqlQuery q(manager.m_db);
+            q.exec("SELECT COUNT(*) FROM shipments");
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 1);                                  // 16
+        }
+
+        // Tax date must be the refund's own (2023-07-15) — unchanged
+        {
+            QSqlQuery q(manager.m_db);
+            q.prepare("SELECT current_json FROM shipments WHERE id = 'actC_refund'");
+            q.exec();
+            QVERIFY(q.next());                                                // 17
+            QVERIFY(q.value(0).toString().contains("2023-07-15"));            // 18
+        }
+
+        // The order entry must also have been created
+        {
+            QSqlQuery q(manager.m_db);
+            q.exec("SELECT COUNT(*) FROM orders WHERE id = 'ord_fix3'");
+            QVERIFY(q.next());
+            QCOMPARE(q.value(0).toInt(), 1);                                  // 19
+        }
+    }
 }
 
 QTEST_MAIN(TestOrderManager)

@@ -42,6 +42,7 @@ public:
                                    QString vatTerritoryTo   = QString{},
                                    QString invoiceId        = QString{});
 
+    void setTaxDate(const QDateTime &taxDate);
     void computeTax(const TaxResolver *taxResolver
                     , const VatResolver *vatResolver
                     , const QString &vatTerritoryFrom
