@@ -1,10 +1,12 @@
 #include "ImporterFileAmazonFbaInvoicing.h"
 #include "books/FbaCentersTable.h"
-#include "books/Activity.h" // Added
-#include "orders/Shipment.h" // Added
+#include "books/Activity.h"
+#include "CountriesEu.h"
+#include "orders/Shipment.h"
 #include "utils/CsvReader.h"
 #include "utils/CsvHeader.h"
 #include <QFileInfo>
+#include <QHash>
 #include <QDebug>
 #include <exception>
 
@@ -111,6 +113,10 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
     // Track added addresses to avoid duplicates
     QSet<QString> addedAddresses;
 
+    // Accumulate activities per shipId to merge multi-item shipments into one Shipment
+    QList<QString> shipIdOrder;
+    QHash<QString, QList<Activity>> shipIdActivities;
+
     for (const auto &line : csvData->lines) {
         if (line.isEmpty()) continue;
         
@@ -146,8 +152,25 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         QString destCountry = line.value(idxDelivCountry);
         QString shippingCountry = originCountry; // From FC
 
+        // Guess isCompany: GB->GB with 0 tax suggests domestic UK B2B;
+        // EU->EU (different countries) with 0 tax suggests intra-Community B2B supply.
+        bool isCompany = false;
+        if (qFuzzyIsNull(tax)) {
+            bool fromGb = (originCountry == "GB");
+            bool toGb = (destCountry == "GB");
+            bool fromEu = CountriesEu::isEuMember(originCountry, dt.date());
+            bool toEu = CountriesEu::isEuMember(destCountry, dt.date());
+            if (qAbs(tax) < 0.001 && qAbs(price) > 0.001) {
+                if (fromGb && toGb) {
+                    isCompany = true;
+                } else if (fromEu && toEu && originCountry != destCountry) {
+                    isCompany = true;
+                }
+            }
+        }
+
         const QString &eventId = orderId; // Unique ID for shipment? Or OrderId? Usually ShipmentId for FBA shipments.
-        
+
         // Create Activity
         // Note: Using shipItemId as activityId to ensure uniqueness if multiple items per shipment
         const QString &activityId = shipId;
@@ -161,6 +184,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
                     line.value(idxCurrency),
                     shippingCountry, // Departure
                     destCountry,     // Arrival
+                    isCompany,
                     QString{},     // Declaring (Assumption: OSS or Dest)
                     amount,
                     TaxSource::Unknown,
@@ -175,10 +199,11 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
             co_return ret;
         }
 
-        QList<Activity> acts;
-        acts.append(*actResult.value);
-        Shipment shipment(acts);
-        ret.orderInfos->shipments.append(shipment);
+        if (!shipIdActivities.contains(shipId)) {
+            shipIdOrder.append(shipId);
+            shipIdActivities[shipId] = QList<Activity>();
+        }
+        shipIdActivities[shipId].append(*actResult.value);
 
         // Address
         if (!addedAddresses.contains(orderId)) {
@@ -205,6 +230,12 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         
         const QString &salesChannel = line.value(idxSalesChannel);
         ret.orderInfos->orderId_store.insert(orderId, salesChannel);
+    }
+
+    // Build one Shipment per unique shipId (preserving insertion order)
+    for (const QString &sId : shipIdOrder) {
+        Shipment shipment(shipIdActivities[sId]);
+        ret.orderInfos->shipments.append(shipment);
     }
 
     // Min/Max dates

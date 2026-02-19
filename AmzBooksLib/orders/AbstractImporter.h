@@ -40,6 +40,7 @@ public:
         QList<Refund> refunds;
         QHash<QString, Amount> orderId_refundClue;
         QHash<QString, QString> orderId_store;
+        QHash<QString, QHash<QString, QHash<QString, int>>> countryFrom_countryTo_sku_movedUnits;
         QDate dateMin;
         QDate dateMax;
     };

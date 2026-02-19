@@ -230,6 +230,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
             currency,
             depart,
             arrival,
+            false, // isCompany (not determinable from VAT report; defaulting to B2C)
             vatPaidTo,
             amt,
             taxSource,

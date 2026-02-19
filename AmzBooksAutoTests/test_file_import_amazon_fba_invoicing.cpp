@@ -119,40 +119,40 @@ void TestFileImportAmazonFbaInvoicing::test_variedSituations()
     // We will test unknown FC in a separate file or catch it.
     // Let's stick to valid FCs for this "varied situations" test to verify FIELDS, unless we want to verify 20 different valid situations.
     
-    // 7. Different Currency (USD)
-    out << "\"111-0000001-0000007\",\"SHIP007\",\"ITEM007\",\"2025-01-07T10:00:00+00:00\",\"USD\",\"15.00\",\"0.00\",\"LEJ1\",\"US\",\"amazon.com\",\"US User\",\"Road 1\",\"NY\",\"10001\",\"\",\"\",\"\",\"\",\"\",\n";
+    // 6. Different Currency (USD)
+    out << "\"111-0000001-0000007\",\"SHIP006\",\"ITEM007\",\"2025-01-07T10:00:00+00:00\",\"USD\",\"15.00\",\"0.00\",\"LEJ1\",\"US\",\"amazon.com\",\"US User\",\"Road 1\",\"NY\",\"10001\",\"\",\"\",\"\",\"\",\"\",\n";
     
-    // 8. Empty Name
-    out << "\"111-0000001-0000008\",\"SHIP008\",\"ITEM008\",\"2025-01-08T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"\",\"Rue 5\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    // 7. Empty Name
+    out << "\"111-0000001-0000008\",\"SHIP007\",\"ITEM008\",\"2025-01-08T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"\",\"Rue 5\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
-    // 9. FC with space? " LYS4 "
-    out << "\"111-0000001-0000009\",\"SHIP009\",\"ITEM009\",\"2025-01-09T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\" LYS4 \",\"FR\",\"amazon.fr\",\"Space FC\",\"Rue 6\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    // 8. FC with space? " LYS4 "
+    out << "\"111-0000001-0000009\",\"SHIP008\",\"ITEM009\",\"2025-01-09T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\" LYS4 \",\"FR\",\"amazon.fr\",\"Space FC\",\"Rue 6\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     // NOTE: CsvReader might assume trim or Importer needs to trim FC. 
     // FbaCentersTable map likely strict. Test will fail if not trimmed.
     
-    // 10. Max Date
-    out << "\"111-0000001-0000010\",\"SHIP010\",\"ITEM010\",\"2099-12-31T23:59:59+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Future\",\"Rue 7\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    // 9. Max Date
+    out << "\"111-0000001-0000010\",\"SHIP009\",\"ITEM010\",\"2099-12-31T23:59:59+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Future\",\"Rue 7\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
-    // 11. Min Amount
-    out << "\"110-0000001-0000011\",\"SHIP011\",\"ITEM011\",\"2025-01-11T10:00:00+00:00\",\"EUR\",\"0.01\",\"0.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Tiny\",\"Rue 8\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    // 10. Min Amount
+    out << "\"110-0000001-0000011\",\"SHIP010\",\"ITEM011\",\"2025-01-11T10:00:00+00:00\",\"EUR\",\"0.01\",\"0.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Tiny\",\"Rue 8\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
-    // 12. Huge Amount
-    out << "\"111-0000001-0000012\",\"SHIP012\",\"ITEM012\",\"2025-01-12T10:00:00+00:00\",\"EUR\",\"99999.00\",\"20000.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Rich\",\"Rue 9\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    // 11. Huge Amount
+    out << "\"111-0000001-0000012\",\"SHIP011\",\"ITEM012\",\"2025-01-12T10:00:00+00:00\",\"EUR\",\"99999.00\",\"20000.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Rich\",\"Rue 9\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
-    // 13. Address with quotes (csv escape)
-    out << "\"111-0000001-0000013\",\"SHIP013\",\"ITEM013\",\"2025-01-13T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"O\"\"Neil\",\"Rue 10\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    // 12. Address with quotes (csv escape)
+    out << "\"111-0000001-0000013\",\"SHIP012\",\"ITEM013\",\"2025-01-13T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"O\"\"Neil\",\"Rue 10\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
-    // 14. FC requiring fallback? (No fallback allowed).
+    // 13. FC requiring fallback? (No fallback allowed).
     // Test a valid FC that is known but obscure. "WRO5" (PL).
-    out << "\"111-0000001-0000014\",\"SHIP014\",\"ITEM014\",\"2025-01-14T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"WRO5\",\"DE\",\"amazon.de\",\"PL Origin\",\"Rue 11\",\"Berlin\",\"10115\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000014\",\"SHIP013\",\"ITEM014\",\"2025-01-14T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"WRO5\",\"DE\",\"amazon.de\",\"PL Origin\",\"Rue 11\",\"Berlin\",\"10115\",\"\",\"\",\"\",\"\",\"\",\n";
     
-    // 15. Same Order, Multiple Items (Same Shipment)
-    out << "\"111-0000001-0000015\",\"SHIP015\",\"ITEM015A\",\"2025-01-15T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Multi Item\",\"Rue 12\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
-    out << "\"111-0000001-0000015\",\"SHIP015\",\"ITEM015B\",\"2025-01-15T10:00:00+00:00\",\"EUR\",\"5.00\",\"1.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Multi Item\",\"Rue 12\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    // 14. Same Order, Multiple Items (Same Shipment)
+    out << "\"111-0000001-0000015\",\"SHIP014\",\"ITEM015A\",\"2025-01-15T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Multi Item\",\"Rue 12\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000015\",\"SHIP014\",\"ITEM015B\",\"2025-01-15T10:00:00+00:00\",\"EUR\",\"5.00\",\"1.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Multi Item\",\"Rue 12\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
-    // 16. Same Order, Different Shipment (Split)
-    out << "\"111-0000001-0000016\",\"SHIP016A\",\"ITEM016A\",\"2025-01-16T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Split Order\",\"Rue 13\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
-    out << "\"111-0000001-0000016\",\"SHIP016B\",\"ITEM016B\",\"2025-01-16T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LYS4\",\"FR\",\"amazon.fr\",\"Split Order\",\"Rue 13\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    // 15+16. Same Order, Different Shipment (Split)
+    out << "\"111-0000001-0000016\",\"SHIP015A\",\"ITEM016A\",\"2025-01-16T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"Split Order\",\"Rue 13\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
+    out << "\"111-0000001-0000016\",\"SHIP015B\",\"ITEM016B\",\"2025-01-16T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LYS4\",\"FR\",\"amazon.fr\",\"Split Order\",\"Rue 13\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
     
     // 17. Address with unicode
     out << "\"111-0000001-0000017\",\"SHIP017\",\"ITEM017\",\"2025-01-17T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.00\",\"LEJ1\",\"FR\",\"amazon.fr\",\"José\",\"Rue 14\",\"Paris\",\"75001\",\"\",\"\",\"\",\"\",\"\",\n";
@@ -182,15 +182,12 @@ void TestFileImportAmazonFbaInvoicing::test_variedSituations()
         QVERIFY(result.orderInfos);
         
         // Verify Counts
-        // Lines: 21 lines of data.
-        // Case 15 has 2 items same shipment -> 1 Shipment, 2 Activities? 
-        // Importer creates Shipment per row. 
-        // Wait, Importer implementation I wrote: `ret.orderInfos->shipments.append(shipment);` per row.
-        // So 21 shipments in list.
-        // However, logic should probably merge? AbstractImporter logic usually returns list of Shipments.
-        // OrderManager merges them.
-        // So 21 Shipments is expected here.
-        QCOMPARE(result.orderInfos->shipments.size(), 21);
+        // Lines: 21 data rows.
+        // Case 14 (SHIP014): 2 rows share the same Shipment ID -> merged into 1 Shipment with 2 Activities.
+        //   => 20 unique shipIds after merging.
+        // Case 19 (SHIP019): price=0, tax=0 -> filtered out by AbstractImporterFile (zero-total-taxed).
+        //   => 19 shipments in the result.
+        QCOMPARE(result.orderInfos->shipments.size(), 19);
         
         // Verify specific values
         // Case 1: DE (LEJ1) -> FR

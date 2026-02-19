@@ -71,7 +71,7 @@ void TestOrders::test_Activity_getters()
     // Case 1: MarketplaceProvided
     {
         auto result = Activity::create(
-            eventId, activityId, "", dt, dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
+            eventId, activityId, "", dt, dt, currency, fr, de, false, de, Amount(amountTaxed, amountTaxes),
             TaxSource::MarketplaceProvided, taxDeclaring,
             TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
         );
@@ -117,7 +117,7 @@ void TestOrders::test_Activity_getters()
     // Case 2: SelfComputed
     {
         auto result = Activity::create(
-            eventId, activityId, "", dt, dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
+            eventId, activityId, "", dt, dt, currency, fr, de, false, de, Amount(amountTaxed, amountTaxes),
             TaxSource::SelfComputed, taxDeclaring,
             TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
         );
@@ -139,7 +139,7 @@ void TestOrders::test_Activity_getters()
     // Case 3: ManualOverride
     {
         auto result = Activity::create(
-            eventId, activityId, "", dt, dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
+            eventId, activityId, "", dt, dt, currency, fr, de, false, de, Amount(amountTaxed, amountTaxes),
             TaxSource::ManualOverride, taxDeclaring,
             TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
         );
@@ -162,7 +162,7 @@ void TestOrders::test_Activity_getters()
     // Case 4: Unknown -> SelfComputed
     {
         auto result = Activity::create(
-            eventId, activityId, "", dt, dt, currency, fr, de, de, Amount(amountTaxed, amountTaxes),
+            eventId, activityId, "", dt, dt, currency, fr, de, false, de, Amount(amountTaxed, amountTaxes),
             TaxSource::Unknown, taxDeclaring,
             TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
         );
@@ -179,7 +179,7 @@ void TestOrders::test_shipments()
 {
     // Create Activity
     auto result = Activity::create(
-        "evt-ship-001", "act-ship-001", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+        "evt-ship-001", "act-ship-001", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", false, "DE",
         Amount(100.0, 20.0), // Taxed: 100, Taxes: 20
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
@@ -221,7 +221,7 @@ void TestOrders::test_shipments()
     // 0.01 / 1 (first item qty) = 0.01 <= 0.015.
     // Should dump 0.01 on the first item.
     auto resultDelta = Activity::create(
-        "evt-ship-002", "act-ship-002", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+        "evt-ship-002", "act-ship-002", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", false, "DE",
         Amount(100.0, 20.01), 
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
@@ -244,7 +244,7 @@ void TestOrders::test_shipments()
     // Activity says 20.20 (+0.20 delta). 0.20 / 1 (first item qty) = 0.20 > 0.015.
     // Should spread 0.20 across 2 items (total qty 2). 0.10 per item.
     auto resultLargeDelta = Activity::create(
-        "evt-ship-003", "act-ship-003", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+        "evt-ship-003", "act-ship-003", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", false, "DE",
         Amount(100.0, 20.20),
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
@@ -266,7 +266,7 @@ void TestOrders::test_refunds()
 {
     // Activity for refund
     auto result = Activity::create(
-        "evt-refund-001", "act-refund-001", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", "DE",
+        "evt-refund-001", "act-refund-001", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", false, "DE",
         Amount(50.0, 10.0), 
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
@@ -310,7 +310,7 @@ void TestOrders::test_orders()
 
     // 3. Add Activity (Shipment)
     auto resultShip = Activity::create(
-        "evt-ship-001", "act-ship-001", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", "DE",
+        "evt-ship-001", "act-ship-001", "", QDateTime(QDate(2023, 1, 1), QTime(10, 0)), QDateTime(QDate(2023, 1, 1), QTime(10, 0)), "EUR", "FR", "DE", false, "DE",
         Amount(100.0, 20.0), 
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
@@ -325,7 +325,7 @@ void TestOrders::test_orders()
 
     // 4. Add Activity (Refund)
     auto resultRef = Activity::create(
-        "evt-ref-001", "act-ref-001", "", QDateTime(QDate(2023, 1, 2), QTime(15, 0)), QDateTime(QDate(2023, 1, 2), QTime(15, 0)), "EUR", "FR", "DE", "DE",
+        "evt-ref-001", "act-ref-001", "", QDateTime(QDate(2023, 1, 2), QTime(15, 0)), QDateTime(QDate(2023, 1, 2), QTime(15, 0)), "EUR", "FR", "DE", false, "DE",
         Amount(50.0, 10.0), 
         TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products
     );
@@ -475,7 +475,7 @@ void TestOrders::test_getTaxContext()
 
     // 1. Domestic: FR -> FR
     {
-        auto ctx = resolver.getTaxContext(now, "FR", "FR", SaleType::Products, false, false, "", "");
+        auto ctx = resolver.getTaxContext(now, "FR", "FR", SaleType::Products, false, "", "");
         QCOMPARE(ctx.taxScheme, TaxScheme::DomesticVat);
         QCOMPARE(ctx.taxDeclaringCountryCode, "FR");
         QCOMPARE(ctx.taxJurisdictionLevel, TaxJurisdictionLevel::Country);
@@ -483,7 +483,7 @@ void TestOrders::test_getTaxContext()
 
     // 2. Intra-EU: FR -> DE
     {
-        auto ctx = resolver.getTaxContext(now, "FR", "DE", SaleType::Products, false, false, "", "");
+        auto ctx = resolver.getTaxContext(now, "FR", "DE", SaleType::Products, false, "", "");
         QCOMPARE(ctx.taxScheme, TaxScheme::EuOssUnion);
         QCOMPARE(ctx.taxDeclaringCountryCode, "FR");
         QCOMPARE(ctx.taxJurisdictionLevel, TaxJurisdictionLevel::Country);
@@ -491,7 +491,7 @@ void TestOrders::test_getTaxContext()
 
     // 3. Export: FR -> US
     {
-        auto ctx = resolver.getTaxContext(now, "FR", "US", SaleType::Products, false, false, "", "");
+        auto ctx = resolver.getTaxContext(now, "FR", "US", SaleType::Products, false, "", "");
         QCOMPARE(ctx.taxScheme, TaxScheme::Exempt);
         QCOMPARE(ctx.taxDeclaringCountryCode, "FR");
         QCOMPARE(ctx.taxJurisdictionLevel, TaxJurisdictionLevel::Country);
@@ -499,7 +499,7 @@ void TestOrders::test_getTaxContext()
 
     // 4. Import: US -> FR
     {
-        auto ctx = resolver.getTaxContext(now, "US", "FR", SaleType::Products, false, false, "", "");
+        auto ctx = resolver.getTaxContext(now, "US", "FR", SaleType::Products, false, "", "");
         QCOMPARE(ctx.taxScheme, TaxScheme::ImportVat);
         QCOMPARE(ctx.taxDeclaringCountryCode, "FR");
         QCOMPARE(ctx.taxJurisdictionLevel, TaxJurisdictionLevel::Country);
@@ -507,14 +507,14 @@ void TestOrders::test_getTaxContext()
 
     // 5. Territory Export: FR -> IT-LIVIGNO
     {
-        auto ctx = resolver.getTaxContext(now, "FR", "IT", SaleType::Products, false, false, "", "IT-LIVIGNO");
+        auto ctx = resolver.getTaxContext(now, "FR", "IT", SaleType::Products, false, "", "IT-LIVIGNO");
         QCOMPARE(ctx.taxScheme, TaxScheme::Exempt);
         QCOMPARE(ctx.taxDeclaringCountryCode, "FR");
     }
 
     // 6. Territory Import: IT-LIVIGNO -> IT
     {
-        auto ctx = resolver.getTaxContext(now, "IT", "IT", SaleType::Products, false, false, "IT-LIVIGNO", "");
+        auto ctx = resolver.getTaxContext(now, "IT", "IT", SaleType::Products, false, "IT-LIVIGNO", "");
         QCOMPARE(ctx.taxScheme, TaxScheme::ImportVat);
         QCOMPARE(ctx.taxDeclaringCountryCode, "IT");
     }
@@ -522,13 +522,13 @@ void TestOrders::test_getTaxContext()
     // 7. Territory Domestic: IT-LIVIGNO -> IT-LIVIGNO
     {
         // Livigno -> Livigno is OutOfScope since it is not Origin EU
-        auto ctx = resolver.getTaxContext(now, "IT", "IT", SaleType::Products, false, false, "IT-LIVIGNO", "IT-LIVIGNO");
+        auto ctx = resolver.getTaxContext(now, "IT", "IT", SaleType::Products, false, "IT-LIVIGNO", "IT-LIVIGNO");
         QCOMPARE(ctx.taxScheme, TaxScheme::OutOfScope);
     }
 
     // 8. Out of Scope: US -> US
     {
-        auto ctx = resolver.getTaxContext(now, "US", "US", SaleType::Products, false, false, "", "");
+        auto ctx = resolver.getTaxContext(now, "US", "US", SaleType::Products, false, "", "");
         QCOMPARE(ctx.taxScheme, TaxScheme::OutOfScope);
     }
 
@@ -536,7 +536,7 @@ void TestOrders::test_getTaxContext()
 
     // 9. Intra-EU B2B: FR -> DE
     {
-        auto ctx = resolver.getTaxContext(now, "FR", "DE", SaleType::Products, true, false, "", "");
+        auto ctx = resolver.getTaxContext(now, "FR", "DE", SaleType::Products, true, "", "");
         // Should be Exempt (Intra-Community Supply)
         QCOMPARE(ctx.taxScheme, TaxScheme::Exempt); 
         QCOMPARE(ctx.taxDeclaringCountryCode, "FR");
@@ -544,7 +544,7 @@ void TestOrders::test_getTaxContext()
 
     // 10. Import B2B: US -> FR
     {
-        auto ctx = resolver.getTaxContext(now, "US", "FR", SaleType::Products, true, false, "", "");
+        auto ctx = resolver.getTaxContext(now, "US", "FR", SaleType::Products, true, "", "");
         // Should be ReverseChargeImport (Postponed Accounting)
         QCOMPARE(ctx.taxScheme, TaxScheme::ReverseChargeImport);
         // And declared/accounted in Destination
@@ -553,7 +553,7 @@ void TestOrders::test_getTaxContext()
 
     // 11. Domestic B2B: FR -> FR (Standard, unless specific RC)
     {
-        auto ctx = resolver.getTaxContext(now, "FR", "FR", SaleType::Products, true, false, "", "");
+        auto ctx = resolver.getTaxContext(now, "FR", "FR", SaleType::Products, true, "", "");
         QCOMPARE(ctx.taxScheme, TaxScheme::DomesticVat);
     }
 }
@@ -603,19 +603,19 @@ void TestOrders::test_ActivityTable()
     QDateTime dt2 = QDateTime(QDate(2025, 1, 15), QTime(12, 0));
     QDateTime dt3 = QDateTime(QDate(2025, 1, 5), QTime(9, 0)); // Earliest
 
-    auto res1 = Activity::create("evt1", "act1", "sub1", dt1, dt1, "EUR", "FR", "DE", "DE",
+    auto res1 = Activity::create("evt1", "act1", "sub1", dt1, dt1, "EUR", "FR", "DE", false, "DE",
                                  Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE",
                                  TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     QVERIFY(res1.ok());
     Activity a1 = *res1.value;
 
-    auto res2 = Activity::create("evt2", "act2", "sub2", dt2, dt2, "USD", "US", "US", "US",
+    auto res2 = Activity::create("evt2", "act2", "sub2", dt2, dt2, "USD", "US", "US", false, "US",
                                  Amount(50.0, 0.0), TaxSource::SelfComputed, "US",
                                  TaxScheme::OutOfScope, TaxJurisdictionLevel::Unknown, SaleType::Service);
     QVERIFY(res2.ok());
     Activity a2 = *res2.value;
 
-    auto res3 = Activity::create("evt3", "act3", "sub3", dt3, dt3, "GBP", "GB", "GB", "GB",
+    auto res3 = Activity::create("evt3", "act3", "sub3", dt3, dt3, "GBP", "GB", "GB", false, "GB",
                                  Amount(200.0, 40.0), TaxSource::ManualOverride, "GB",
                                  TaxScheme::DomesticVat, TaxJurisdictionLevel::Country, SaleType::Products);
     QVERIFY(res3.ok());

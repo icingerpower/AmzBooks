@@ -22,6 +22,9 @@
 #include "utils/CsvHeader.h"
 #include "books/ActivityTable.h"
 #include "books/CompanyInfosTable.h"
+#include "books/TaxResolver.h"
+#include "books/VatResolver.h"
+#include "books/VatTerritoryResolver.h"
 #include "CurrencyRateManager.h"
 
 #include <QFileSystemModel>
@@ -241,6 +244,39 @@ void PaneOrderFiles::importFile()
                    CompanyInfosTable companyInfo(workingDir);
                    CurrencyRateManager currencyRateManager(workingDir, companyInfo.getApiKeyFixer());
                    
+                   if (importer->recomputeTaxes()) {
+                       VatTerritoryResolver vatTerritoryResolver(workingDir);
+                       TaxResolver taxResolver(workingDir);
+                       VatResolver vatResolver(workingDir);
+
+                       QHash<QString, const Address *> orderIdToAddress;
+                       for (const auto &addrWithId : aggregatedResult.orderInfos->orderAddresses) {
+                           orderIdToAddress[addrWithId.orderId] = &addrWithId.address;
+                       }
+
+                       auto computeShipmentTax = [&](Shipment &shipment) {
+                           QString vatTerritoryTo;
+                           if (!shipment.getActivities().isEmpty()) {
+                               const Address *addr = orderIdToAddress.value(
+                                   shipment.getActivities().first().getEventId(), nullptr);
+                               if (addr) {
+                                   vatTerritoryTo = vatTerritoryResolver.getTerritoryId(
+                                       addr->getCountryCode(),
+                                       addr->getPostalCode(),
+                                       addr->getCity());
+                               }
+                           }
+                           shipment.computeTax(&taxResolver, &vatResolver, QString{}, vatTerritoryTo);
+                       };
+
+                       for (auto &shipment : aggregatedResult.orderInfos->shipments) {
+                           computeShipmentTax(shipment);
+                       }
+                       for (auto &refund : aggregatedResult.orderInfos->refunds) {
+                           computeShipmentTax(refund);
+                       }
+                   }
+
                    DialogViewOrders dialog(*aggregatedResult.orderInfos, &currencyRateManager, companyInfo.getCurrency(), self);
                    if (dialog.exec() != QDialog::Accepted) {
                        self->ui->buttonImport->setEnabled(true);

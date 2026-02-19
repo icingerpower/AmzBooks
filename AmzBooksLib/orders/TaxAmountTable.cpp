@@ -18,10 +18,13 @@ const QStringList TaxAmountTable::COL_NAMES = {
 TaxAmountTable::TaxAmountTable(
         const QList<QSharedPointer<Shipment>> &shipments
         , const CurrencyRateManager *currencyRateManager
-        , const QString &destCurrency, QObject *parent)
+        , const QString &destCurrency
+        , const QString &companyCountryCode
+        , QObject *parent)
     : QAbstractTableModel(parent)
     , m_currencyRateManager(currencyRateManager)
     , m_destCurrency(destCurrency)
+    , m_companyCountryCode(companyCountryCode)
 {
     buildRows(shipments);
 }
@@ -30,10 +33,12 @@ TaxAmountTable::TaxAmountTable(
         const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &data
         , const CurrencyRateManager *currencyRateManager
         , const QString &destCurrency
+        , const QString &companyCountryCode
         , QObject *parent)
     : QAbstractTableModel(parent)
     , m_currencyRateManager(currencyRateManager)
     , m_destCurrency(destCurrency)
+    , m_companyCountryCode(companyCountryCode)
 {
     buildRows(data);
 }
@@ -50,6 +55,11 @@ int TaxAmountTable::columnCount(const QModelIndex &parent) const
     if (parent.isValid())
         return 0;
     return COL_COUNT;
+}
+
+int TaxAmountTable::getNumberTotalRows() const
+{
+    return 3;
 }
 
 QVariant TaxAmountTable::data(const QModelIndex &index, int role) const
@@ -70,7 +80,7 @@ QVariant TaxAmountTable::data(const QModelIndex &index, int role) const
         case COL_AMOUNT_TOTAL: return row.amountTotal;
         }
     }
-    if (role == Qt::FontRole && index.row() == 0) {
+    if (role == Qt::FontRole && index.row() < getNumberTotalRows()) {
         QFont font;
         font.setBold(true);
         return font;
@@ -89,13 +99,15 @@ QVariant TaxAmountTable::headerData(int section, Qt::Orientation orientation, in
 
 void TaxAmountTable::sort(int column, Qt::SortOrder order)
 {
-    if (m_rows.size() <= 1)
+    const int nTotal = getNumberTotalRows();
+    if (m_rows.size() <= nTotal)
         return;
 
     emit layoutAboutToBeChanged();
 
-    // Keep the total row (index 0) pinned; sort only the detail rows.
-    TaxRow totalRow = m_rows.takeFirst();
+    // Keep the total rows (indices 0..nTotal-1) pinned; sort only the detail rows.
+    QList<TaxRow> totalRows = m_rows.mid(0, nTotal);
+    m_rows = m_rows.mid(nTotal);
 
     std::sort(m_rows.begin(), m_rows.end(), [column, order](const TaxRow &a, const TaxRow &b) {
         bool less = false;
@@ -112,7 +124,8 @@ void TaxAmountTable::sort(int column, Qt::SortOrder order)
         return (order == Qt::AscendingOrder) ? less : !less;
     });
 
-    m_rows.prepend(totalRow);
+    for (int i = nTotal - 1; i >= 0; --i)
+        m_rows.prepend(totalRows[i]);
 
     emit layoutChanged();
 }
@@ -125,15 +138,16 @@ void TaxAmountTable::aggregate(const TaxResolver::TaxContext &ctx, const Shipmen
         row.taxScheme = taxSchemeToString(ctx.taxScheme);
         row.taxJurisdiction = taxJurisdictionLevelToString(ctx.taxJurisdictionLevel);
         row.vatPaidTo = ctx.countryCodeVatPaidTo;
+        row.taxSchemeEnum = ctx.taxScheme;
         m_aggregationMap[ctx] = row;
     }
 
     TaxRow &row = m_aggregationMap[ctx];
-    
+
     for (const auto &act : shipment->getActivities()) {
         double amountUntaxed = act.getAmountUntaxed();
         double amountTaxes = act.getAmountTaxes();
-        
+
         // Convert if needed
         if (m_currencyRateManager) {
             if (act.getCurrency() != m_destCurrency) {
@@ -142,11 +156,33 @@ void TaxAmountTable::aggregate(const TaxResolver::TaxContext &ctx, const Shipmen
                  amountTaxes *= rate;
             }
         }
-        
+
         row.amountUntaxed += amountUntaxed;
         row.amountTaxes += amountTaxes;
         row.amountTotal += (amountUntaxed + amountTaxes);
     }
+}
+
+void TaxAmountTable::applyDefaultSort()
+{
+    const QString &companyCC = m_companyCountryCode;
+    std::sort(m_rows.begin(), m_rows.end(), [&companyCC](const TaxRow &a, const TaxRow &b) {
+        // Priority: 0 = DomesticVat of company country, 1 = other DomesticVat, 2 = everything else
+        auto priority = [&companyCC](const TaxRow &r) -> int {
+            if (r.taxSchemeEnum == TaxScheme::DomesticVat) {
+                if (!companyCC.isEmpty() && r.taxDeclaringCountry == companyCC)
+                    return 0;
+                return 1;
+            }
+            return 2;
+        };
+        int pa = priority(a);
+        int pb = priority(b);
+        if (pa != pb)
+            return pa < pb;
+        // Within the same priority group: highest VAT to pay first
+        return a.amountTaxes > b.amountTaxes;
+    });
 }
 
 void TaxAmountTable::buildRows(const QList<QSharedPointer<Shipment>> &shipments)
@@ -157,18 +193,19 @@ void TaxAmountTable::buildRows(const QList<QSharedPointer<Shipment>> &shipments)
     for (const auto &ship : shipments) {
          if (ship->getActivities().isEmpty()) continue;
          const auto &act = ship->getActivities().first();
-         
+
          TaxResolver::TaxContext ctx;
          ctx.taxDeclaringCountryCode = act.getTaxDeclaringCountryCode();
          ctx.taxScheme = act.getTaxScheme();
          ctx.taxJurisdictionLevel = act.getTaxJurisdictionLevel();
          ctx.countryCodeVatPaidTo = act.getCountryCodeVatPaidTo();
-         
+
          aggregate(ctx, ship.data());
     }
-    
+
     m_rows = m_aggregationMap.values();
-    prependTotalRow();
+    applyDefaultSort();
+    prependTotalRows();
 }
 
 void TaxAmountTable::buildRows(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &data)
@@ -182,26 +219,51 @@ void TaxAmountTable::buildRows(const QSharedPointer<QHash<QString, QHash<QString
             for (auto itContext = itSite.value().constBegin(); itContext != itSite.value().constEnd(); ++itContext) {
                  const TaxResolver::TaxContext &ctx = itContext.key();
                  const auto &shipments = itContext.value().shipmentsRefundsSameActivity;
-                 
+
                  for (const auto &ship : shipments) {
                      aggregate(ctx, ship.data());
                  }
             }
         }
     }
-    
+
     m_rows = m_aggregationMap.values();
-    prependTotalRow();
+    applyDefaultSort();
+    prependTotalRows();
 }
 
-void TaxAmountTable::prependTotalRow()
+void TaxAmountTable::prependTotalRows()
 {
+    TaxRow iossTotal;
+    iossTotal.taxDeclaringCountry = tr("Total IOSS");
+    iossTotal.isTotalRow = true;
+
+    TaxRow ossTotal;
+    ossTotal.taxDeclaringCountry = tr("Total OSS");
+    ossTotal.isTotalRow = true;
+
     TaxRow total;
     total.taxDeclaringCountry = tr("Total");
+    total.isTotalRow = true;
+
     for (const TaxRow &r : m_rows) {
         total.amountUntaxed += r.amountUntaxed;
         total.amountTaxes   += r.amountTaxes;
         total.amountTotal   += r.amountTotal;
+
+        if (r.taxSchemeEnum == TaxScheme::EuOssUnion || r.taxSchemeEnum == TaxScheme::EuOssNonUnion) {
+            ossTotal.amountUntaxed += r.amountUntaxed;
+            ossTotal.amountTaxes   += r.amountTaxes;
+            ossTotal.amountTotal   += r.amountTotal;
+        } else if (r.taxSchemeEnum == TaxScheme::EuIoss) {
+            iossTotal.amountUntaxed += r.amountUntaxed;
+            iossTotal.amountTaxes   += r.amountTaxes;
+            iossTotal.amountTotal   += r.amountTotal;
+        }
     }
+
+    // Prepend in reverse order so final layout is: Total(0), Total OSS(1), Total IOSS(2)
+    m_rows.prepend(iossTotal);
+    m_rows.prepend(ossTotal);
     m_rows.prepend(total);
 }

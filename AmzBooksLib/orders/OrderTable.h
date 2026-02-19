@@ -23,6 +23,7 @@ public:
         COL_COUNTRY_FROM,
         COL_COUNTRY_TO,
         COL_VAT_PAID_TO,
+        COL_IS_BUSINESS,
         COL_TAX_SOURCE,
         COL_TAX_SCHEME,
         COL_TAX_JURISDICTION,
@@ -52,6 +53,7 @@ private:
         QString countryFrom;
         QString countryTo;
         QString vatPaidTo;
+        bool isCompany = false;
         QString taxSource;
         QString taxScheme;
         QString taxJurisdiction;

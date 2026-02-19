@@ -30,6 +30,7 @@ public:
                                    QString currency,                // ISO 4217 (e.g., "EUR")
                                    QString countryCodeFrom,         // ISO 3166-1 alpha-2
                                    QString countryCodeTo,           // ISO 3166-1 alpha-2
+                                   bool isCompany,                  // true = B2B (business buyer), false = B2C (consumer)
                                    QString countryCodeVatPaidTo,    // ISO 3166-1 alpha-2
                                    Amount amountSource,             // Net + Tax (Source)
                                    TaxSource taxSource,             // Marketplace/Self/Manual/Unknown
@@ -60,6 +61,7 @@ public:
     const QString& getCurrency() const noexcept;
     const QString& getCountryCodeFrom() const noexcept;
     const QString& getCountryCodeTo() const noexcept;
+    bool getIsCompany() const noexcept;
     const QString& getCountryCodeVatPaidTo() const noexcept;
 
     double getAmountUntaxed() const noexcept;
@@ -89,6 +91,7 @@ private:
              QString currency,
              QString countryCodeFrom,
              QString countryCodeTo,
+             bool isCompany,
              QString countryCodeVatPaidTo,
              Amount amountSource,
              TaxSource taxSource,
@@ -109,6 +112,7 @@ private:
     QString m_currency;
     QString m_countryCodeFrom;
     QString m_countryCodeTo;
+    bool m_isCompany = false;
     QString m_countryCodeVatPaidTo;
 
     Amount m_amountSource;

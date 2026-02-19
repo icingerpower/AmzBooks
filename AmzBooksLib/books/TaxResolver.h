@@ -43,7 +43,6 @@ public:
                              const QString &countryCodeTo,
                              SaleType saleType,
                              bool isToBusiness,
-                             bool isIoss = false,
                              const QString &vatTerritoryFrom = QString(), // Empty means no territory
                              const QString &vatTerritoryTo = QString()) const;
 

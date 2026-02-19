@@ -61,7 +61,7 @@ void PaneOrders::displayRecentOrders()
     auto orderTable = new OrderTable(shipmentsList, this);
     ui->tableViewOrders->setModel(orderTable);
     
-    auto taxTable = new TaxAmountTable(shipmentsList, &currencyRateManager, companyInfo.getCurrency(), this);
+    auto taxTable = new TaxAmountTable(shipmentsList, &currencyRateManager, companyInfo.getCurrency(), companyInfo.getCompanyCountryCode(), this);
     ui->tableViewVat->setModel(taxTable);
 }
 
@@ -91,7 +91,7 @@ void PaneOrders::displayMonthlyOrders()
     auto orderTable = new OrderTable(data, this);
     ui->tableViewOrders->setModel(orderTable);
     
-    auto taxTable = new TaxAmountTable(data, &currencyRateManager, companyInfo.getCurrency(), this);
+    auto taxTable = new TaxAmountTable(data, &currencyRateManager, companyInfo.getCurrency(), companyInfo.getCompanyCountryCode(), this);
     ui->tableViewVat->setModel(taxTable);
 }
 
@@ -132,7 +132,7 @@ void PaneOrders::displayOrdersNoInvoices()
     auto orderTable = new OrderTable(shipmentsList, this);
     ui->tableViewOrders->setModel(orderTable);
     
-    auto taxTable = new TaxAmountTable(shipmentsList, &currencyRateManager, companyInfo.getCurrency(), this);
+    auto taxTable = new TaxAmountTable(shipmentsList, &currencyRateManager, companyInfo.getCurrency(), companyInfo.getCompanyCountryCode(), this);
     ui->tableViewVat->setModel(taxTable);
 }
 

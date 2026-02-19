@@ -1,4 +1,6 @@
 #include "Activity.h"
+#include "TaxResolver.h"
+#include "VatResolver.h"
 
 Result<Activity> Activity::create(QString eventId,
                                   QString activityId,
@@ -8,6 +10,7 @@ Result<Activity> Activity::create(QString eventId,
                                   QString currency,
                                   QString countryCodeFrom,
                                   QString countryCodeTo,
+                                  bool isCompany,
                                   QString countryCodeVatPaidTo,
                                   Amount amountSource,
                                   TaxSource taxSource,
@@ -55,6 +58,7 @@ Result<Activity> Activity::create(QString eventId,
                                       std::move(currency),
                                       std::move(countryCodeFrom),
                                       std::move(countryCodeTo),
+                                      isCompany,
                                       std::move(countryCodeVatPaidTo),
                                       std::move(amountSource),
                                       taxSource,
@@ -85,12 +89,60 @@ void Activity::computeTax(
     {
         m_taxSource = TaxSource::SelfComputed;
     }
-    //TODO
-    // m_AmountTaxesComputed
-    // m_taxScheme
-    // m_taxJurisdictionLevel
-    // m_taxDeclaringCountryCode
-    // m_countryCodeVatPaidTo
+
+    m_vatTerritoryFrom = vatTerritoryFrom;
+    m_vatTerritoryTo = vatTerritoryTo;
+
+    if (!taxResolver)
+        return;
+
+    TaxResolver::TaxContext context = taxResolver->getTaxContext(
+        m_dateTimeTax,
+        m_countryCodeFrom,
+        m_countryCodeTo,
+        m_saleType,
+        m_isCompany,
+        vatTerritoryFrom,
+        vatTerritoryTo
+    );
+
+    m_taxScheme = context.taxScheme;
+    m_taxJurisdictionLevel = context.taxJurisdictionLevel;
+    m_taxDeclaringCountryCode = context.taxDeclaringCountryCode;
+    m_countryCodeVatPaidTo = context.countryCodeVatPaidTo;
+
+    // Guess IOSS for Non-EU -> EU B2C imports whose untaxed amount is below the 150 EUR threshold
+    if (m_taxScheme == TaxScheme::ImportVat) {
+        constexpr double IOSS_THRESHOLD = 150.0;
+        double untaxedAmount = qAbs(m_amountSource.getAmountUntaxed());
+        if (untaxedAmount > 0.0 && untaxedAmount <= IOSS_THRESHOLD) {
+            m_taxScheme = TaxScheme::EuIoss;
+        }
+    }
+
+    if (!vatResolver
+            || m_taxScheme == TaxScheme::Exempt
+            || m_taxScheme == TaxScheme::OutOfScope
+            || m_taxScheme == TaxScheme::Unknown
+            || m_taxScheme == TaxScheme::ReverseChargeImport
+            || m_taxScheme == TaxScheme::ReverseChargeDomestic
+            || m_taxScheme == TaxScheme::MarketplaceDeemedSupplier
+            || m_countryCodeVatPaidTo.isEmpty())
+    {
+        m_AmountTaxesComputed = 0.0;
+        return;
+    }
+
+    double rate = vatResolver->getRate(
+        m_dateTimeTax.date(),
+        m_countryCodeVatPaidTo,
+        m_saleType,
+        QString{},
+        vatTerritoryTo
+    );
+
+    double gross = m_amountSource.getAmountTaxed();
+    m_AmountTaxesComputed = qFuzzyIsNull(1.0 + rate) ? 0.0 : gross * rate / (1.0 + rate);
 }
 
 bool Activity::isDifferentTaxes(const Activity &other) const
@@ -101,6 +153,7 @@ bool Activity::isDifferentTaxes(const Activity &other) const
             || m_dateTimeTax.date() != other.m_dateTimeTax.date()
             || m_countryCodeFrom != other.m_countryCodeFrom
             || m_countryCodeTo != other.m_countryCodeTo
+            || m_isCompany != other.m_isCompany
             || m_countryCodeVatPaidTo != other.m_countryCodeVatPaidTo
             || m_taxDeclaringCountryCode != other.m_taxDeclaringCountryCode
             || m_taxScheme != other.m_taxScheme
@@ -118,6 +171,7 @@ Activity::Activity(QString eventId,
                    QString currency,
                    QString countryCodeFrom,
                    QString countryCodeTo,
+                   bool isCompany,
                    QString countryCodeVatPaidTo,
                    Amount amountSource,
                    TaxSource taxSource,
@@ -137,6 +191,7 @@ Activity::Activity(QString eventId,
     , m_currency(std::move(currency))
     , m_countryCodeFrom(std::move(countryCodeFrom))
     , m_countryCodeTo(std::move(countryCodeTo))
+    , m_isCompany(isCompany)
     , m_countryCodeVatPaidTo(std::move(countryCodeVatPaidTo))
     , m_amountSource(std::move(amountSource))
     , m_taxSource(taxSource)
@@ -208,6 +263,11 @@ const QString& Activity::getCountryCodeFrom() const noexcept
 const QString& Activity::getCountryCodeTo() const noexcept
 {
     return m_countryCodeTo;
+}
+
+bool Activity::getIsCompany() const noexcept
+{
+    return m_isCompany;
 }
 
 const QString& Activity::getCountryCodeVatPaidTo() const noexcept
@@ -313,6 +373,7 @@ QJsonObject Activity::toJson() const
         {"currency", m_currency},
         {"countryCodeFrom", m_countryCodeFrom},
         {"countryCodeTo", m_countryCodeTo},
+        {"isCompany", m_isCompany},
         {"countryCodeVatPaidTo", m_countryCodeVatPaidTo},
         {"amountTaxed", m_amountSource.getAmountTaxed()},
         {"amountTaxes", m_amountSource.getTaxes()},
@@ -345,6 +406,7 @@ Activity Activity::fromJson(const QJsonObject &json)
         json["currency"].toString(),
         json["countryCodeFrom"].toString(),
         json["countryCodeTo"].toString(),
+        json["isCompany"].toBool(),
         json["countryCodeVatPaidTo"].toString(),
         Amount(json["amountTaxed"].toDouble(), json["amountTaxes"].toDouble()),
         static_cast<TaxSource>(json["taxSource"].toInt()),

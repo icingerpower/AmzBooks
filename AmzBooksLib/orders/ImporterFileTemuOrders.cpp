@@ -327,6 +327,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuOrders::_loadRep
             currency,             // currency
             originCountry,        // countryCodeFrom
             destCountry,          // countryCodeTo
+            false,                // isCompany (Temu is B2C marketplace)
             destCountry,          // countryCodeVatPaidTo
             amount,               // amount
             TaxSource::MarketplaceProvided,

@@ -23,13 +23,12 @@ bool TaxResolver::isVatTerritory(
 
 
 
-    TaxResolver::TaxContext TaxResolver::getTaxContext(
+TaxResolver::TaxContext TaxResolver::getTaxContext(
         const QDateTime &dateTime,
         const QString &countryCodeFrom,
         const QString &countryCodeTo,
         SaleType saleType,
         bool isToBusiness,
-        bool isIoss,
         const QString &vatTerritoryFrom,
         const QString &vatTerritoryTo) const
 {
@@ -111,15 +110,6 @@ bool TaxResolver::isVatTerritory(
             context.taxJurisdictionLevel = TaxJurisdictionLevel::Country;
             return context;
         } else {
-             // IOSS or Standard Import.
-             if (isIoss) {
-                 context.taxScheme = TaxScheme::EuIoss;
-                 context.taxDeclaringCountryCode = countryCodeTo; 
-                 context.countryCodeVatPaidTo = countryCodeTo;
-                 context.taxJurisdictionLevel = TaxJurisdictionLevel::Country;
-                 return context;
-             }
-             // Without IOSS flag input, let's assume standard Import Vat at border.
             context.taxScheme = TaxScheme::ImportVat;
             context.taxDeclaringCountryCode = countryCodeTo; // Import VAT paid in Dest
             context.countryCodeVatPaidTo = countryCodeTo;

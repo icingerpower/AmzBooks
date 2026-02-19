@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1024</width>
-    <height>768</height>
+    <width>1800</width>
+    <height>916</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -75,8 +75,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>100</width>
-        <height>30</height>
+        <width>1782</width>
+        <height>663</height>
        </rect>
       </property>
       <attribute name="label">
@@ -93,8 +93,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>100</width>
-        <height>30</height>
+        <width>1782</width>
+        <height>663</height>
        </rect>
       </property>
       <attribute name="label">
@@ -111,8 +111,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>100</width>
-        <height>30</height>
+        <width>1782</width>
+        <height>663</height>
        </rect>
       </property>
       <attribute name="label">
@@ -129,8 +129,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>100</width>
-        <height>30</height>
+        <width>1782</width>
+        <height>663</height>
        </rect>
       </property>
       <attribute name="label">
@@ -147,8 +147,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>100</width>
-        <height>30</height>
+        <width>1782</width>
+        <height>663</height>
        </rect>
       </property>
       <attribute name="label">
@@ -165,8 +165,8 @@
        <rect>
         <x>0</x>
         <y>0</y>
-        <width>100</width>
-        <height>30</height>
+        <width>1782</width>
+        <height>663</height>
        </rect>
       </property>
       <attribute name="label">

@@ -38,7 +38,7 @@ DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfo
     ui->tableViewOrders->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
 
     // Setup Tax Table
-    m_taxAmountTable = new TaxAmountTable(shipments, currencyRateManager, destCurrency, this);
+    m_taxAmountTable = new TaxAmountTable(shipments, currencyRateManager, destCurrency, QString(), this);
     ui->tableViewTaxes->setModel(m_taxAmountTable);
     ui->tableViewTaxes->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
 

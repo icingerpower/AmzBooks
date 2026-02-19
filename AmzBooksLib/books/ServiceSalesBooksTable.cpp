@@ -62,6 +62,7 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         currency,                   // Currency
         "FR",                       // Country From (Placeholder)
         country,                    // Country To
+        false,                      // isCompany (manual service entry, defaulting to B2C)
         "",                         // Vat Paid To
         amountObj,
         TaxSource::ManualOverride,// Manual entry

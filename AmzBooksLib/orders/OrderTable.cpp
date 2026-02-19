@@ -15,6 +15,7 @@ const QStringList OrderTable::COL_NAMES = {
     QObject::tr("From"),
     QObject::tr("To"),
     QObject::tr("VAT Paid To"),
+    QObject::tr("Is Business"),
     QObject::tr("Tax Source"),
     QObject::tr("Tax Scheme"),
     QObject::tr("Jurisdiction"),
@@ -69,6 +70,7 @@ QVariant OrderTable::data(const QModelIndex &index, int role) const
         case COL_COUNTRY_FROM: return row.countryFrom;
         case COL_COUNTRY_TO: return row.countryTo;
         case COL_VAT_PAID_TO: return row.vatPaidTo;
+        case COL_IS_BUSINESS: return row.isCompany ? tr("Yes") : tr("No");
         case COL_TAX_SOURCE: return row.taxSource;
         case COL_TAX_SCHEME: return row.taxScheme;
         case COL_TAX_JURISDICTION: return row.taxJurisdiction;
@@ -110,6 +112,7 @@ void OrderTable::sort(int column, Qt::SortOrder order)
         case COL_COUNTRY_FROM: return lhs.countryFrom.compare(rhs.countryFrom, Qt::CaseInsensitive) < 0;
         case COL_COUNTRY_TO: return lhs.countryTo.compare(rhs.countryTo, Qt::CaseInsensitive) < 0;
         case COL_VAT_PAID_TO: return lhs.vatPaidTo.compare(rhs.vatPaidTo, Qt::CaseInsensitive) < 0;
+        case COL_IS_BUSINESS: return lhs.isCompany < rhs.isCompany;
         case COL_TAX_SOURCE: return lhs.taxSource.compare(rhs.taxSource, Qt::CaseInsensitive) < 0;
         case COL_TAX_SCHEME: return lhs.taxScheme.compare(rhs.taxScheme, Qt::CaseInsensitive) < 0;
         case COL_TAX_JURISDICTION: return lhs.taxJurisdiction.compare(rhs.taxJurisdiction, Qt::CaseInsensitive) < 0;
@@ -148,6 +151,7 @@ void OrderTable::addRows(const QList<QSharedPointer<Shipment> > &shipments)
             row.countryFrom = act.getCountryCodeFrom();
             row.countryTo = act.getCountryCodeTo();
             row.vatPaidTo = act.getCountryCodeVatPaidTo();
+            row.isCompany = act.getIsCompany();
             row.taxSource = taxSourceToString(act.getTaxSource());
             row.taxScheme = taxSchemeToString(act.getTaxScheme());
             row.taxJurisdiction = taxJurisdictionLevelToString(act.getTaxJurisdictionLevel());
