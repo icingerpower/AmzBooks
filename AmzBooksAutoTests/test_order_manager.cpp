@@ -53,6 +53,7 @@ private slots:
     void test_conflictResolution_isWrongIfConflict();
     void test_inventoryMove();
     void test_fixTaxDate();
+    void test_recordShipmentsFromSource_performance();
 };
 
 void TestOrderManager::initTestCase()
@@ -2645,6 +2646,177 @@ void TestOrderManager::test_fixTaxDate()
             QCOMPARE(q.value(0).toInt(), 1);                                  // 19
         }
     }
+}
+
+void TestOrderManager::test_recordShipmentsFromSource_performance()
+{
+    // -----------------------------------------------------------------------
+    // Build 1 000 unique shipments that will be inserted as brand-new entries
+    // (no pre-existing records, no fixTaxDate, no conflicts).
+    // -----------------------------------------------------------------------
+    const int N = 1000;
+
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+    const QDateTime dt(QDate(2023, 6, 1), QTime(10, 0));
+
+    // Keep the Activity/Shipment objects alive for the whole test.
+    QList<QSharedPointer<Shipment>> shipments;
+    QList<OrderManager::ShipmentFromSourceEntry> entries;
+    shipments.reserve(N);
+    entries.reserve(N);
+
+    for (int i = 0; i < N; ++i) {
+        auto actRes = Activity::create(
+            QString("evt%1").arg(i),   // eventId
+            QString("act%1").arg(i),   // activityId  →  this becomes Shipment::getId()
+            QString(),
+            dt, dt,
+            "EUR", "FR", "DE", false, "DE",
+            Amount(100.0, 20.0), TaxSource::MarketplaceProvided,
+            "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country,
+            SaleType::Products);
+        QVERIFY(actRes.errors.isEmpty());
+
+        shipments.append(QSharedPointer<Shipment>::create(QList<Activity>{*actRes.value}));
+
+        OrderManager::ShipmentFromSourceEntry e;
+        e.orderId          = QString("ord%1").arg(i);
+        e.shipmentOrRefund = shipments.last().get();
+        entries.append(e);
+    }
+
+    // Full snapshot of a DB used to compare both insertion methods.
+    // Rows are ordered by id so the comparison is deterministic.
+    struct DbSnapshot {
+        int orderCount = 0;
+        QStringList ids;        // shipment id
+        QStringList orderIds;   // order_id (parallel to ids)
+        QStringList statuses;   // status   (parallel to ids)
+        QStringList sourceKeys; // source_key (parallel to ids)
+        QStringList eventDates; // event_date (parallel to ids)
+        QStringList origJsons;  // original_json (parallel to ids)
+        QStringList currJsons;  // current_json  (parallel to ids)
+    };
+
+    auto takeSnapshot = [](QSqlDatabase &db) {
+        DbSnapshot snap;
+        {
+            QSqlQuery q(db);
+            q.exec("SELECT COUNT(*) FROM orders");
+            if (q.next()) snap.orderCount = q.value(0).toInt();
+        }
+        {
+            QSqlQuery q(db);
+            q.exec("SELECT id, order_id, status, source_key, event_date, original_json, current_json "
+                   "FROM shipments ORDER BY id");
+            while (q.next()) {
+                snap.ids        << q.value(0).toString();
+                snap.orderIds   << q.value(1).toString();
+                snap.statuses   << q.value(2).toString();
+                snap.sourceKeys << q.value(3).toString();
+                snap.eventDates << q.value(4).toString();
+                snap.origJsons  << q.value(5).toString();
+                snap.currJsons  << q.value(6).toString();
+            }
+        }
+        return snap;
+    };
+
+    // -----------------------------------------------------------------------
+    // Measure: one-by-one (N separate implicit transactions)
+    // -----------------------------------------------------------------------
+    qint64 msOneByOne = 0;
+    DbSnapshot snapSingle;
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        OrderManager manager(tempDir.path());
+
+        QElapsedTimer timer;
+        timer.start();
+        for (int i = 0; i < N; ++i) {
+            manager.recordShipmentFromSource(
+                entries[i].orderId, &source, entries[i].shipmentOrRefund, QDate());
+        }
+        msOneByOne = timer.elapsed();
+
+        snapSingle = takeSnapshot(manager.m_db);
+        // Sanity-check: all N shipments are in the DB.
+        QCOMPARE(snapSingle.ids.size(), N);
+    }
+
+    // -----------------------------------------------------------------------
+    // Measure: batch (batches of 500, one transaction per batch)
+    // -----------------------------------------------------------------------
+    qint64 msBatch = 0;
+    DbSnapshot snapBatch;
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        OrderManager manager(tempDir.path());
+
+        QElapsedTimer timer;
+        timer.start();
+        manager.recordShipmentsFromSource(&source, entries);
+        msBatch = timer.elapsed();
+
+        snapBatch = takeSnapshot(manager.m_db);
+        // Sanity-check: all N shipments are in the DB.
+        QCOMPARE(snapBatch.ids.size(), N);
+    }
+
+    // -----------------------------------------------------------------------
+    // 10 content-equivalence checks: the 1 000 rows must be identical
+    // regardless of which insertion path was used.
+    // -----------------------------------------------------------------------
+
+    // 1. Both methods created exactly N orders.
+    QCOMPARE(snapSingle.orderCount, N);
+    QCOMPARE(snapBatch.orderCount,  N);
+
+    // 2. The two sets of order IDs are identical.
+    QCOMPARE(snapBatch.orderIds, snapSingle.orderIds);
+
+    // 3. The two sets of shipment IDs are identical.
+    QCOMPARE(snapBatch.ids, snapSingle.ids);
+
+    // 4. Every batch-inserted row has status 'Draft'.
+    QVERIFY(std::all_of(snapBatch.statuses.cbegin(), snapBatch.statuses.cend(),
+                        [](const QString &s){ return s == QLatin1String("Draft"); }));
+
+    // 5. source_key is identical in every row between both methods.
+    QCOMPARE(snapBatch.sourceKeys, snapSingle.sourceKeys);
+
+    // 6. event_date is identical in every row between both methods.
+    QCOMPARE(snapBatch.eventDates, snapSingle.eventDates);
+
+    // 7. For every batch row: original_json == current_json
+    //    (new entries must have them mirrored at insert time).
+    QVERIFY(std::equal(snapBatch.origJsons.cbegin(), snapBatch.origJsons.cend(),
+                       snapBatch.currJsons.cbegin()));
+
+    // 8. The JSON of the very first shipment is identical between both methods.
+    QCOMPARE(snapBatch.origJsons.first(), snapSingle.origJsons.first());
+
+    // 9. The JSON of the very last shipment is identical between both methods.
+    QCOMPARE(snapBatch.origJsons.last(), snapSingle.origJsons.last());
+
+    // 10. All 1 000 original_json values are identical between both methods.
+    QCOMPARE(snapBatch.origJsons, snapSingle.origJsons);
+
+    // -----------------------------------------------------------------------
+    qDebug() << "recordShipmentFromSource x1000 (one-by-one):" << msOneByOne << "ms";
+    qDebug() << "recordShipmentsFromSource x1000 (batch 500):  " << msBatch    << "ms";
+    qDebug() << "Speedup:" << (msBatch > 0 ? (double)msOneByOne / msBatch : 0.0) << "x";
+
+    // The batch must be at least 3× faster than the one-by-one approach.
+    QVERIFY2(msBatch * 3 <= msOneByOne,
+             qPrintable(QString("Batch (%1 ms) was not 3× faster than one-by-one (%2 ms). "
+                                "Speedup: %3×")
+                        .arg(msBatch)
+                        .arg(msOneByOne)
+                        .arg(msOneByOne > 0 ? QString::number((double)msOneByOne / msBatch, 'f', 1)
+                                            : "N/A")));
 }
 
 QTEST_MAIN(TestOrderManager)

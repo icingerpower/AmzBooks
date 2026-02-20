@@ -32,10 +32,10 @@ OrderTable::OrderTable(const QList<QSharedPointer<Shipment>> &shipments, QObject
     sort(COL_DATE, Qt::DescendingOrder);
 }
 
-OrderTable::OrderTable(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &data, QObject *parent)
+OrderTable::OrderTable(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &channel_site_ShipmentAndRefunds, QObject *parent)
     : QAbstractTableModel(parent)
 {
-    buildRows(data);
+    buildRows(channel_site_ShipmentAndRefunds);
     sort(COL_DATE, Qt::DescendingOrder);
 }
 

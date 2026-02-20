@@ -155,6 +155,7 @@ void PaneOrderFiles::onImporterSelected(const QModelIndex &current, const QModel
 
 void PaneOrderFiles::importFile()
 {
+    setCursor(Qt::WaitCursor);
     QModelIndex index = ui->tableImporters->currentIndex();
     if (!index.isValid()) {
         QMessageBox::warning(this, tr("Import"), tr("Please select an importer first."));
@@ -183,7 +184,7 @@ void PaneOrderFiles::importFile()
     // Run import asynchronously
     // We utilize QCoro to handle the async task
     
-    [](PaneOrderFiles *self, AbstractImporterFile *importer, QStringList paths) -> QCoro::Task<void> {
+    [this](PaneOrderFiles *self, AbstractImporterFile *importer, QStringList paths) -> QCoro::Task<void> {
         // Disable UI?
         self->ui->buttonImport->setEnabled(false);
         
@@ -406,6 +407,7 @@ void PaneOrderFiles::importFile()
                 
                 QMessageBox::information(self, tr("Import Successful"), 
                                          tr("Successfully imported %1 items.").arg(importedCount));
+                setCursor(Qt::ArrowCursor);
             } else if (errors.isEmpty()) {
                  QMessageBox::information(self, tr("Import"), tr("No data found to import."));
             }

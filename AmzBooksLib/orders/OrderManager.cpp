@@ -44,6 +44,11 @@ OrderManager::~OrderManager()
     if (m_db.isOpen()) {
         m_db.close();
     }
+    // Reset m_db *before* removeDatabase: QSqlDatabase is reference-counted and
+    // m_db (a value member) would still hold a reference during the destructor body,
+    // causing Qt to warn "connection still in use". Assigning a default-constructed
+    // QSqlDatabase releases that reference so removeDatabase finds refcount == 0.
+    m_db = QSqlDatabase();
     QSqlDatabase::removeDatabase(m_connectionName);
 }
 
@@ -381,6 +386,139 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
         qIns.addBindValue(sourceKey);
         qIns.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
         qIns.exec();
+    }
+}
+
+void OrderManager::recordShipmentsFromSource(const ActivitySource *activitySource,
+                                             const QList<ShipmentFromSourceEntry> &entries)
+{
+    if (entries.isEmpty()) return;
+
+    const int batchSize = 500;
+    const QString sourceKey = getSourceKey(activitySource);
+    const QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    for (int batchStart = 0; batchStart < entries.size(); batchStart += batchSize) {
+        const int batchEnd = qMin(batchStart + batchSize, entries.size());
+
+        // Phase 1 — Serialize all entries in this batch upfront.
+        struct PreparedEntry {
+            const ShipmentFromSourceEntry *entry;
+            QString id;
+            QString jsonStr;
+            QString eventDate;
+        };
+
+        QList<PreparedEntry> prepared;
+        QStringList allShipmentIds;
+
+        for (int i = batchStart; i < batchEnd; ++i) {
+            const auto &e = entries[i];
+            if (!e.shipmentOrRefund || e.shipmentOrRefund->getActivities().isEmpty()) continue;
+
+            QSharedPointer<Shipment> shipCopy;
+            if (auto ref = dynamic_cast<const Refund*>(e.shipmentOrRefund)) {
+                shipCopy = QSharedPointer<Refund>::create(*ref);
+            } else {
+                shipCopy = QSharedPointer<Shipment>::create(*e.shipmentOrRefund);
+            }
+            shipCopy->setIsWrongIfConflict(e.isWrongIfConflict);
+
+            PreparedEntry pe;
+            pe.entry = &e;
+            pe.id = shipCopy->getId();
+            pe.jsonStr = QJsonDocument(shipCopy->toJson()).toJson(QJsonDocument::Compact);
+            pe.eventDate = shipCopy->getActivities().first().getDateTime().toString(Qt::ISODate);
+
+            prepared.append(pe);
+            allShipmentIds.append(pe.id);
+        }
+
+        if (prepared.isEmpty()) continue;
+
+        m_db.transaction();
+
+        // Phase 2 — Bulk INSERT OR IGNORE all unique orders.
+        {
+            QSqlQuery q(m_db);
+            q.prepare("INSERT OR IGNORE INTO orders (id, inserted_at) VALUES (?, ?)");
+            QVariantList orderIdList, insertedAtList;
+            QSet<QString> seenOrders;
+            for (const auto &pe : prepared) {
+                if (!seenOrders.contains(pe.entry->orderId)) {
+                    seenOrders.insert(pe.entry->orderId);
+                    orderIdList << pe.entry->orderId;
+                    insertedAtList << now;
+                }
+            }
+            q.addBindValue(orderIdList);
+            q.addBindValue(insertedAtList);
+            q.execBatch();
+        }
+
+        // Phase 3 — Bulk-fetch which shipment IDs already exist (1 query for the whole batch).
+        QSet<QString> existingIds;
+        {
+            QString placeholders = QString("?,").repeated(allShipmentIds.size());
+            placeholders.chop(1);
+            QSqlQuery qSel(m_db);
+            qSel.prepare(QString("SELECT id FROM shipments WHERE id IN (%1)").arg(placeholders));
+            for (const auto &sid : allShipmentIds) qSel.addBindValue(sid);
+            if (qSel.exec()) {
+                while (qSel.next())
+                    existingIds.insert(qSel.value(0).toString());
+            }
+        }
+
+        // Phase 4 — Split: batch-insert new shipments; route complex cases to fallback.
+        QVariantList ids, orderIds, jsons, eventDates, sourceKeys, nows;
+        QList<const PreparedEntry*> toFallback;
+        QSet<QString> processedInBatch; // guard against intra-batch duplicates
+
+        for (const auto &pe : prepared) {
+            const bool isNew    = !existingIds.contains(pe.id);
+            const bool isUnique = !processedInBatch.contains(pe.id);
+
+            if (isNew && isUnique && !pe.entry->fixTaxDate) {
+                // Fast path: brand-new shipment with no special handling needed.
+                processedInBatch.insert(pe.id);
+                ids        << pe.id;
+                orderIds   << pe.entry->orderId;
+                jsons      << pe.jsonStr;
+                eventDates << pe.eventDate;
+                sourceKeys << sourceKey;
+                nows       << now;
+            } else {
+                // Slow path: existing Draft/Published update, fixTaxDate, or intra-batch duplicate.
+                toFallback.append(&pe);
+            }
+        }
+
+        if (!ids.isEmpty()) {
+            QSqlQuery qIns(m_db);
+            qIns.prepare("INSERT INTO shipments "
+                         "(id, order_id, status, original_json, current_json, event_date, source_key, inserted_at) "
+                         "VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?)");
+            qIns.addBindValue(ids);
+            qIns.addBindValue(orderIds);
+            qIns.addBindValue(jsons);
+            qIns.addBindValue(jsons); // current_json mirrors original_json for new entries
+            qIns.addBindValue(eventDates);
+            qIns.addBindValue(sourceKeys);
+            qIns.addBindValue(nows);
+            qIns.execBatch();
+        }
+
+        // Phase 5 — Fallback: handle each complex entry individually within the same transaction.
+        for (const auto *pe : toFallback) {
+            recordShipmentFromSource(pe->entry->orderId, activitySource,
+                                     pe->entry->shipmentOrRefund,
+                                     pe->entry->newDateIfConflict,
+                                     pe->entry->isWrongIfConflict,
+                                     pe->entry->fixTaxDate);
+        }
+
+        m_db.commit();
     }
 }
 

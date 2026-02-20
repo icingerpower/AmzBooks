@@ -35,7 +35,8 @@ public:
     };
 
     explicit OrderTable(const QList<QSharedPointer<Shipment>> &shipments, QObject *parent = nullptr);
-    explicit OrderTable(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &data, QObject *parent = nullptr);
+    explicit OrderTable(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>
+                        &channel_site_ShipmentAndRefunds, QObject *parent = nullptr);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
