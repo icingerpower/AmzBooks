@@ -170,6 +170,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
     static const QString COL_SUBSIDY_INV  = "ID DE FACTURE DE SUBVENTION";
     int idxShipSubsidy    = csvData->header.contains(COL_SHIP_SUBSIDY) ? csvData->header.pos(COL_SHIP_SUBSIDY) : -1;
     int idxSubsidyInvoice = csvData->header.contains(COL_SUBSIDY_INV)  ? csvData->header.pos(COL_SUBSIDY_INV)  : -1;
+    int idxMarketplace    = csvData->header.contains("MARKETPLACE")     ? csvData->header.pos("MARKETPLACE")     : -1;
 
     // --- Temporary aggregation by (orderId, transactionType) ---------------------
     // Multiple CSV rows with the same orderId and type represent individual SKUs of
@@ -200,6 +201,13 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
             continue;
         if (sku.isEmpty())
             continue;
+
+        // --- Store (MARKETPLACE column) ------------------------------------------
+        if (idxMarketplace >= 0) {
+            const QString marketplace = line.value(idxMarketplace).trimmed();
+            if (!marketplace.isEmpty())
+                result.orderInfos->orderId_store[orderId] = "temu." + marketplace.toLower();
+        }
 
         // --- Date ----------------------------------------------------------------
         QDate date = parseTemuVatDate(line.value(idxDate).trimmed());

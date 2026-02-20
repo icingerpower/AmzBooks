@@ -83,6 +83,10 @@ private slots:
     void test_columnOrderChanged();
     void test_emptyData();
 
+    // MARKETPLACE → orderId_store
+    void test_marketplace_populatesOrderIdStore();
+    void test_marketplace_columnAbsent();
+
     // Error / edge-case tests
     void test_missingRequiredColumn();
     void test_invalidDateRowSkipped();
@@ -886,6 +890,140 @@ void TestImporterFileTemuVatEu::test_emptySkuSkipped()
 
     QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
     QCOMPARE(result.orderInfos->shipments.size(), 1);
+}
+
+// ===========================================================================
+// test_marketplace_populatesOrderIdStore
+// orderId_store[orderId] must equal "temu." + MARKETPLACE.toLower().
+// Covers: uppercase input, already-lowercase input, return rows, empty value.
+// ===========================================================================
+void TestImporterFileTemuVatEu::test_marketplace_populatesOrderIdStore()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    QString content = CSV_HEADER;
+
+    // Order 1 — MARKETPLACE = "FR" (uppercase) → "temu.fr"
+    content += CSV_ROW("PO-069-00000000000000070","FR","TestShop","2025-11-15",
+                       "sales","SKU070","20%","1","FR","FR",
+                       "11,09","0,00","0,00","2,49","0,00","0,00",
+                       "2,22","0,00","0,00","0,50",
+                       "2,72","EUR","INV-070","");
+
+    // Order 2 — MARKETPLACE = "DE" (uppercase) → "temu.de"
+    content += CSV_ROW("PO-069-00000000000000071","DE","TestShop","2025-11-20",
+                       "sales","SKU071","20%","1","DE","DE",
+                       "11,09","0,00","0,00","2,49","0,00","0,00",
+                       "2,22","0,00","0,00","0,50",
+                       "2,72","EUR","INV-071","");
+
+    // Order 3 — MARKETPLACE = "it" (already lowercase) → "temu.it"
+    content += CSV_ROW("PO-069-00000000000000072","it","TestShop","2025-11-25",
+                       "sales","SKU072","20%","1","IT","IT",
+                       "11,09","0,00","0,00","2,49","0,00","0,00",
+                       "2,22","0,00","0,00","0,50",
+                       "2,72","EUR","INV-072","");
+
+    // Order 4 — return row with MARKETPLACE = "ES" → "temu.es"
+    // Return rows must also populate orderId_store.
+    content += CSV_ROW("PO-069-00000000000000073","ES","TestShop","2025-11-28",
+                       "return","SKU073","20%","1","ES","ES",
+                       "-11,09","0,00","0,00","-2,49","0,00","0,00",
+                       "-2,22","0,00","0,00","-0,50",
+                       "-2,72","EUR","CN-073","");
+
+    // Order 5 — MARKETPLACE = "" (empty) → orderId_store must NOT contain this id
+    content += CSV_ROW("PO-069-00000000000000074","","TestShop","2025-11-30",
+                       "sales","SKU074","20%","1","FR","FR",
+                       "11,09","0,00","0,00","2,49","0,00","0,00",
+                       "2,22","0,00","0,00","0,50",
+                       "2,72","EUR","INV-074","");
+
+    QString file = createTempCsv(content, tempDir);
+
+    QTemporaryDir workDir;
+    ImporterFileTemuVatEu importer(workDir.path());
+    auto result = QCoro::waitFor(importer.loadReport(file));
+
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QCOMPARE(result.orderInfos->shipments.size(), 4); // orders 1, 2, 3, 5
+    QCOMPARE(result.orderInfos->refunds.size(),   1); // order 4
+
+    const auto &store = result.orderInfos->orderId_store;
+
+    // "FR" uppercase → "temu.fr"
+    QVERIFY2(store.contains("PO-069-00000000000000070"),
+             "orderId_store must contain order 70");
+    QCOMPARE(store.value("PO-069-00000000000000070"), QString("temu.fr"));
+
+    // "DE" uppercase → "temu.de"
+    QVERIFY2(store.contains("PO-069-00000000000000071"),
+             "orderId_store must contain order 71");
+    QCOMPARE(store.value("PO-069-00000000000000071"), QString("temu.de"));
+
+    // "it" already lowercase → "temu.it"
+    QVERIFY2(store.contains("PO-069-00000000000000072"),
+             "orderId_store must contain order 72");
+    QCOMPARE(store.value("PO-069-00000000000000072"), QString("temu.it"));
+
+    // return row with "ES" → "temu.es"
+    QVERIFY2(store.contains("PO-069-00000000000000073"),
+             "orderId_store must contain return order 73");
+    QCOMPARE(store.value("PO-069-00000000000000073"), QString("temu.es"));
+
+    // empty MARKETPLACE → no entry
+    QVERIFY2(!store.contains("PO-069-00000000000000074"),
+             "orderId_store must NOT contain order 74 (empty marketplace)");
+}
+
+// ===========================================================================
+// test_marketplace_columnAbsent
+// When the MARKETPLACE column is absent the importer must not fail and
+// orderId_store must remain empty.
+// ===========================================================================
+void TestImporterFileTemuVatEu::test_marketplace_columnAbsent()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    // Build a minimal valid header that intentionally omits MARKETPLACE.
+    const QString header =
+        "N° DE COMMANDE,"
+        "DATE DE PAIEMENT DE LA COMMANDE,"
+        "TYPE DE VENTE,"
+        "SKU DU VENDEUR,"
+        "\"PAYS DE DÉPART DE LA TRANSACTION \","
+        "PAYS D'ARRIVÉE DE LA TRANSACTION,"
+        "PRIX DES ARTICLES (HORS TVA),"
+        "PRIX DE LA SUBVENTION (HORS TVA),"
+        "PRIX D'EXPÉDITION (HORS TVA),"
+        "TAXE TOTALE,"
+        "DEVISE,"
+        "ID DE FACTURE\n";
+
+    const QString row =
+        "PO-069-00000000000000080,"
+        "2025-11-15,"
+        "sales,"
+        "SKU080,"
+        "FR,"
+        "FR,"
+        "\"11,09\",\"0,00\",\"2,49\","
+        "\"2,72\","
+        "EUR,"
+        "INV-080\n";
+
+    QString file = createTempCsv(header + row, tempDir);
+
+    QTemporaryDir workDir;
+    ImporterFileTemuVatEu importer(workDir.path());
+    auto result = QCoro::waitFor(importer.loadReport(file));
+
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QCOMPARE(result.orderInfos->shipments.size(), 1);
+    QVERIFY2(result.orderInfos->orderId_store.isEmpty(),
+             "orderId_store must be empty when MARKETPLACE column is absent");
 }
 
 // ===========================================================================
