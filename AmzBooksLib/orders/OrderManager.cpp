@@ -659,50 +659,136 @@ void OrderManager::removeShipmenOrRefund(const QString &shipmentOrRefundId)
     }
 }
 
-void OrderManager::recordAddressTo(const QString &orderId, const Address &addressTo)
+void OrderManager::recordAddressesTo(const QHash<QString, Address> &orderId_addressTo)
 {
+    if (orderId_addressTo.isEmpty())
+        return;
+
+    struct Entry { QString id; QString json; };
+    QList<Entry> entries;
+    entries.reserve(orderId_addressTo.size());
+    for (auto it = orderId_addressTo.cbegin(); it != orderId_addressTo.cend(); ++it)
+        entries.append({it.key(),
+                        QJsonDocument(it.value().toJson()).toJson(QJsonDocument::Compact)});
+
+    const int batchSize = 1000;
+
+    for (int batchStart = 0; batchStart < entries.size(); batchStart += batchSize)
     {
-        QSqlQuery qCheck(m_db);
-        qCheck.prepare("INSERT OR IGNORE INTO orders (id) VALUES (?)");
-        qCheck.addBindValue(orderId);
-        qCheck.exec();
+        const int batchEnd = qMin(batchStart + batchSize, entries.size());
+
+        QVariantList ids, jsons;
+        ids.reserve(batchEnd - batchStart);
+        jsons.reserve(batchEnd - batchStart);
+        for (int i = batchStart; i < batchEnd; ++i) {
+            ids   << entries[i].id;
+            jsons << entries[i].json;
+        }
+
+        m_db.transaction();
+
+        // Phase 1: ensure order rows exist
+        {
+            QSqlQuery q(m_db);
+            q.prepare("INSERT OR IGNORE INTO orders (id) VALUES (?)");
+            q.addBindValue(ids);
+            if (!q.execBatch()) {
+                qWarning() << "OrderManager::recordAddressesTo INSERT OR IGNORE failed:" << q.lastError();
+                m_db.rollback();
+                continue;
+            }
+        }
+
+        // Phase 2: set address_json
+        {
+            QSqlQuery q(m_db);
+            q.prepare("UPDATE orders SET address_json = ? WHERE id = ?");
+            q.addBindValue(jsons);
+            q.addBindValue(ids);
+            if (!q.execBatch()) {
+                qWarning() << "OrderManager::recordAddressesTo UPDATE failed:" << q.lastError();
+                m_db.rollback();
+                continue;
+            }
+        }
+
+        m_db.commit();
     }
-    
-    QString jsonStr = QJsonDocument(addressTo.toJson()).toJson(QJsonDocument::Compact);
-    QSqlQuery qUpd(m_db);
-    qUpd.prepare("UPDATE orders SET address_json = ? WHERE id = ?");
-    qUpd.addBindValue(jsonStr);
-    qUpd.addBindValue(orderId);
-    if (!qUpd.exec()) qWarning() << "Failed to update address:" << qUpd.lastError();
 }
 
 void OrderManager::recordInventoryMove(
-        int year
-        , int month
-        , const QString &countryCodeFrom
-        , const QString &countryCodeTo
-        , const QString &transactionId
-        , const QString &sku
-        , int units)
+        const QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> &year_month_countryFrom_countryTo_id_SkuMovedUnits)
 {
-    if (transactionId.isEmpty()) {
-        ExceptionWithTitleText ex("Invalid Inventory Move",
-                                  "transactionId cannot be empty");
-        ex.raise();
+    if (year_month_countryFrom_countryTo_id_SkuMovedUnits.isEmpty())
+        return;
+
+    // Flatten nested hash into rows; validate transactionIds eagerly before touching the DB
+    struct Row { int year, month; QString from, to, txnId, sku; int units; };
+    QList<Row> rows;
+    for (auto it1 = year_month_countryFrom_countryTo_id_SkuMovedUnits.cbegin();
+         it1 != year_month_countryFrom_countryTo_id_SkuMovedUnits.cend(); ++it1)
+    {
+        for (auto it2 = it1.value().cbegin(); it2 != it1.value().cend(); ++it2)
+        {
+            for (auto it3 = it2.value().cbegin(); it3 != it2.value().cend(); ++it3)
+            {
+                for (auto it4 = it3.value().cbegin(); it4 != it3.value().cend(); ++it4)
+                {
+                    for (auto it5 = it4.value().cbegin(); it5 != it4.value().cend(); ++it5)
+                    {
+                        if (it5.key().isEmpty()) {
+                            ExceptionWithTitleText ex("Invalid Inventory Move",
+                                                      "transactionId cannot be empty");
+                            ex.raise();
+                        }
+                        rows.append({it1.key(), it2.key(),
+                                     it3.key(), it4.key(),
+                                     it5.key(), it5.value().sku, it5.value().units});
+                    }
+                }
+            }
+        }
     }
-    QSqlQuery q(m_db);
-    q.prepare("INSERT OR REPLACE INTO inventory_moves "
-              "(id, year, month, country_from, country_to, sku, units) "
-              "VALUES (?, ?, ?, ?, ?, ?, ?)");
-    q.addBindValue(transactionId);
-    q.addBindValue(year);
-    q.addBindValue(month);
-    q.addBindValue(countryCodeFrom);
-    q.addBindValue(countryCodeTo);
-    q.addBindValue(sku);
-    q.addBindValue(units);
-    if (!q.exec())
-        qWarning() << "Failed to record inventory move:" << q.lastError();
+
+    if (rows.isEmpty())
+        return;
+
+    const int batchSize = 500;
+    for (int batchStart = 0; batchStart < rows.size(); batchStart += batchSize)
+    {
+        const int batchEnd = qMin(batchStart + batchSize, rows.size());
+
+        QVariantList ids, years, months, froms, tos, skus, unitsList;
+        ids.reserve(batchEnd - batchStart);
+        for (int i = batchStart; i < batchEnd; ++i) {
+            ids       << rows[i].txnId;
+            years     << rows[i].year;
+            months    << rows[i].month;
+            froms     << rows[i].from;
+            tos       << rows[i].to;
+            skus      << rows[i].sku;
+            unitsList << rows[i].units;
+        }
+
+        m_db.transaction();
+        QSqlQuery q(m_db);
+        q.prepare("INSERT OR REPLACE INTO inventory_moves "
+                  "(id, year, month, country_from, country_to, sku, units) "
+                  "VALUES (?, ?, ?, ?, ?, ?, ?)");
+        q.addBindValue(ids);
+        q.addBindValue(years);
+        q.addBindValue(months);
+        q.addBindValue(froms);
+        q.addBindValue(tos);
+        q.addBindValue(skus);
+        q.addBindValue(unitsList);
+        if (!q.execBatch()) {
+            qWarning() << "OrderManager::recordInventoryMove batch insert failed:" << q.lastError();
+            m_db.rollback();
+        } else {
+            m_db.commit();
+        }
+    }
 }
 
 QHash<QString, int> OrderManager::getInventoryImported(
@@ -741,17 +827,90 @@ QHash<QString, int> OrderManager::getInventoryExported(
     return sku_units;
 }
 
-void OrderManager::recordOrder(const QString &orderId, const QString &store)
+void OrderManager::recordOrders(const QHash<QString, QString> &orderId_store)
 {
-    QSqlQuery q(m_db);
-    q.prepare("INSERT INTO orders (id, store, inserted_at) VALUES (?, ?, ?) "
-              "ON CONFLICT(id) DO UPDATE SET store=excluded.store");
-    q.addBindValue(orderId);
-    q.addBindValue(store);
-    q.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
-    if (!q.exec()) {
-        qWarning() << "Failed to record order store:" << q.lastError();
+    if (orderId_store.isEmpty())
+        return;
+
+    // Collect entries once; iterate hash only once
+    struct Entry { QString id; QString store; };
+    QList<Entry> entries;
+    entries.reserve(orderId_store.size());
+    for (auto it = orderId_store.cbegin(); it != orderId_store.cend(); ++it)
+        entries.append({it.key(), it.value()});
+
+    const int batchSize = 1000;
+    const QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
+
+    for (int batchStart = 0; batchStart < entries.size(); batchStart += batchSize)
+    {
+        const int batchEnd = qMin(batchStart + batchSize, entries.size());
+
+        QVariantList ids, stores, nows;
+        ids.reserve(batchEnd - batchStart);
+        stores.reserve(batchEnd - batchStart);
+        nows.reserve(batchEnd - batchStart);
+        for (int i = batchStart; i < batchEnd; ++i) {
+            ids    << entries[i].id;
+            stores << entries[i].store;
+            nows   << now;
+        }
+
+        m_db.transaction();
+        QSqlQuery q(m_db);
+        q.prepare("INSERT INTO orders (id, store, inserted_at) VALUES (?, ?, ?) "
+                  "ON CONFLICT(id) DO UPDATE SET store=excluded.store");
+        q.addBindValue(ids);
+        q.addBindValue(stores);
+        q.addBindValue(nows);
+        if (!q.execBatch()) {
+            qWarning() << "OrderManager::recordOrders batch insert failed:" << q.lastError();
+            m_db.rollback();
+        } else {
+            m_db.commit();
+        }
     }
+}
+
+QStringList OrderManager::getStores(const QList<QSharedPointer<Shipment>> &shipments) const
+{
+    if (shipments.isEmpty())
+        return {};
+
+    QStringList ids;
+    for (const auto &s : shipments) {
+        const QString id = s->getId();
+        if (!id.isEmpty())
+            ids.append(id);
+    }
+    if (ids.isEmpty())
+        return {};
+
+    QStringList placeholders;
+    placeholders.reserve(ids.size());
+    for (int i = 0; i < ids.size(); ++i)
+        placeholders.append("?");
+
+    QSqlQuery q(m_db);
+    q.prepare(QString(
+        "SELECT DISTINCT o.store "
+        "FROM shipments s "
+        "LEFT JOIN orders o ON s.order_id = o.id "
+        "WHERE s.id IN (%1) AND o.store IS NOT NULL AND o.store != '' "
+        "ORDER BY o.store")
+        .arg(placeholders.join(',')));
+    for (const QString &id : ids)
+        q.addBindValue(id);
+
+    if (!q.exec()) {
+        qWarning() << "OrderManager::getStores query failed:" << q.lastError();
+        return {};
+    }
+
+    QStringList result;
+    while (q.next())
+        result.append(q.value(0).toString());
+    return result;
 }
 
 void OrderManager::recordInvoicingInfo(const QString &shipmentOrRefundId,

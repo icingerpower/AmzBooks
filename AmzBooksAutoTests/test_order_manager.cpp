@@ -39,6 +39,7 @@ private slots:
     void test_invoicingInfos();
     void test_getShipmentOrRefundIfDifferent();
     void test_store_recording_and_querying();
+    void test_getStores();
     void test_remove_order();
     void test_remove_shipmentRefundr();
     void test_contains();
@@ -685,15 +686,15 @@ void TestOrderManager::test_store_recording_and_querying()
     Shipment shipment1({*actRes1.value});
     
     manager.recordShipmentFromSource(orderId1, &sourceA, &shipment1, QDate());
-    manager.recordOrder(orderId1, "Store1");
-    
+    manager.recordOrders({{orderId1, "Store1"}});
+
     QString orderId2 = "ord_store_2";
     auto actRes2 = Activity::create("evt2", "act2", "", QDateTime(QDate(2023, 1, 2), QTime(10, 0)), QDateTime(QDate(2023, 1, 2), QTime(10, 0)), "EUR", "FR", "DE", false, "DE",
          Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     Shipment shipment2({*actRes2.value});
-    
+
     manager.recordShipmentFromSource(orderId2, &sourceA, &shipment2, QDate());
-    manager.recordOrder(orderId2, "Store2");
+    manager.recordOrders({{orderId2, "Store2"}});
 
     // Query
     auto results = manager.getActivitySource_store_ShipmentAndRefunds(QDate(), QDate(), nullptr);
@@ -704,6 +705,96 @@ void TestOrderManager::test_store_recording_and_querying()
     QCOMPARE(results[sourceA]["Store1"].size(), 1);
     QVERIFY(results[sourceA].contains("Store2"));
     QCOMPARE(results[sourceA]["Store2"].size(), 1);
+}
+
+// ===========================================================================
+// test_getStores
+// Verifies that getStores() returns, for a list of Shipment objects, the
+// distinct non-empty store values recorded for their corresponding orders.
+// Covers: single store, multiple distinct stores, store deduplication,
+//         shipment with no order recorded, and empty input list.
+// ===========================================================================
+void TestOrderManager::test_getStores()
+{
+    QTemporaryDir tempDir;
+    OrderManager manager(tempDir.path());
+
+    ActivitySource source{ActivitySourceType::Report, "Temu", "temu.fr", "TemuVatEu"};
+
+    auto makeShipment = [](const QString &actId, const QString &orderId) -> Shipment {
+        auto res = Activity::create(
+            orderId, actId, "",
+            QDateTime(QDate(2025, 1, 1), QTime(10, 0)),
+            QDateTime(QDate(2025, 1, 1), QTime(10, 0)),
+            "EUR", "FR", "DE", false, "DE",
+            Amount(100.0, 20.0),
+            TaxSource::MarketplaceProvided, "DE",
+            TaxScheme::EuOssUnion,
+            TaxJurisdictionLevel::Country,
+            SaleType::Products);
+        Q_ASSERT(res.ok());
+        return Shipment({*res.value});
+    };
+
+    // Order 1: store "temu.fr"
+    Shipment s1 = makeShipment("act-gs-1", "order-gs-1");
+    manager.recordShipmentFromSource("order-gs-1", &source, &s1, QDate());
+    manager.recordOrders({{"order-gs-1", "temu.fr"}});
+
+    // Order 2: store "temu.de"
+    Shipment s2 = makeShipment("act-gs-2", "order-gs-2");
+    manager.recordShipmentFromSource("order-gs-2", &source, &s2, QDate());
+    manager.recordOrders({{"order-gs-2", "temu.de"}});
+
+    // Order 3: store "temu.fr" again (same store as order 1 → deduplication)
+    Shipment s3 = makeShipment("act-gs-3", "order-gs-3");
+    manager.recordShipmentFromSource("order-gs-3", &source, &s3, QDate());
+    manager.recordOrders({{"order-gs-3", "temu.fr"}});
+
+    // Order 4: no store recorded
+    Shipment s4 = makeShipment("act-gs-4", "order-gs-4");
+    manager.recordShipmentFromSource("order-gs-4", &source, &s4, QDate());
+    // no recordOrders call → orderId_store entry absent
+
+    // Wrap in QSharedPointer for the API
+    auto sp1 = QSharedPointer<Shipment>::create(s1);
+    auto sp2 = QSharedPointer<Shipment>::create(s2);
+    auto sp3 = QSharedPointer<Shipment>::create(s3);
+    auto sp4 = QSharedPointer<Shipment>::create(s4);
+
+    // 1. Empty input → empty result
+    QVERIFY(manager.getStores({}).isEmpty());
+
+    // 2. Single shipment → one store
+    QCOMPARE(manager.getStores({sp1}), QStringList{"temu.fr"});
+
+    // 3. Another single shipment → its own store
+    QCOMPARE(manager.getStores({sp2}), QStringList{"temu.de"});
+
+    // 4. Two shipments sharing the same store → deduplicated to one entry
+    QStringList deduped = manager.getStores({sp1, sp3});
+    QCOMPARE(deduped.size(), 1);
+    QCOMPARE(deduped.first(), QString("temu.fr"));
+
+    // 5. Two shipments with different stores → both returned (sorted)
+    QStringList two = manager.getStores({sp1, sp2});
+    QCOMPARE(two.size(), 2);
+    QVERIFY(two.contains("temu.fr"));
+    QVERIFY(two.contains("temu.de"));
+
+    // 6. Shipment with no order entry → store list is empty
+    QVERIFY(manager.getStores({sp4}).isEmpty());
+
+    // 7. Mix of recorded and unrecorded → only recorded store returned
+    QStringList mixed = manager.getStores({sp1, sp4});
+    QCOMPARE(mixed.size(), 1);
+    QCOMPARE(mixed.first(), QString("temu.fr"));
+
+    // 8. All four shipments → two distinct stores (order 4 has no store)
+    QStringList all = manager.getStores({sp1, sp2, sp3, sp4});
+    QCOMPARE(all.size(), 2);
+    QVERIFY(all.contains("temu.fr"));
+    QVERIFY(all.contains("temu.de"));
 }
 
 void TestOrderManager::test_remove_order()
@@ -744,12 +835,12 @@ void TestOrderManager::test_remove_order()
         QCOMPARE(q.value(0).toInt(), 0);
     }
 
-    // 2. Delete works if doing recordShipmentFromSource and recordOrder / recordAddressTo / recordInvoicingInfo
+    // 2. Delete works if doing recordShipmentFromSource and recordOrders / recordAddressesTo / recordInvoicingInfo
     {
          Shipment s = createShip(100.0, QTime(10, 0));
          manager.recordShipmentFromSource(orderId, &source, &s, QDate());
-         manager.recordOrder(orderId, "MyStore");
-         manager.recordAddressTo(orderId, addr);
+         manager.recordOrders({{orderId, "MyStore"}});
+         manager.recordAddressesTo({{orderId, addr}});
          
          auto resInvInfo = InvoicingInfo::create(&s, {}, "INV-REM");
          QVERIFY(resInvInfo.ok());
@@ -888,13 +979,13 @@ void TestOrderManager::test_remove_shipmentRefundr()
         QCOMPARE(q.value(0).toInt(), 0);
     }
     
-    // 2. Delete works if doing recordShipmentFromSource and recordOrder / recordAddressTo / recordInvoicingInfo (all is removed)
+    // 2. Delete works if doing recordShipmentFromSource and recordOrders / recordAddressesTo / recordInvoicingInfo (all is removed)
     {
          QString id2 = "s2";
          Shipment s = createShip(id2, 100.0, QTime(10, 0));
          manager.recordShipmentFromSource(orderId, &source, &s, QDate());
-         manager.recordOrder(orderId, "MyStore");
-         manager.recordAddressTo(orderId, addr);
+         manager.recordOrders({{orderId, "MyStore"}});
+         manager.recordAddressesTo({{orderId, addr}});
          
          auto resInvInfo = InvoicingInfo::create(&s, {}, "INV-REM");
          QVERIFY(resInvInfo.ok());
@@ -929,7 +1020,7 @@ void TestOrderManager::test_remove_shipmentRefundr()
         Shipment s2 = createShip(idB, 50.0, QTime(11, 0));
         manager.recordShipmentFromSource(orderId, &source, &s2, QDate());
         
-        manager.recordOrder(orderId, "MyStore"); // Store exists
+        manager.recordOrders({{orderId, "MyStore"}}); // Store exists
         
         QSqlQuery q(manager.m_db);
         q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = '" + orderId + "'");
@@ -1064,8 +1155,8 @@ void TestOrderManager::test_contains()
     QVERIFY(!manager.containsOrder("ord2"));
     QVERIFY(!manager.containsShipmentOrRefund("ship2"));
     
-    // Test Record Order
-    manager.recordOrder("ord2", "Store");
+    // Test Record Orders
+    manager.recordOrders({{"ord2", "Store"}});
     QVERIFY(manager.containsOrder("ord2"));
     QVERIFY(!manager.containsShipmentOrRefund("ship2"));
 }
@@ -1103,8 +1194,8 @@ void TestOrderManager::test_getShipmentAndRefundsNoInvoices()
     
     Shipment s1 = createShip("s1", 100.0, dateJan1);
     manager.recordShipmentFromSource(orderId, &source, &s1, QDate());
-    manager.recordAddressTo(orderId, addr);
-    
+    manager.recordAddressesTo({{orderId, addr}});
+
     // 2. Publish it
     QDate pubDate1(2023, 1, 31);
     manager.publish(pubDate1);
@@ -2067,8 +2158,11 @@ void TestOrderManager::test_importOrderInvariance()
                     manager.recordShipmentFromSource(ref.getId(), &source, &ref, QDate(), run.importer->isWrongIfConflict());
                 }
                 // Record addresses
-                for (const auto &addr : result.orderInfos->orderAddresses) {
-                    manager.recordAddressTo(addr.orderId, addr.address);
+                {
+                    QHash<QString, Address> addrMap;
+                    for (const auto &addr : result.orderInfos->orderAddresses)
+                        addrMap.insert(addr.orderId, addr.address);
+                    manager.recordAddressesTo(addrMap);
                 }
                 // Record invoicingInfos
                 for (const auto &inv : result.orderInfos->invoicingInfos) {
@@ -2391,12 +2485,22 @@ void TestOrderManager::test_inventoryMove()
     QVERIFY(tempDir.isValid());                                               // 1
     OrderManager manager(tempDir.path());
 
+    // Helper: build the nested hash for a single move and record it.
+    auto rec = [&](int year, int month,
+                   const QString &from, const QString &to,
+                   const QString &txn, const QString &sku, int units)
+    {
+        QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> data;
+        data[year][month][from][to][txn] = {sku, units};
+        manager.recordInventoryMove(data);
+    };
+
     // ── Empty DB: both getters return empty hashes ─────────────────────────
     QVERIFY(manager.getInventoryImported(2024, 1, "FR").isEmpty());           // 2
     QVERIFY(manager.getInventoryExported(2024, 1, "PL").isEmpty());           // 3
 
     // ── Single move: appears as import to "FR" and export from "PL" ────────
-    manager.recordInventoryMove(2024, 1, "PL", "FR", "TXN-001", "SKU-A", 5);
+    rec(2024, 1, "PL", "FR", "TXN-001", "SKU-A", 5);
 
     auto imp1 = manager.getInventoryImported(2024, 1, "FR");
     QVERIFY(!imp1.isEmpty());                                                 // 4
@@ -2421,19 +2525,19 @@ void TestOrderManager::test_inventoryMove()
     QVERIFY(manager.getInventoryExported(2024, 2, "PL").isEmpty());           // 15
 
     // ── Two moves of the same SKU are aggregated ───────────────────────────
-    manager.recordInventoryMove(2024, 1, "PL", "FR", "TXN-002", "SKU-A", 3);
+    rec(2024, 1, "PL", "FR", "TXN-002", "SKU-A", 3);
     QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 8);       // 16 (5+3)
     QCOMPARE(manager.getInventoryExported(2024, 1, "PL")["SKU-A"], 8);       // 17
 
     // ── Multiple distinct SKUs are all returned ────────────────────────────
-    manager.recordInventoryMove(2024, 1, "PL", "FR", "TXN-003", "SKU-B", 10);
+    rec(2024, 1, "PL", "FR", "TXN-003", "SKU-B", 10);
     auto imp2 = manager.getInventoryImported(2024, 1, "FR");
     QVERIFY(imp2.contains("SKU-B"));                                          // 18
     QCOMPARE(imp2.size(), 2);                                                 // 19 (SKU-A + SKU-B)
     QCOMPARE(imp2["SKU-B"], 10);                                              // 20
 
     // ── Different source country doesn't bleed into unrelated exports ──────
-    manager.recordInventoryMove(2024, 1, "DE", "FR", "TXN-004", "SKU-C", 7);
+    rec(2024, 1, "DE", "FR", "TXN-004", "SKU-C", 7);
     auto imp3 = manager.getInventoryImported(2024, 1, "FR");
     QVERIFY(imp3.contains("SKU-C"));                                          // 21
     QCOMPARE(imp3.size(), 3);                                                 // 22 (A + B + C)
@@ -2444,25 +2548,27 @@ void TestOrderManager::test_inventoryMove()
 
     // ── Re-recording same id replaces the row (INSERT OR REPLACE) ──────────
     // TXN-001 changes from 5 → 99; running total for SKU-A becomes 99+3 = 102
-    manager.recordInventoryMove(2024, 1, "PL", "FR", "TXN-001", "SKU-A", 99);
+    rec(2024, 1, "PL", "FR", "TXN-001", "SKU-A", 99);
     QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 102);      // 26
 
     // ── Different month is isolated from month 1 ───────────────────────────
-    manager.recordInventoryMove(2024, 3, "PL", "FR", "TXN-005", "SKU-A", 20);
+    rec(2024, 3, "PL", "FR", "TXN-005", "SKU-A", 20);
     QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 102);      // 27 unchanged
     QCOMPARE(manager.getInventoryImported(2024, 3, "FR")["SKU-A"], 20);       // 28
 
     // ── Empty transactionId raises an exception ────────────────────────────
     bool exceptionRaised = false;
     try {
-        manager.recordInventoryMove(2024, 1, "PL", "FR", "", "SKU-X", 1);
+        QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> bad;
+        bad[2024][1]["PL"]["FR"][""] = {"SKU-X", 1};
+        manager.recordInventoryMove(bad);
     } catch (...) {
         exceptionRaised = true;
     }
     QVERIFY(exceptionRaised);                                                  // 29
 
     // ── A country can be an exporter in one move and an importer in another
-    manager.recordInventoryMove(2024, 1, "FR", "IT", "TXN-006", "SKU-D", 4);
+    rec(2024, 1, "FR", "IT", "TXN-006", "SKU-D", 4);
     QVERIFY(manager.getInventoryExported(2024, 1, "FR").contains("SKU-D"));   // 30
 }
 

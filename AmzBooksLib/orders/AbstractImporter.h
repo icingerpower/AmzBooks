@@ -9,6 +9,7 @@
 #include "InvoicingInfo.h"
 #include "Address.h"
 #include "Refund.h"
+#include "InventoryMove.h"
 
 #include "ActivitySource.h"
 
@@ -32,10 +33,7 @@ public:
         double value;
         QString currency;
     };
-    struct InventoryMove{
-        QString sku;
-        int units = 0;
-    };
+    using InventoryMove = ::InventoryMove; // defined in InventoryMove.h
 
     struct OrderInfos{
         QList<InvoicingInfoWithId> invoicingInfos;

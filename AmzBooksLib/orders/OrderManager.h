@@ -21,8 +21,8 @@
 
 #include "ActivitySource.h"
 #include "books/TaxResolver.h"
-
-class Address;
+#include "Address.h"
+#include "InventoryMove.h"
 class ActivitySource;
 class Shipment;
 class InvoicingInfo;
@@ -71,19 +71,10 @@ public:
     void removeShipmenOrRefund(const QString &shipmentOrRefundId);
     bool containsOrder(const QString &orderId) const;
     bool containsShipmentOrRefund(const QString &shipmentOrRefundId) const;
-    void recordOrder(const QString &orderId,
-                         const QString &store); // Replace if exists
+    void recordOrders(const QHash<QString, QString> &orderId_store); // Batch upsert, 1000 at a time
     QStringList getStores(const QList<QSharedPointer<Shipment>> &shipments) const;
-    void recordAddressTo(const QString &orderId,
-                         const Address &addressTo); // Replace if exists
-    void recordInventoryMove(int year
-                             , int month
-                             , const QString &countryCodeFrom
-                             , const QString &countryCodeTo
-                             , const QString &transactionId // Triggers ExceptionWithTitleText is empty
-                             , const QString &sku
-                             , int units
-                             );
+    void recordAddressesTo(const QHash<QString, Address> &orderId_addressTo); // Batch upsert, 1000 at a time
+    void recordInventoryMove(const QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> &year_month_countryFrom_countryTo_id_SkuMovedUnits); // Batch upsert 500 at a time; throws ExceptionWithTitleText if any transactionId is empty
     QHash<QString, int> getInventoryImported(int year, int month, const QString &countryCodeTo) const;
     QHash<QString, int> getInventoryExported(int year, int month, const QString &countryCodeFrom) const;
     // Records invoicing information (number, link, items) for a given shipment (or its root).

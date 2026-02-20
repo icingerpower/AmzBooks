@@ -200,23 +200,28 @@ void PaneOrderApis::import()
             int importedCount = 0;
             QList<Activity> newActivities;
 
-            // Process Shipments
-            for (const auto &shipment : aggregatedInfos.shipments) {
-                 manager.recordShipmentFromSource(shipment.getId(), &source, &shipment, QDate(), false);
-                 newActivities.append(shipment.getActivities());
+            // Process Shipments & Refunds
+            {
+                QList<OrderManager::ShipmentFromSourceEntry> entries;
+                entries.reserve(aggregatedInfos.shipments.size() + aggregatedInfos.refunds.size());
+                for (const auto &shipment : aggregatedInfos.shipments) {
+                    entries.append({shipment.getId(), &shipment, QDate(), false, false});
+                    newActivities.append(shipment.getActivities());
+                }
+                for (const auto &refund : aggregatedInfos.refunds) {
+                    entries.append({refund.getId(), &refund, QDate(), false, false});
+                    newActivities.append(refund.getActivities());
+                }
+                manager.recordShipmentsFromSource(&source, entries);
             }
-            importedCount += aggregatedInfos.shipments.size();
-
-            // Process Refunds
-            for (const auto &refund : aggregatedInfos.refunds) {
-                manager.recordShipmentFromSource(refund.getId(), &source, &refund, QDate(), false);
-                newActivities.append(refund.getActivities());
-            }
-            importedCount += aggregatedInfos.refunds.size();
+            importedCount += aggregatedInfos.shipments.size() + aggregatedInfos.refunds.size();
 
             // Process Addresses
-            for (const auto &addr : aggregatedInfos.orderAddresses) {
-                manager.recordAddressTo(addr.orderId, addr.address);
+            {
+                QHash<QString, Address> addrMap;
+                for (const auto &addr : aggregatedInfos.orderAddresses)
+                    addrMap.insert(addr.orderId, addr.address);
+                manager.recordAddressesTo(addrMap);
             }
 
             // Process Invoicing Infos

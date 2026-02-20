@@ -155,7 +155,6 @@ void PaneOrderFiles::onImporterSelected(const QModelIndex &current, const QModel
 
 void PaneOrderFiles::importFile()
 {
-    setCursor(Qt::WaitCursor);
     QModelIndex index = ui->tableImporters->currentIndex();
     if (!index.isValid()) {
         QMessageBox::warning(this, tr("Import"), tr("Please select an importer first."));
@@ -283,6 +282,7 @@ void PaneOrderFiles::importFile()
                        self->ui->buttonImport->setEnabled(true);
                        co_return;
                    }
+                    setCursor(Qt::WaitCursor);
 
                    OrderManager manager(workingDir);
 
@@ -290,32 +290,27 @@ void PaneOrderFiles::importFile()
                    // and we cannot take the address of a temporary.
                    ActivitySource source = importer->getActivitySource();
 
-                   // Process Shipments
-                   for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
-                       manager.recordShipmentFromSource(
-                           shipment.getId(),
-                           &source,
-                           &shipment,
-                           QDate(), // No conflict date override
-                           importer->isWrongIfConflict()
-                       );
-                   }
-                   
-                   // Process Refunds
-                   for (const auto &refund : aggregatedResult.orderInfos->refunds) {
-                       manager.recordShipmentFromSource(
-                           refund.getId(),
-                           &source,
-                           &refund,
-                           QDate(),
-                           importer->isWrongIfConflict(),
-                           importer->fixRefundDate()
-                       );
+                   // Process Shipments & Refunds
+                   {
+                       QList<OrderManager::ShipmentFromSourceEntry> entries;
+                       entries.reserve(aggregatedResult.orderInfos->shipments.size()
+                                       + aggregatedResult.orderInfos->refunds.size());
+                       for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
+                           entries.append({shipment.getId(), &shipment, QDate(), importer->isWrongIfConflict(), false});
+                       }
+                       for (const auto &refund : aggregatedResult.orderInfos->refunds) {
+                           entries.append({refund.getId(), &refund, QDate(), importer->isWrongIfConflict(), importer->fixRefundDate()});
+                       }
+                       manager.recordShipmentsFromSource(&source, entries);
                    }
                    
                    // Process Addresses
-                   for (const auto &addr : aggregatedResult.orderInfos->orderAddresses) {
-                       manager.recordAddressTo(addr.orderId, addr.address);
+                   {
+                       QHash<QString, Address> addrMap;
+                       for (const auto &addr : aggregatedResult.orderInfos->orderAddresses) {
+                           addrMap.insert(addr.orderId, addr.address);
+                       }
+                       manager.recordAddressesTo(addrMap);
                    }
                    
                    // Process InvoicingInfos
@@ -405,9 +400,9 @@ void PaneOrderFiles::importFile()
                        }
                    }
                 
-                QMessageBox::information(self, tr("Import Successful"), 
-                                         tr("Successfully imported %1 items.").arg(importedCount));
                 setCursor(Qt::ArrowCursor);
+                QMessageBox::information(self, tr("Import Successful"),
+                                         tr("Successfully imported %1 items.").arg(importedCount));
             } else if (errors.isEmpty()) {
                  QMessageBox::information(self, tr("Import"), tr("No data found to import."));
             }
