@@ -33,6 +33,7 @@ class OrderManager
     friend class TestOrderManager;
     friend class TestServiceSales;
     friend class TestFileImportAmazonFbaInvoicing;
+    friend class TestOrderCompleteTableRealData;
 public:
     explicit OrderManager(const QDir &workingDirectory);
 
@@ -72,7 +73,7 @@ public:
     bool containsOrder(const QString &orderId) const;
     bool containsShipmentOrRefund(const QString &shipmentOrRefundId) const;
     void recordOrders(const QHash<QString, QString> &orderId_store); // Batch upsert, 1000 at a time
-    QStringList getStores(const QList<QSharedPointer<Shipment>> &shipments) const;
+    QHash<QString, QString> getStores(const QList<QSharedPointer<Shipment>> &shipments) const; // orderId → store
     void recordAddressesTo(const QHash<QString, Address> &orderId_addressTo); // Batch upsert, 1000 at a time
     void recordInventoryMove(const QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> &year_month_countryFrom_countryTo_id_SkuMovedUnits); // Batch upsert 500 at a time; throws ExceptionWithTitleText if any transactionId is empty
     QHash<QString, int> getInventoryImported(int year, int month, const QString &countryCodeTo) const;
@@ -117,6 +118,8 @@ public:
     QSharedPointer<QList<OrderManager::ShipmentRefundsWithUpdates>> getShipmentAndRefundsNoInvoices(
             const QDate &dateFrom
             , const QDate &dateTo) const;
+
+    QMultiMap<QDateTime, QSharedPointer<Shipment>> getShipmentAndRefundsRecentlyAdded(const QDate &minDateAdded) const;
 
     QMultiMap<QDateTime, QSharedPointer<Shipment>> getShipmentAndRefunds(
             const QDate &dateFrom

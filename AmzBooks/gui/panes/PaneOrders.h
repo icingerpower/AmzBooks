@@ -16,9 +16,12 @@ public:
     ~PaneOrders();
 
 public slots:
+    void displayRangeOrders();
     void displayRecentOrders();
     void displayMonthlyOrders();
     void displayOrdersNoInvoices();
+    void filter();
+    void filterReset();
 
 private:
     Ui::PaneOrders *ui;

@@ -35,6 +35,7 @@ private slots:
     void test_activity_update_model();
     void test_record_with_refund();
     void test_getShipments();
+    void test_getShipmentAndRefundsRecentlyAdded();
     void test_getActivitySource_ShipmentAndRefunds();
     void test_invoicingInfos();
     void test_getShipmentOrRefundIfDifferent();
@@ -46,7 +47,6 @@ private slots:
     void test_getShipmentAndRefundsNoInvoices();
     void test_get_channel_site_ShipmentAndRefundsConflicts();
     void test_get_channel_site_ShipmentAndRefunds();
-    void test_OrderTable();
     void test_TaxAmountTable();
     void test_tryRecordRefund();
     void test_importOrderInvariance();
@@ -544,6 +544,69 @@ void TestOrderManager::test_invoicingInfos()
     }
 }
 
+void TestOrderManager::test_getShipmentAndRefundsRecentlyAdded()
+{
+    // This test verifies that getShipmentAndRefundsRecentlyAdded filters by
+    // inserted_at (the DB recording date), NOT by event_date (the shipment date).
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    OrderManager manager(tempDir.path());
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+
+    // Shipment S1: old event_date (2020) but will be inserted "now"
+    auto actOld = Activity::create("ord1", "act1", "",
+        QDateTime(QDate(2020, 1, 1), QTime(12, 0)),
+        QDateTime(QDate(2020, 1, 1), QTime(12, 0)),
+        "EUR", "FR", "DE", false, "DE",
+        Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE",
+        TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment shipOld({*actOld.value});
+    manager.recordShipmentFromSource("ord1", &source, &shipOld, QDate(), false);
+
+    // Shipment S2: recent event_date (today) also inserted "now"
+    auto actNew = Activity::create("ord2", "act2", "",
+        QDateTime(QDate::currentDate(), QTime(12, 0)),
+        QDateTime(QDate::currentDate(), QTime(12, 0)),
+        "EUR", "FR", "DE", false, "DE",
+        Amount(200.0, 40.0), TaxSource::MarketplaceProvided, "DE",
+        TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    Shipment shipNew({*actNew.value});
+    manager.recordShipmentFromSource("ord2", &source, &shipNew, QDate(), false);
+
+    // Backdate S1's inserted_at to simulate "recorded long ago"
+    {
+        QSqlQuery q(manager.m_db);
+        q.exec("UPDATE shipments SET inserted_at = '2020-01-01T00:00:00' WHERE id = 'act1'");
+    }
+
+    const QDate yesterday = QDate::currentDate().addDays(-1);
+    const QDate tomorrow  = QDate::currentDate().addDays(1);
+
+    // getShipmentAndRefundsRecentlyAdded(yesterday):
+    //   S1 inserted_at=2020 → excluded; S2 inserted_at=now → included
+    auto recentMap = manager.getShipmentAndRefundsRecentlyAdded(yesterday);
+    QCOMPARE(recentMap.size(), 1);
+    QCOMPARE(recentMap.begin().value()->getActivities().first().getEventId(), QString("ord2"));
+
+    // getShipmentAndRefundsRecentlyAdded(tomorrow):
+    //   Neither S1 nor S2 qualifies (both inserted before "tomorrow")
+    auto emptyMap = manager.getShipmentAndRefundsRecentlyAdded(tomorrow);
+    QCOMPARE(emptyMap.size(), 0);
+
+    // Contrast with getShipmentAndRefunds (filters by event_date):
+    //   S1 event_date=2020 → excluded; S2 event_date=today → included
+    //   Same result for S2, but for a different reason: it is the event date, not insertion date.
+    auto eventMap = manager.getShipmentAndRefunds(yesterday, tomorrow,
+        [](const ActivitySource*, const Shipment*) { return true; });
+    QCOMPARE(eventMap.size(), 1);
+    QCOMPARE(eventMap.begin().value()->getActivities().first().getEventId(), QString("ord2"));
+
+    // No-cutoff call returns all 2 shipments (regardless of dates)
+    auto allMap = manager.getShipmentAndRefundsRecentlyAdded(QDate());
+    QCOMPARE(allMap.size(), 2);
+}
+
 void TestOrderManager::test_getActivitySource_ShipmentAndRefunds()
 {
     QTemporaryDir tempDir;
@@ -765,36 +828,42 @@ void TestOrderManager::test_getStores()
     // 1. Empty input → empty result
     QVERIFY(manager.getStores({}).isEmpty());
 
-    // 2. Single shipment → one store
-    QCOMPARE(manager.getStores({sp1}), QStringList{"temu.fr"});
+    // 2. Single shipment → one entry mapping orderId → store
+    auto r1 = manager.getStores({sp1});
+    QCOMPARE(r1.size(), 1);
+    QCOMPARE(r1.value("order-gs-1"), QString("temu.fr"));
 
-    // 3. Another single shipment → its own store
-    QCOMPARE(manager.getStores({sp2}), QStringList{"temu.de"});
+    // 3. Another single shipment → its own orderId→store entry
+    auto r2 = manager.getStores({sp2});
+    QCOMPARE(r2.size(), 1);
+    QCOMPARE(r2.value("order-gs-2"), QString("temu.de"));
 
-    // 4. Two shipments sharing the same store → deduplicated to one entry
-    QStringList deduped = manager.getStores({sp1, sp3});
-    QCOMPARE(deduped.size(), 1);
-    QCOMPARE(deduped.first(), QString("temu.fr"));
+    // 4. Two shipments sharing the same store → two distinct orderId entries (no deduplication by store value)
+    auto r13 = manager.getStores({sp1, sp3});
+    QCOMPARE(r13.size(), 2);
+    QCOMPARE(r13.value("order-gs-1"), QString("temu.fr"));
+    QCOMPARE(r13.value("order-gs-3"), QString("temu.fr"));
 
-    // 5. Two shipments with different stores → both returned (sorted)
-    QStringList two = manager.getStores({sp1, sp2});
-    QCOMPARE(two.size(), 2);
-    QVERIFY(two.contains("temu.fr"));
-    QVERIFY(two.contains("temu.de"));
+    // 5. Two shipments with different stores → two distinct entries
+    auto r12 = manager.getStores({sp1, sp2});
+    QCOMPARE(r12.size(), 2);
+    QCOMPARE(r12.value("order-gs-1"), QString("temu.fr"));
+    QCOMPARE(r12.value("order-gs-2"), QString("temu.de"));
 
-    // 6. Shipment with no order entry → store list is empty
+    // 6. Shipment with no order entry → empty map
     QVERIFY(manager.getStores({sp4}).isEmpty());
 
-    // 7. Mix of recorded and unrecorded → only recorded store returned
-    QStringList mixed = manager.getStores({sp1, sp4});
-    QCOMPARE(mixed.size(), 1);
-    QCOMPARE(mixed.first(), QString("temu.fr"));
+    // 7. Mix of recorded and unrecorded → only recorded orderId returned
+    auto rmixed = manager.getStores({sp1, sp4});
+    QCOMPARE(rmixed.size(), 1);
+    QCOMPARE(rmixed.value("order-gs-1"), QString("temu.fr"));
 
-    // 8. All four shipments → two distinct stores (order 4 has no store)
-    QStringList all = manager.getStores({sp1, sp2, sp3, sp4});
-    QCOMPARE(all.size(), 2);
-    QVERIFY(all.contains("temu.fr"));
-    QVERIFY(all.contains("temu.de"));
+    // 8. All four shipments → three entries (order 4 has no store)
+    auto rall = manager.getStores({sp1, sp2, sp3, sp4});
+    QCOMPARE(rall.size(), 3);
+    QCOMPARE(rall.value("order-gs-1"), QString("temu.fr"));
+    QCOMPARE(rall.value("order-gs-2"), QString("temu.de"));
+    QCOMPARE(rall.value("order-gs-3"), QString("temu.fr"));
 }
 
 void TestOrderManager::test_remove_order()
@@ -1625,77 +1694,6 @@ void TestOrderManager::test_get_channel_site_ShipmentAndRefunds()
     QVERIFY(!resultsPtr->isEmpty());
 }
 
-
-#include "orders/OrderTable.h"
-
-void TestOrderManager::test_OrderTable()
-{
-    // Setup Dummy Data for Constructor 1 (QList<Shipment>)
-    QList<QSharedPointer<Shipment>> shipmentsList;
-    
-    auto act1 = Activity::create("ord1", "act1", "", QDateTime(QDate(2023, 1, 1), QTime(12, 0)), QDateTime(QDate(2023, 1, 1), QTime(12, 0)), "EUR", "FR", "DE", false, "DE", 
-        Amount(100, 20), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
-    shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act1.value}));
-    
-    auto act2 = Activity::create("ord2", "act2", "", QDateTime(QDate(2023, 1, 5), QTime(12, 0)), QDateTime(QDate(2023, 1, 5), QTime(12, 0)), "EUR", "FR", "DE", false, "DE", 
-        Amount(200, 40), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
-    shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act2.value}));
-    
-    // Test Constructor 1
-    OrderTable table1(shipmentsList);
-    
-    // VERIFY 1-5: Basic Model Properties (List Constructor)
-    QCOMPARE(table1.rowCount(), 2);
-    QCOMPARE(table1.columnCount(), OrderTable::COL_COUNT);
-    // Sorting Default is DESC date
-    QCOMPARE(table1.data(table1.index(0, OrderTable::COL_ORDER_ID)).toString(), "ord2"); // Newer first
-    QCOMPARE(table1.data(table1.index(1, OrderTable::COL_ORDER_ID)).toString(), "ord1");
-    QCOMPARE(table1.data(table1.index(0, OrderTable::COL_AMOUNT_TAXED)).toDouble(), 200.0);
-    
-    // Verify Columns
-    QCOMPARE(table1.data(table1.index(0, OrderTable::COL_DATE)).toDate(), QDate(2023, 1, 5));
-    QCOMPARE(table1.data(table1.index(1, OrderTable::COL_DATE)).toDate(), QDate(2023, 1, 1));
-    // isCompany = false → "No"
-    QCOMPARE(table1.data(table1.index(0, OrderTable::COL_IS_BUSINESS)).toString(), QString("No"));
-    
-    // Sort Ascending
-    table1.sort(OrderTable::COL_DATE, Qt::AscendingOrder);
-    QCOMPARE(table1.data(table1.index(0, OrderTable::COL_ORDER_ID)).toString(), "ord1"); 
-    
-    
-    // Setup Dummy Data for Constructor 2 (Complex Hash)
-    auto complexData = QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>::create();
-    TaxResolver::TaxContext ctx; // Default
-    
-    OrderManager::ShipmentRefundsWithUpdates group1;
-    group1.shipmentsRefundsSameActivity.append(QSharedPointer<Shipment>::create(QList<Activity>{*act1.value}));
-    (*complexData)["Chan1"]["Site1"][ctx] = group1;
-    
-    OrderManager::ShipmentRefundsWithUpdates group2;
-    group2.shipmentsRefundsSameActivity.append(QSharedPointer<Shipment>::create(QList<Activity>{*act2.value}));
-    (*complexData)["Chan2"]["Site2"][ctx] = group2;
-    
-    // Test Constructor 2
-    OrderTable table2(complexData);
-    
-    // VERIFY 6-15: Complex Constructor & Data Integrity
-    QCOMPARE(table2.rowCount(), 2);
-    
-    // Sort DESC Date (default, but let's be sure)
-    table2.sort(OrderTable::COL_DATE, Qt::DescendingOrder);
-    
-    // Row 0 should be ord2 (Jan 5)
-    QCOMPARE(table2.data(table2.index(0, OrderTable::COL_ORDER_ID)).toString(), "ord2");
-    QCOMPARE(table2.data(table2.index(0, OrderTable::COL_AMOUNT_TAXED)).toDouble(), 200.0);
-    
-    // Row 1 should be ord1 (Jan 1)
-    QCOMPARE(table2.data(table2.index(1, OrderTable::COL_ORDER_ID)).toString(), "ord1");
-    
-    // Sort by Channel Ascending
-    
-    // Check non-existent index
-    QVERIFY(!table2.data(table2.index(100, 0)).isValid());
-}
 
 
 #include "orders/TaxAmountTable.h"

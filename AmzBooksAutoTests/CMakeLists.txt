@@ -57,6 +57,17 @@ add_custom_command(TARGET TestVatRateResolver POST_BUILD
 )
 
 
+add_executable(TestOrderTable test_order_table.cpp)
+add_test(NAME TestOrderTable COMMAND TestOrderTable)
+target_link_libraries(TestOrderTable PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib QCoro::Core)
+target_include_directories(TestOrderTable PRIVATE ../AmzBooksLib ../../common)
+
+add_custom_command(TARGET TestOrderTable POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
+    $<TARGET_FILE_DIR:TestOrderTable>/data/amazon-vat-reports
+)
+
 add_executable(TestOrderManager test_order_manager.cpp)
 add_test(NAME TestOrderManager COMMAND TestOrderManager)
 target_link_libraries(TestOrderManager PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib QCoro::Core)

@@ -234,171 +234,176 @@ void PaneOrderFiles::importFile()
 
             if (!aggregatedResult.orderInfos->shipments.isEmpty() || !aggregatedResult.orderInfos->refunds.isEmpty()) {
                 // Save to OrderManager
-                // We instantiate OrderManager here. 
+                // We instantiate OrderManager here.
                 // CAUTION: Ensure DB connection doesn't conflict if app uses shared connection.
                 // Assuming OrderManager handles its own connection or default connection is safe.
 
                 int importedCount = 0;
-                   // Preview Dialog
-                   QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
-                   CompanyInfosTable companyInfo(workingDir);
-                   CurrencyRateManager currencyRateManager(workingDir, companyInfo.getApiKeyFixer());
-                   
-                   if (importer->recomputeTaxes()) {
-                       VatTerritoryResolver vatTerritoryResolver(workingDir);
-                       TaxResolver taxResolver(workingDir);
-                       VatResolver vatResolver(workingDir);
+                // Preview Dialog
+                QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
+                CompanyInfosTable companyInfo(workingDir);
+                CurrencyRateManager currencyRateManager(workingDir, companyInfo.getApiKeyFixer());
 
-                       QHash<QString, const Address *> orderIdToAddress;
-                       for (const auto &addrWithId : aggregatedResult.orderInfos->orderAddresses) {
-                           orderIdToAddress[addrWithId.orderId] = &addrWithId.address;
-                       }
+                if (importer->recomputeTaxes()) {
+                    VatTerritoryResolver vatTerritoryResolver(workingDir);
+                    TaxResolver taxResolver(workingDir);
+                    VatResolver vatResolver(workingDir);
 
-                       auto computeShipmentTax = [&](Shipment &shipment) {
-                           QString vatTerritoryTo;
-                           if (!shipment.getActivities().isEmpty()) {
-                               const Address *addr = orderIdToAddress.value(
-                                   shipment.getActivities().first().getEventId(), nullptr);
-                               if (addr) {
-                                   vatTerritoryTo = vatTerritoryResolver.getTerritoryId(
-                                       addr->getCountryCode(),
-                                       addr->getPostalCode(),
-                                       addr->getCity());
-                               }
-                           }
-                           shipment.computeTax(&taxResolver, &vatResolver, QString{}, vatTerritoryTo);
-                       };
+                    QHash<QString, const Address *> orderIdToAddress;
+                    for (const auto &addrWithId : aggregatedResult.orderInfos->orderAddresses) {
+                        orderIdToAddress[addrWithId.orderId] = &addrWithId.address;
+                    }
 
-                       for (auto &shipment : aggregatedResult.orderInfos->shipments) {
-                           computeShipmentTax(shipment);
-                       }
-                       for (auto &refund : aggregatedResult.orderInfos->refunds) {
-                           computeShipmentTax(refund);
-                       }
-                   }
+                    auto computeShipmentTax = [&](Shipment &shipment) {
+                        QString vatTerritoryTo;
+                        if (!shipment.getActivities().isEmpty()) {
+                            const Address *addr = orderIdToAddress.value(
+                                        shipment.getActivities().first().getEventId(), nullptr);
+                            if (addr) {
+                                vatTerritoryTo = vatTerritoryResolver.getTerritoryId(
+                                            addr->getCountryCode(),
+                                            addr->getPostalCode(),
+                                            addr->getCity());
+                            }
+                        }
+                        shipment.computeTax(&taxResolver, &vatResolver, QString{}, vatTerritoryTo);
+                    };
 
-                   DialogViewOrders dialog(*aggregatedResult.orderInfos, &currencyRateManager, companyInfo.getCurrency(), self);
-                   if (dialog.exec() != QDialog::Accepted) {
-                       self->ui->buttonImport->setEnabled(true);
-                       co_return;
-                   }
-                    setCursor(Qt::WaitCursor);
+                    for (auto &shipment : aggregatedResult.orderInfos->shipments) {
+                        computeShipmentTax(shipment);
+                    }
+                    for (auto &refund : aggregatedResult.orderInfos->refunds) {
+                        computeShipmentTax(refund);
+                    }
+                }
 
-                   OrderManager manager(workingDir);
+                DialogViewOrders dialog(*aggregatedResult.orderInfos, &currencyRateManager, companyInfo.getCurrency(), self);
+                if (dialog.exec() != QDialog::Accepted) {
+                    self->ui->buttonImport->setEnabled(true);
+                    co_return;
+                }
+                setCursor(Qt::WaitCursor);
 
-                   // We need to store the value in a local variable because getActivitySource() returns by value (temporary),
-                   // and we cannot take the address of a temporary.
-                   ActivitySource source = importer->getActivitySource();
+                OrderManager manager(workingDir);
 
-                   // Process Shipments & Refunds
-                   {
-                       QList<OrderManager::ShipmentFromSourceEntry> entries;
-                       entries.reserve(aggregatedResult.orderInfos->shipments.size()
-                                       + aggregatedResult.orderInfos->refunds.size());
-                       for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
-                           entries.append({shipment.getId(), &shipment, QDate(), importer->isWrongIfConflict(), false});
-                       }
-                       for (const auto &refund : aggregatedResult.orderInfos->refunds) {
-                           entries.append({refund.getId(), &refund, QDate(), importer->isWrongIfConflict(), importer->fixRefundDate()});
-                       }
-                       manager.recordShipmentsFromSource(&source, entries);
-                   }
-                   
-                   // Process Addresses
-                   {
-                       QHash<QString, Address> addrMap;
-                       for (const auto &addr : aggregatedResult.orderInfos->orderAddresses) {
-                           addrMap.insert(addr.orderId, addr.address);
-                       }
-                       manager.recordAddressesTo(addrMap);
-                   }
-                   
-                   // Process InvoicingInfos
-                   for (const auto &inv : aggregatedResult.orderInfos->invoicingInfos) {
-                       manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
-                   }
-                   
-                   // Process Refund Clues
-                   QStringList refundErrors;
-                   for (auto it = aggregatedResult.orderInfos->orderId_refundClue.begin();
-                        it != aggregatedResult.orderInfos->orderId_refundClue.end(); ++it) {
-                       auto callbackPick = [self](const QString &errorTitle,
-                                                   const QString &errorText,
-                                                   const QList<QSharedPointer<Shipment>> &shipmentsToPick) -> QCoro::Task<QString> {
-                           DialogPickShipment dialog(errorTitle, errorText, shipmentsToPick, self);
-                           if (dialog.exec() == QDialog::Accepted) {
-                               co_return dialog.selectedShipmentId();
-                           }
-                           co_return QString{};
-                       };
-                       QString err = co_await manager.tryRecordRefund(
-                           it.key(), it.value().value, it.value().currency, QString{}, callbackPick);
-                       if (!err.isEmpty()) {
-                           refundErrors.append(err);
-                       }
-                   }
-                   if (!refundErrors.isEmpty()) {
-                       QMessageBox::warning(self, tr("Refund Errors"), refundErrors.join("\n\n"));
-                   }
+                // We need to store the value in a local variable because getActivitySource() returns by value (temporary),
+                // and we cannot take the address of a temporary.
+                ActivitySource source = importer->getActivitySource();
 
-                   importedCount = aggregatedResult.orderInfos->shipments.size() + aggregatedResult.orderInfos->refunds.size();
+                // Process Shipments & Refunds
+                {
+                    QList<OrderManager::ShipmentFromSourceEntry> entries;
+                    entries.reserve(aggregatedResult.orderInfos->shipments.size()
+                                    + aggregatedResult.orderInfos->refunds.size());
+                    for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
+                        entries.append({shipment.getId(), &shipment, QDate(), importer->isWrongIfConflict(), false});
+                    }
+                    for (const auto &refund : aggregatedResult.orderInfos->refunds) {
+                        entries.append({refund.getId(), &refund, QDate(), importer->isWrongIfConflict(), importer->fixRefundDate()});
+                    }
+                    manager.recordShipmentsFromSource(&source, entries);
+                }
 
-                   // Update Chart Data
-                   if (importedCount > 0) {
-                       auto &counts = self->m_ordersData[importer->getId()];
-                       for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
-                           // Using first activity date as approximation for shipment date
-                           if (!shipment.getActivities().isEmpty()) {
-                               counts[shipment.getActivities().first().getDateTime().date()]++;
-                           }
-                       }
-                       for (const auto &refund : aggregatedResult.orderInfos->refunds) {
-                           if (!refund.getActivities().isEmpty()) {
-                               counts[refund.getActivities().first().getDateTime().date()]++;
-                           }
-                       }
-                       
-                       // Trigger chart update on main thread
-                       QMetaObject::invokeMethod(self, "updateChart", Qt::QueuedConnection);
-                       
-                       // Add activities to table on main thread (or safe way)
-                       // Since we are in lambda, we can access self.
-                       // Thread correctness: The lambda runs in QCoro continuation which might be main thread if started from there?
-                       // QCoro::Task usually resumes on the context it started. importFile called from UI thread.
-                       // However, let's be safe or just do it.
-                       
-                       QList<Activity> newActivities;
-                       for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
-                           newActivities.append(shipment.getActivities());
-                       }
-                       for (const auto &refund : aggregatedResult.orderInfos->refunds) {
-                           newActivities.append(refund.getActivities());
-                       }
-                       
-                       if (!newActivities.isEmpty()) {
-                           // Using invokeMethod to ensure we modify model on main thread if not already
-                            QMetaObject::invokeMethod(self, [self, importerId = importer->getId(), newActivities]() {
-                                if (self->m_activityModels.contains(importerId)) {
-                                    self->m_activityModels[importerId]->addActivities(newActivities);
-                                } else {
-                                     // Should have been created in onImporterSelected, but if not:
-                                     auto *table = new ActivityTable(self);
-                                     table->addActivities(newActivities);
-                                     self->m_activityModels[importerId] = table;
-                                     // If this importer is currently selected, update view
-                                     // We checked onImporterSelected for validity, but let's see.
-                                     // Simple check:
-                                     QModelIndex index = self->ui->tableImporters->currentIndex();
-                                     if (index.isValid()) {
-                                         auto *currentImporter = self->m_importersTable->getImporter(index);
-                                         if (currentImporter && currentImporter->getId() == importerId) {
-                                             self->ui->tableOrders->setModel(table);
-                                         }
-                                     }
+                // Process orderId→store mapping (marketplace site name)
+                if (!aggregatedResult.orderInfos->orderId_store.isEmpty()) {
+                    manager.recordOrders(aggregatedResult.orderInfos->orderId_store);
+                }
+
+                // Process Addresses
+                {
+                    QHash<QString, Address> addrMap;
+                    for (const auto &addr : aggregatedResult.orderInfos->orderAddresses) {
+                        addrMap.insert(addr.orderId, addr.address);
+                    }
+                    manager.recordAddressesTo(addrMap);
+                }
+
+                // Process InvoicingInfos
+                for (const auto &inv : aggregatedResult.orderInfos->invoicingInfos) {
+                    manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
+                }
+
+                // Process Refund Clues
+                QStringList refundErrors;
+                for (auto it = aggregatedResult.orderInfos->orderId_refundClue.begin();
+                     it != aggregatedResult.orderInfos->orderId_refundClue.end(); ++it) {
+                    auto callbackPick = [self](const QString &errorTitle,
+                            const QString &errorText,
+                            const QList<QSharedPointer<Shipment>> &shipmentsToPick) -> QCoro::Task<QString> {
+                        DialogPickShipment dialog(errorTitle, errorText, shipmentsToPick, self);
+                        if (dialog.exec() == QDialog::Accepted) {
+                            co_return dialog.selectedShipmentId();
+                        }
+                        co_return QString{};
+                    };
+                    QString err = co_await manager.tryRecordRefund(
+                                it.key(), it.value().value, it.value().currency, QString{}, callbackPick);
+                    if (!err.isEmpty()) {
+                        refundErrors.append(err);
+                    }
+                }
+                if (!refundErrors.isEmpty()) {
+                    QMessageBox::warning(self, tr("Refund Errors"), refundErrors.join("\n\n"));
+                }
+
+                importedCount = aggregatedResult.orderInfos->shipments.size() + aggregatedResult.orderInfos->refunds.size();
+
+                // Update Chart Data
+                if (importedCount > 0) {
+                    auto &counts = self->m_ordersData[importer->getId()];
+                    for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
+                        // Using first activity date as approximation for shipment date
+                        if (!shipment.getActivities().isEmpty()) {
+                            counts[shipment.getActivities().first().getDateTime().date()]++;
+                        }
+                    }
+                    for (const auto &refund : aggregatedResult.orderInfos->refunds) {
+                        if (!refund.getActivities().isEmpty()) {
+                            counts[refund.getActivities().first().getDateTime().date()]++;
+                        }
+                    }
+
+                    // Trigger chart update on main thread
+                    QMetaObject::invokeMethod(self, "updateChart", Qt::QueuedConnection);
+
+                    // Add activities to table on main thread (or safe way)
+                    // Since we are in lambda, we can access self.
+                    // Thread correctness: The lambda runs in QCoro continuation which might be main thread if started from there?
+                    // QCoro::Task usually resumes on the context it started. importFile called from UI thread.
+                    // However, let's be safe or just do it.
+
+                    QList<Activity> newActivities;
+                    for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
+                        newActivities.append(shipment.getActivities());
+                    }
+                    for (const auto &refund : aggregatedResult.orderInfos->refunds) {
+                        newActivities.append(refund.getActivities());
+                    }
+
+                    if (!newActivities.isEmpty()) {
+                        // Using invokeMethod to ensure we modify model on main thread if not already
+                        QMetaObject::invokeMethod(self, [self, importerId = importer->getId(), newActivities]() {
+                            if (self->m_activityModels.contains(importerId)) {
+                                self->m_activityModels[importerId]->addActivities(newActivities);
+                            } else {
+                                // Should have been created in onImporterSelected, but if not:
+                                auto *table = new ActivityTable(self);
+                                table->addActivities(newActivities);
+                                self->m_activityModels[importerId] = table;
+                                // If this importer is currently selected, update view
+                                // We checked onImporterSelected for validity, but let's see.
+                                // Simple check:
+                                QModelIndex index = self->ui->tableImporters->currentIndex();
+                                if (index.isValid()) {
+                                    auto *currentImporter = self->m_importersTable->getImporter(index);
+                                    if (currentImporter && currentImporter->getId() == importerId) {
+                                        self->ui->tableOrders->setModel(table);
+                                    }
                                 }
-                            }, Qt::QueuedConnection);
-                       }
-                   }
+                            }
+                        }, Qt::QueuedConnection);
+                    }
+                }
                 
                 setCursor(Qt::ArrowCursor);
                 QMessageBox::information(self, tr("Import Successful"),

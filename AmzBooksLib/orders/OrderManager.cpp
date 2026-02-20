@@ -872,34 +872,38 @@ void OrderManager::recordOrders(const QHash<QString, QString> &orderId_store)
     }
 }
 
-QStringList OrderManager::getStores(const QList<QSharedPointer<Shipment>> &shipments) const
+QHash<QString, QString> OrderManager::getStores(const QList<QSharedPointer<Shipment>> &shipments) const
 {
     if (shipments.isEmpty())
         return {};
 
-    QStringList ids;
+    // Collect distinct order IDs (eventIds) from all activities.
+    // These are the keys in the orders table — different from the shipment activity ID.
+    QStringList orderIds;
+    QSet<QString> seen;
     for (const auto &s : shipments) {
-        const QString id = s->getId();
-        if (!id.isEmpty())
-            ids.append(id);
+        for (const auto &act : s->getActivities()) {
+            const QString &id = act.getEventId();
+            if (!id.isEmpty() && !seen.contains(id)) {
+                seen.insert(id);
+                orderIds.append(id);
+            }
+        }
     }
-    if (ids.isEmpty())
+    if (orderIds.isEmpty())
         return {};
 
     QStringList placeholders;
-    placeholders.reserve(ids.size());
-    for (int i = 0; i < ids.size(); ++i)
+    placeholders.reserve(orderIds.size());
+    for (int i = 0; i < orderIds.size(); ++i)
         placeholders.append("?");
 
     QSqlQuery q(m_db);
     q.prepare(QString(
-        "SELECT DISTINCT o.store "
-        "FROM shipments s "
-        "LEFT JOIN orders o ON s.order_id = o.id "
-        "WHERE s.id IN (%1) AND o.store IS NOT NULL AND o.store != '' "
-        "ORDER BY o.store")
+        "SELECT id, store FROM orders "
+        "WHERE id IN (%1) AND store IS NOT NULL AND store != ''")
         .arg(placeholders.join(',')));
-    for (const QString &id : ids)
+    for (const QString &id : orderIds)
         q.addBindValue(id);
 
     if (!q.exec()) {
@@ -907,9 +911,9 @@ QStringList OrderManager::getStores(const QList<QSharedPointer<Shipment>> &shipm
         return {};
     }
 
-    QStringList result;
+    QHash<QString, QString> result;
     while (q.next())
-        result.append(q.value(0).toString());
+        result[q.value(0).toString()] = q.value(1).toString();
     return result;
 }
 
@@ -1930,6 +1934,53 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
         results->append(it.value());
     }
     
+    return results;
+}
+
+QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefundsRecentlyAdded(
+        const QDate &minDateAdded) const
+{
+    QMultiMap<QDateTime, QSharedPointer<Shipment>> results;
+
+    QString queryStr = "SELECT current_json, source_key, event_date, id FROM shipments WHERE 1=1";
+    if (minDateAdded.isValid())
+        queryStr += QString(" AND inserted_at >= '%1'").arg(minDateAdded.toString(Qt::ISODate));
+
+    QSqlQuery query(m_db);
+    query.exec(queryStr);
+
+    while (query.next()) {
+        QString jsonStr   = query.value(0).toString();
+        QString sourceKey = query.value(1).toString();
+        QString dateStr   = query.value(2).toString();
+        QString id        = query.value(3).toString();
+        QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
+
+        QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
+        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+
+        if (id.contains("-rev-")) {
+            QList<Activity> newActs;
+            for (const auto &act : shipment->getActivities()) {
+                Amount negatedAmount(-act.getAmountTaxed(), -act.getAmountTaxesSource());
+                auto res = Activity::create(
+                    act.getEventId(), act.getActivityId(), act.getSubActivityId(),
+                    act.getDateTime(), act.getDateTimeTax(), act.getCurrency(),
+                    act.getCountryCodeFrom(), act.getCountryCodeTo(), act.getIsCompany(),
+                    act.getCountryCodeVatPaidTo(), negatedAmount,
+                    act.getTaxSource(), act.getTaxDeclaringCountryCode(),
+                    act.getTaxScheme(), act.getTaxJurisdictionLevel(),
+                    act.getSaleType(), act.getVatTerritoryFrom(), act.getVatTerritoryTo());
+                if (res.value) {
+                    newActs.append(*res.value);
+                }
+            }
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+        }
+
+        results.insert(eventDate, shipment);
+    }
+
     return results;
 }
 
