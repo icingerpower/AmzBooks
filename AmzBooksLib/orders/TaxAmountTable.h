@@ -58,6 +58,7 @@ private:
 
         bool isTotalRow = false;
         TaxScheme taxSchemeEnum = TaxScheme::Unknown;
+        int colorBand = 0;
     };
 
     QList<TaxRow> m_rows;
@@ -71,6 +72,7 @@ private:
     void aggregate(const TaxResolver::TaxContext &ctx, const Shipment *shipment);
     void applyDefaultSort();
     void prependTotalRows();
+    void assignColorBands();
 
     // Helper to store aggregation map before flattening to list
     QHash<TaxResolver::TaxContext, TaxRow> m_aggregationMap;

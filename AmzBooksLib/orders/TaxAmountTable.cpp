@@ -4,6 +4,7 @@
 #include "books/TaxScheme.h"
 #include "books/TaxJurisdictionLevel.h"
 #include <QFont>
+#include <QColor>
 
 const QStringList TaxAmountTable::COL_NAMES = {
     QObject::tr("Declaring Country"),
@@ -85,6 +86,11 @@ QVariant TaxAmountTable::data(const QModelIndex &index, int role) const
         font.setBold(true);
         return font;
     }
+    if (role == Qt::BackgroundRole && index.row() >= getNumberTotalRows()) {
+        if (row.colorBand == 1)
+            return QColor(55, 55, 60);
+        return QVariant();
+    }
     return QVariant();
 }
 
@@ -127,6 +133,7 @@ void TaxAmountTable::sort(int column, Qt::SortOrder order)
     for (int i = nTotal - 1; i >= 0; --i)
         m_rows.prepend(totalRows[i]);
 
+    assignColorBands();
     emit layoutChanged();
 }
 
@@ -206,6 +213,7 @@ void TaxAmountTable::buildRows(const QList<QSharedPointer<Shipment>> &shipments)
     m_rows = m_aggregationMap.values();
     applyDefaultSort();
     prependTotalRows();
+    assignColorBands();
 }
 
 void TaxAmountTable::buildRows(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &data)
@@ -230,6 +238,7 @@ void TaxAmountTable::buildRows(const QSharedPointer<QHash<QString, QHash<QString
     m_rows = m_aggregationMap.values();
     applyDefaultSort();
     prependTotalRows();
+    assignColorBands();
 }
 
 void TaxAmountTable::prependTotalRows()
@@ -266,4 +275,20 @@ void TaxAmountTable::prependTotalRows()
     m_rows.prepend(iossTotal);
     m_rows.prepend(ossTotal);
     m_rows.prepend(total);
+}
+
+void TaxAmountTable::assignColorBands()
+{
+    const int nTotal = getNumberTotalRows();
+    int band = 0;
+    TaxScheme lastScheme = TaxScheme::Unknown;
+    bool first = true;
+    for (int i = nTotal; i < m_rows.size(); ++i) {
+        TaxRow &row = m_rows[i];
+        if (!first && row.taxSchemeEnum != lastScheme)
+            band = 1 - band;
+        lastScheme = row.taxSchemeEnum;
+        first = false;
+        row.colorBand = band;
+    }
 }
