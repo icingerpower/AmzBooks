@@ -4,6 +4,8 @@
 #include <QSignalSpy>
 #include "inventory/InventoryInvoicesTree.h"
 #include "inventory/InventoryTable.h"
+#include "inventory/PurchaseCsvLoader.h"
+#include "ExceptionWithTitleText.h"
 
 class TestInventory : public QObject
 {
@@ -20,6 +22,8 @@ private slots:
     void test_get_csv_invoices();
     void test_sorting();
     void test_inventory_valuation();
+    void test_purchase_date_conversion_rate(); // InventoryTable uses per-file date for conversion
+    void test_bad_filename_raises_exception();  // missing YYYY-MM-DD__ throws ExceptionWithTitleText
 
 private:
     QDir m_testDir;
@@ -329,6 +333,115 @@ void TestInventory::test_inventory_valuation()
     // Add extra Verifies to reach 50
     for(int k=0; k<25; ++k) QVERIFY(true);
     for(int k=0; k<25; ++k) QCOMPARE(1, 1);
+}
+
+// ---------------------------------------------------------------------------
+// test — InventoryTable uses the purchase-file date for currency conversion
+// ---------------------------------------------------------------------------
+void TestInventory::test_purchase_date_conversion_rate()
+{
+    // Use isolated directories so no files from earlier tests are scanned.
+    // This prevents the CurrencyRateManager from looking up dates that are
+    // not in the rates CSV written by this test.
+    QDir purchasesDir(m_testDir.filePath(QStringLiteral("purchases_dc")));
+    purchasesDir.mkpath(QStringLiteral("."));
+    QDir ledgerDir(m_testDir.filePath(QStringLiteral("ledger_dc")));
+    ledgerDir.mkpath(QStringLiteral("."));
+
+    // Two different USD→EUR rates at two purchase dates demonstrate that
+    // InventoryTable picks the rate for each file's own date, not a shared date.
+    //
+    // April file: 20.00 USD × 0.50 (April rate) = 10.00 EUR per unit
+    // July  file: 20.00 USD × 0.90 (July  rate) = 18.00 EUR per unit
+    // Ledger: 10 units → FIFO takes 5 from July (newest) then 5 from April.
+
+    createCsvFile(m_testDir.filePath(QStringLiteral("currency-rates.csv")),
+                  QStringLiteral("Date,Source,Dest,Rate\n"
+                                 "2025-04-01,USD,EUR,0.50\n"
+                                 "2025-07-01,USD,EUR,0.90\n"));
+
+    createCsvFile(purchasesDir.filePath(QStringLiteral("2025-04-01__dc-old.csv")),
+                  QStringLiteral("Order ID,Title,SKU,Quantity,Unit Price,Currency,Unit Weight\n"
+                                 "DC1,DC Item,SKU_DC,5,20.00,USD,0\n"), "Latin1");
+    createCsvFile(purchasesDir.filePath(QStringLiteral("2025-07-01__dc-new.csv")),
+                  QStringLiteral("Order ID,Title,SKU,Quantity,Unit Price,Currency,Unit Weight\n"
+                                 "DC2,DC Item,SKU_DC,5,20.00,USD,0\n"), "Latin1");
+
+    // Ledger: 10 units of SKU_DC in FR, December 2025 file.
+    createCsvFile(ledgerDir.filePath(QStringLiteral("ledger_dc_2025_12.csv")),
+                  QStringLiteral("Date,FNSKU,ASIN,MSKU,Title,Disposition,"
+                                 "Starting Warehouse Balance,In Transit Between Warehouses,"
+                                 "Receipts,Customer Shipments,Customer Returns,Vendor Returns,"
+                                 "Warehouse Transfer In/Out,Found,Lost,Damaged,Disposed,"
+                                 "Other Events,Ending Warehouse Balance,Unknown Events,Location\n"
+                                 "2025-12-31,FNDC,ASDC,SKU_DC,DC Item,SELLABLE,"
+                                 "0,0,0,0,0,0,0,0,0,0,0,0,10,0,FR\n"));
+
+    CompanyInfosTable companyInfos(m_testDir);
+    CurrencyRateManager rates(m_testDir, QStringLiteral("fake_key"));
+
+    // No shipping cost (empty pricesPerKilo) so prices equal the converted values.
+    InventoryTable table(m_testDir, purchasesDir, ledgerDir, 2025,
+                         {}, &companyInfos, &rates);
+    table.load();
+
+    double priceApril = -1.0, priceJuly = -1.0;
+    int qtyApril = 0, qtyJuly = 0;
+    for (int i = 0; i < table.rowCount(); ++i) {
+        if (table.data(table.index(i, InventoryTable::COL_SKU)).toString()
+                != QStringLiteral("SKU_DC"))
+            continue;
+        const double p = table.data(table.index(i, InventoryTable::COL_UNIT_PRICE)).toDouble();
+        const int    q = table.data(table.index(i, InventoryTable::COL_UNIT_REMAINING)).toInt();
+        if (std::abs(p - 18.00) < 0.05) { priceJuly  = p; qtyJuly  = q; }
+        else if (std::abs(p - 10.00) < 0.05) { priceApril = p; qtyApril = q; }
+    }
+
+    // [1] July batch: 20.00 USD × 0.90 = 18.00 EUR, 5 units
+    QVERIFY(priceJuly > 0.0);
+    QCOMPARE(qtyJuly, 5);
+
+    // [2] April batch: 20.00 USD × 0.50 = 10.00 EUR, 5 units
+    QVERIFY(priceApril > 0.0);
+    QCOMPARE(qtyApril, 5);
+
+    // [3] The two prices differ — each used its own purchase-date rate
+    QVERIFY(std::abs(priceJuly - priceApril) > 1.0);
+}
+
+// ---------------------------------------------------------------------------
+// test — PurchaseCsvLoader throws ExceptionWithTitleText for a bad filename
+// ---------------------------------------------------------------------------
+void TestInventory::test_bad_filename_raises_exception()
+{
+    // A purchase CSV whose filename does not start with YYYY-MM-DD__ must cause
+    // PurchaseCsvLoader::parseFiles to throw ExceptionWithTitleText.
+    const QString badFile = m_purchasesDir.filePath(QStringLiteral("no_date_prefix.csv"));
+    createCsvFile(badFile,
+                  QStringLiteral("Order ID,Title,SKU,Quantity,Unit Price,Currency,Unit Weight\n"
+                                 "X1,Item X,SKU_BAD,1,5.00,EUR,0\n"), "Latin1");
+
+    bool threw = false;
+    try {
+        PurchaseCsvLoader::parseFiles({badFile}, m_testDir);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY(threw);
+
+    // A filename with the wrong separator (underscore instead of hyphen) also fails.
+    const QString wrongSep = m_purchasesDir.filePath(QStringLiteral("2025_06_01__wrong.csv"));
+    createCsvFile(wrongSep,
+                  QStringLiteral("Order ID,Title,SKU,Quantity,Unit Price,Currency,Unit Weight\n"
+                                 "X2,Item X,SKU_BAD,1,5.00,EUR,0\n"), "Latin1");
+
+    bool threw2 = false;
+    try {
+        PurchaseCsvLoader::parseFiles({wrongSep}, m_testDir);
+    } catch (const ExceptionWithTitleText &) {
+        threw2 = true;
+    }
+    QVERIFY(threw2);
 }
 
 QTEST_MAIN(TestInventory)

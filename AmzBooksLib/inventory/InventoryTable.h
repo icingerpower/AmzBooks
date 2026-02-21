@@ -75,13 +75,14 @@ private:
     
     QList<InventoryItem> m_items;
     
-    // Internal struct for Purchase Logic
+    // Internal struct for Purchase Logic.
+    // price is already in companyCurrency: PurchaseCsvLoader::parseFiles handles
+    // conversion before batches are built, so buildTable uses it directly.
     struct PurchaseBatch {
         QString sku;
         QString title;
         QDate date;
-        double price; // Original Currency
-        QString currency;
+        double price;    // in companyCurrency (or invoice currency when no conversion)
         int quantity;
         double weight;
         QString fileName;

@@ -231,3 +231,8 @@ add_executable(testInventory test_inventory.cpp)
 add_test(NAME testInventory COMMAND testInventory)
 target_link_libraries(testInventory PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 target_include_directories(testInventory PRIVATE ../AmzBooksLib)
+
+add_executable(TestInventoryMove test_inventory_move.cpp)
+add_test(NAME TestInventoryMove COMMAND TestInventoryMove)
+target_link_libraries(TestInventoryMove PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestInventoryMove PRIVATE ../AmzBooksLib)

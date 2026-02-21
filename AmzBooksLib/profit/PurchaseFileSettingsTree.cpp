@@ -65,19 +65,21 @@ int PurchaseFileSettingsTree::getColPos(const QStringList &colNames, const QStri
     if (!fixedRow) return -1;
 
     // "Leftmost Header Wins" priority
-    // Iterate through available columns in the order they appear in the file (or provided list)
+    // Iterate through available columns in the order they appear in the file (or provided list).
+    // All comparisons are case-insensitive so that files using lowercase headers
+    // (e.g. "sku", "currency") are matched correctly.
     for (int i = 0; i < colNames.size(); ++i) {
-        QString colName = colNames[i];
-        
+        const QString &colName = colNames[i];
+
         // 1. Check Fixed Row Name (tr)
-        if (colName == fixedRow->name()) return i;
-        
+        if (colName.compare(fixedRow->name(), Qt::CaseInsensitive) == 0) return i;
+
         // 2. Check Hidden ID
-        if (colName == fixedRow->id()) return i;
-        
-        // 3. Check Candidates
+        if (colName.compare(fixedRow->id(), Qt::CaseInsensitive) == 0) return i;
+
+        // 3. Check Candidates (user-configured aliases + built-in defaults)
         for (int j = 0; j < fixedRow->childCount(); ++j) {
-            if (fixedRow->child(j)->name() == colName) return i;
+            if (fixedRow->child(j)->name().compare(colName, Qt::CaseInsensitive) == 0) return i;
         }
     }
 
@@ -88,18 +90,29 @@ void PurchaseFileSettingsTree::_setupFixedRows()
 {
     QStringList ids = FIXED_ROW_IDS;
     QStringList names = FIXED_ROW_NAMES();
-    
+
     // Ensure lists align
     Q_ASSERT(ids.size() == names.size());
-    
+
     for (int i = 0; i < ids.size(); ++i) {
-        QString id = ids[i];
-        QString name = names[i];
-        
+        const QString &id   = ids[i];
+        const QString &name = names[i];
+
         PurchaseFileSettingsTreeItem *item = new PurchaseFileSettingsTreeItem(name, m_rootItem);
         item->setId(id);
         item->setIsFixed(true);
         m_rootItem->appendChild(item);
+
+        // Built-in aliases for the Amazon purchase file format (lowercase, hyphenated).
+        // These let the column matcher find SKUs without a user-configured settings file.
+        QStringList aliases;
+        if      (id == COL_ORDER_ID)    aliases = {QStringLiteral("order-number"), QStringLiteral("order-id")};
+        else if (id == COL_TITLE)       aliases = {QStringLiteral("product-name"), QStringLiteral("product name")};
+        else if (id == COL_UNIT_PRICE)  aliases = {QStringLiteral("price"), QStringLiteral("unit-price")};
+        else if (id == COL_UNIT_WEIGHT) aliases = {QStringLiteral("unit-weight"), QStringLiteral("unit weight")};
+
+        for (const QString &alias : aliases)
+            item->appendChild(new PurchaseFileSettingsTreeItem(alias, item));
     }
 }
 

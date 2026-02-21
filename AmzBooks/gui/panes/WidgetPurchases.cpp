@@ -1,5 +1,7 @@
 #include "../../common/workingdirectory/WorkingDirectoryManager.h"
 
+#include "inventory/InventoryInvoicesTree.h"
+
 #include "WidgetPurchases.h"
 #include "ui_WidgetPurchases.h"
 #include "gui/dialogs/DialogEditCsvPurchases.h"
@@ -16,6 +18,7 @@
 #include <QVBoxLayout>
 #include <QDialogButtonBox>
 
+
 struct ErrorEntry {
     QString file;
     QString error;
@@ -24,6 +27,7 @@ struct ErrorEntry {
 WidgetPurchases::WidgetPurchases(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::WidgetPurchases),
+    m_invoicesTree(nullptr),
     m_fileModel(new QFileSystemModel(this))
 {
     ui->setupUi(this);
@@ -50,6 +54,11 @@ WidgetPurchases::WidgetPurchases(QWidget *parent) :
         ui->treeViewCsvFiles->setModel(nullptr); 
     }
 
+    QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
+    m_invoicesTree = new InventoryInvoicesTree(workingDir, this);
+    ui->treeViewExtraPurchases->setModel(m_invoicesTree);
+    ui->treeViewExtraPurchases->setHeaderHidden(true); // Maybe?
+
     // Load Settings
     auto settingsPtr = WorkingDirectoryManager::instance()->settings();
     ui->spinBoxShippingDefault->setValue(settingsPtr->value("purchases/shipping_default", 0.0).toDouble());
@@ -68,6 +77,15 @@ WidgetPurchases::~WidgetPurchases()
 
 void WidgetPurchases::_connectSlots()
 {
+    connect(ui->buttonAddPurchase,
+            &QPushButton::clicked,
+            this,
+            &WidgetPurchases::addExtraPurchase);
+    connect(ui->buttonRemovePurchase,
+            &QPushButton::clicked,
+            this,
+            &WidgetPurchases::removeExtraPurchase);
+
     connect(ui->buttonSelectFolder, &QPushButton::clicked, this, &WidgetPurchases::selectFolder);
     connect(ui->buttonEditCsv, &QPushButton::clicked, this, &WidgetPurchases::editColumns);
     connect(ui->pushButton, &QPushButton::clicked, this, &WidgetPurchases::checkFiles);
@@ -88,6 +106,43 @@ void WidgetPurchases::_saveSettings()
     settings->setValue("purchases/shipping_ca", ui->spinBoxShippingCA->value());
     settings->setValue("purchases/shipping_uk", ui->spinBoxShippingUK->value());
     settings->setValue("purchases/shipping_jp", ui->spinBoxShippingJP->value());
+}
+
+void WidgetPurchases::addExtraPurchase()
+{
+    QSettings settings;
+    QString lastDir = settings.value("inventory/lastExtraPurchaseDir", QDir::homePath()).toString();
+
+    QString filePath = QFileDialog::getOpenFileName(this,
+                                                    tr("Select Invoice"),
+                                                    lastDir,
+                                                    tr("CSV Files (*.csv *.CSV)"));
+
+    if (filePath.isEmpty()) {
+        return;
+    }
+
+    settings.setValue("inventory/lastExtraPurchaseDir", QFileInfo(filePath).absolutePath());
+
+    m_invoicesTree->addFile(filePath);
+}
+
+void WidgetPurchases::removeExtraPurchase()
+{
+    QModelIndex index = ui->treeViewExtraPurchases->currentIndex();
+    if (!index.isValid()) {
+         QMessageBox::warning(this, tr("No Selection"), tr("Please select a file to remove."));
+         return;
+    }
+
+
+    // Verify it is a file
+    if (m_invoicesTree->data(index, Qt::UserRole).toString().isEmpty()) {
+        QMessageBox::warning(this, tr("Remove"), tr("Please select a valid file item."));
+        return;
+    }
+
+    m_invoicesTree->removeFile(index);
 }
 
 void WidgetPurchases::selectFolder()

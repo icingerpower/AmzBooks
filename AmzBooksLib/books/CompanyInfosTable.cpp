@@ -31,6 +31,11 @@ CompanyInfosTable::CompanyInfosTable(
     }
 }
 
+QColor CompanyInfosTable::getHighlightColorDark()
+{
+    return QColor(180, 80, 0); // dark orange
+}
+
 const QString &CompanyInfosTable::getCompanyCountryCode() const
 {
     for (const auto &item : m_data) {

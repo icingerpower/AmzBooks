@@ -1,11 +1,10 @@
 #include "InventoryTable.h"
 #include "InventoryInvoicesTree.h"
+#include "PurchaseCsvLoader.h"
 #include "books/CompanyInfosTable.h"
 #include "CurrencyRateManager.h"
-#include "utils/CsvReader.h"
-#include "ExceptionWithTitleText.h"
 #include "profit/PurchaseFileSettingsTree.h"
-#include "profit/PurchaseFileSettingsTreeItem.h"
+#include "utils/CsvReader.h"
 #include <QDirIterator>
 #include <QFileInfo>
 #include <QDebug>
@@ -185,116 +184,47 @@ void InventoryTable::loadInventoryFromLedger(QHash<QString, SkuStockInfo> &skuSt
 
 void InventoryTable::loadPurchases(QHash<QString, QList<PurchaseBatch>> &skuPurchases)
 {
+    // Collect purchase CSVs from purchasesDir.
     QStringList filters;
     filters << "*.csv" << "*.CSV";
-    QDirIterator it(m_purchasesDir.absolutePath(), filters, QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
-    
+    QDirIterator it(m_purchasesDir.absolutePath(), filters,
+                    QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
     QStringList allFiles;
-    while (it.hasNext()) {
+    while (it.hasNext())
         allFiles << it.next();
-    }
 
-    // Add Manual Invoices to the list of Purchase Files
-    // "Inventory is what's in amazon ... + CSV invoices added in InventoryInvoicesTree"
-    // They count as valid purchases for FIFO matching.
-    QStringList manualFiles = m_invoicesTree->getCsvInvoices(m_year);
-    for (const QString &f : manualFiles) {
-        allFiles << f;
-    }
-    
-    // Sort files by name (Reverse Order = Newest First)
-    // User says: "The purchase date... is in the begining, for instance '2025-10-12__'"
-    // "ExceptionFileError is raised if the begin is not like this."
-    // We should validate filenames here.
-    
-    // Note: sorting by full path might differ if directories differ.
-    // We should sort by FILENAME.
+    // Add invoice files for the current year BEFORE sorting so they are ordered
+    // alongside the regular purchase CSVs for correct FIFO date sequencing.
+    const QStringList manualFiles = m_invoicesTree->getCsvInvoices(m_year);
+    allFiles << manualFiles;
+
+    // Sort newest-first by bare filename (YYYY-MM-DD__ prefix).
     std::sort(allFiles.begin(), allFiles.end(), [](const QString &a, const QString &b) {
         return QFileInfo(a).fileName() > QFileInfo(b).fileName();
     });
-    
-    PurchaseFileSettingsTree settingsTree(m_workingDir);
-    
-    for (const QString &filePath : allFiles) {
-        QFileInfo fi(filePath);
-        QString fileName = fi.fileName();
-        
-        // Validate Date Format in Filename: YYYY-MM-DD__
-        // Regex or simple check
-        // "2025-10-12__" -> 10 chars date + 2 chars underscore.
-        bool validName = false;
-        if (fileName.length() >= 12) {
-            if (fileName.at(4) == '-' && fileName.at(7) == '-' && fileName.mid(10, 2) == "__") {
-                validName = true;
-            }
-        }
-        
-        if (!validName) {
-            ExceptionWithTitleText exception(tr("Invalid Filename"), 
-                                     tr("File name must start with YYYY-MM-DD__: %1").arg(fileName));
-            exception.raise();
-        }
-        
-        QDate batchDate = QDate::fromString(fileName.left(10), "yyyy-MM-dd");
-        
-        auto seps = CsvReader::guessColStringSeps(filePath);
-        CsvReader reader(filePath, seps.first, seps.second, true, "\n", 0, "Latin1");
-        
-        if (!reader.readAll()) continue;
-        
-        const DataFromCsv *rode = reader.dataRode();
-        QStringList headers = rode->header.getHeaderElements();
-        for(QString &h : headers) h = h.trimmed();
-        
-        int colSku = settingsTree.getColPos(headers, PurchaseFileSettingsTree::COL_SKU);
-        int colTitle = settingsTree.getColPos(headers, PurchaseFileSettingsTree::COL_TITLE);
-        int colQty = settingsTree.getColPos(headers, PurchaseFileSettingsTree::COL_QUANTITY); // Need quantity for batches
-        int colPrice = settingsTree.getColPos(headers, PurchaseFileSettingsTree::COL_UNIT_PRICE);
-        int colCurrency = settingsTree.getColPos(headers, PurchaseFileSettingsTree::COL_CURRENCY);
-        int colWeight = settingsTree.getColPos(headers, PurchaseFileSettingsTree::COL_UNIT_WEIGHT); // For shipping calc
-        
-        if (colSku == -1) continue;
-        
-        for (const auto &line : rode->lines) {
-            QString sku = line.value(colSku).trimmed();
-            if (sku.isEmpty()) continue;
-            
-            PurchaseBatch batch;
-            batch.sku = sku;
-            batch.date = batchDate;
-            batch.fileName = fileName;
-            
-            if (colTitle != -1) batch.title = line.value(colTitle).trimmed();
-            
-            batch.quantity = 0;
-            if (colQty != -1) {
-                batch.quantity = (int)line.value(colQty).replace(",", ".").toDouble();
-            } else {
-                 // If no quantity column, assume 1? Or 0?
-                 // If 0, it won't be picked up by FIFO logic.
-                 // Assuming 1 is risky if it's a bulk file without qty.
-                 // But most purchase invoices have quantity.
-                 // Let's assume 1 for now if missing? 
-                 // User: "Unité début". If 0, it's useless.
-                 batch.quantity = 1;
-            }
-            
-            batch.price = 0.0;
-            if (colPrice != -1) {
-                batch.price = line.value(colPrice).replace(",", ".").toDouble();
-            }
-            
-            if (colCurrency != -1) {
-                batch.currency = line.value(colCurrency).trimmed();
-            }
-            
-            batch.weight = 0.0;
-            if (colWeight != -1) {
-                batch.weight = line.value(colWeight).replace(",", ".").toDouble() / 1000.0; // Assume grams -> kg? ProfitTree does /1000.0
-            }
-            
-            skuPurchases[sku].append(batch);
-        }
+
+    // Parse all files via the shared loader (with currency conversion).
+    // whose name does not start with a valid YYYY-MM-DD__ prefix.
+    const QString companyCurrency = (m_companyInfos && m_currencRateManager)
+            ? m_companyInfos->getCurrency() : QString();
+    const QList<PurchaseCsvLoader::Record> records =
+            PurchaseCsvLoader::parseFiles(allFiles, m_workingDir,
+                                          companyCurrency, m_currencRateManager);
+
+    // Build per-SKU FIFO batch lists.  Files were sorted newest-first so
+    // records are in newest-first order; buildTable walks them in that order.
+    for (const PurchaseCsvLoader::Record &rec : records) {
+        if (rec.quantity <= 0)
+            continue;
+        PurchaseBatch batch;
+        batch.sku      = rec.sku;
+        batch.title    = rec.title;
+        batch.date     = rec.date;
+        batch.price    = rec.unitPrice;  // already converted to companyCurrency
+        batch.quantity = rec.quantity;
+        batch.weight   = rec.weightKg;
+        batch.fileName = rec.fileName;
+        skuPurchases[rec.sku].append(batch);
     }
 }
 
@@ -369,19 +299,9 @@ void InventoryTable::buildTable(const QHash<QString, SkuStockInfo> &skuStock,
             item.unitStart = batch.quantity;
             item.unitRemaining = taken; // This batch contributes 'taken' units to current inventory
             
-            // Calculate Unit Price
-            double priceInCid = batch.price; // Cost in Invoice Currency
-            double convertedPrice = priceInCid;
-            
-            if (m_currencRateManager && m_companyInfos) {
-                QString targetCurrency = m_companyInfos->getCurrency();
-                if (!targetCurrency.isEmpty() && !batch.currency.isEmpty() && targetCurrency != batch.currency) {
-                    convertedPrice = m_currencRateManager->convert(priceInCid, batch.currency, targetCurrency, batch.date);
-                }
-            }
-            
+            // batch.price is already in companyCurrency (converted by PurchaseCsvLoader).
             double shippingCost = batch.weight * avgPricePerKilo;
-            item.unitPrice = convertedPrice + shippingCost;
+            item.unitPrice = batch.price + shippingCost;
             item.totalPrice = item.unitRemaining * item.unitPrice;
             item.invoiceName = batch.fileName; // "Facture is the base name of the purchase file"
             

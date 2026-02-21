@@ -175,9 +175,10 @@ void TestProfit::testAddDuplicate()
     tree.addCandidate(orderIdIdx, "Label 2");
     tree.addCandidate(orderIdIdx, "Label 3");
     
-    // Verify count
-    QCOMPARE(tree.rowCount(orderIdIdx), 3);
-    
+    // "Order ID" has 2 built-in aliases ("order-number", "order-id") set up by
+    // _setupFixedRows(), so 2 + 3 user-added labels = 5.
+    QCOMPARE(tree.rowCount(orderIdIdx), 5);
+
     // Add "Label 3" again -> should throw
     bool exceptionThrown = false;
     try {
@@ -185,9 +186,9 @@ void TestProfit::testAddDuplicate()
     } catch (const ExceptionWithTitleText&) {
         exceptionThrown = true;
     }
-    
+
     QVERIFY(exceptionThrown);
-    QCOMPARE(tree.rowCount(orderIdIdx), 3); // Count shouldn't change
+    QCOMPARE(tree.rowCount(orderIdIdx), 5); // Count shouldn't change
 }
 
 void TestProfit::testSaveLoad()

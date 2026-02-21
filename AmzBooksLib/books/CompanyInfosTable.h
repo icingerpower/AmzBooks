@@ -2,6 +2,7 @@
 #define COMPANYINFOSTABLE_H
 
 #include <QAbstractTableModel>
+#include <QColor>
 #include <QString>
 #include <QList>
 #include <QDir>
@@ -21,6 +22,7 @@ public:
     static const QString ID_LEGAL_VAT_INTRACOMMUNITY;
     explicit CompanyInfosTable(const QDir &workingDir, QObject *parent = nullptr);
     const QString &getCompanyCountryCode() const;
+    static QColor getHighlightColorDark();
     const QString &getCurrency() const;
     const QString &getApiKeyFixer() const;
     bool hadData() const;

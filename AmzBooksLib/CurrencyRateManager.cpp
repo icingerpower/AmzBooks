@@ -76,7 +76,7 @@ double CurrencyRateManager::rate(const QString &source, const QString &dest, con
     return m_rateCache.value(key, 1.0);
 }
 
-double CurrencyRateManager::convert(double amount, const QString &source, const QString &dest, const QDate &date)
+double CurrencyRateManager::convert(double amount, const QString &source, const QString &dest, const QDate &date) const
 {
     if (source != dest) {
         Q_ASSERT(source.length() == 3 && dest.length() == 3 && source.toUpper() != dest.toUpper());

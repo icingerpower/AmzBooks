@@ -27,8 +27,16 @@ public:
         COL_COUNT
     };
 
-    explicit TaxAmountTable(const QList<QSharedPointer<Shipment>> &shipments, const CurrencyRateManager *currencyRateManager, const QString &destCurrency, const QString &companyCountryCode, QObject *parent = nullptr);
-    explicit TaxAmountTable(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &data, const CurrencyRateManager *currencyRateManager, const QString &destCurrency, const QString &companyCountryCode, QObject *parent = nullptr);
+    explicit TaxAmountTable(const QList<QSharedPointer<Shipment>> &shipments
+                            , const CurrencyRateManager *currencyRateManager
+                            , const QString &destCurrency
+                            , const QString &companyCountryCode
+                            , QObject *parent = nullptr);
+    explicit TaxAmountTable(const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>> &data
+                            , const CurrencyRateManager *currencyRateManager
+                            , const QString &destCurrency
+                            , const QString &companyCountryCode
+                            , QObject *parent = nullptr);
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;

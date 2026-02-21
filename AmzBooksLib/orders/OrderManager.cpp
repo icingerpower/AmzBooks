@@ -719,8 +719,9 @@ void OrderManager::recordAddressesTo(const QHash<QString, Address> &orderId_addr
 void OrderManager::recordInventoryMove(
         const QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> &year_month_countryFrom_countryTo_id_SkuMovedUnits)
 {
-    if (year_month_countryFrom_countryTo_id_SkuMovedUnits.isEmpty())
+    if (year_month_countryFrom_countryTo_id_SkuMovedUnits.isEmpty()) {
         return;
+    }
 
     // Flatten nested hash into rows; validate transactionIds eagerly before touching the DB
     struct Row { int year, month; QString from, to, txnId, sku; int units; };

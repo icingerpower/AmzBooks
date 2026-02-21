@@ -218,6 +218,20 @@ void PaneOrderFiles::importFile()
                    aggregatedResult.orderInfos->orderId_refundClue.insert(result.orderInfos->orderId_refundClue);
                    aggregatedResult.orderInfos->orderId_store.insert(result.orderInfos->orderId_store);
 
+                   // Merge inventory moves (txnIds are unique so inner insert is safe)
+                   for (auto it1 = result.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits.constBegin();
+                        it1 != result.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits.constEnd(); ++it1) {
+                       for (auto it2 = it1.value().constBegin(); it2 != it1.value().constEnd(); ++it2) {
+                           for (auto it3 = it2.value().constBegin(); it3 != it2.value().constEnd(); ++it3) {
+                               for (auto it4 = it3.value().constBegin(); it4 != it3.value().constEnd(); ++it4) {
+                                   aggregatedResult.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits
+                                           [it1.key()][it2.key()][it3.key()][it4.key()]
+                                           .insert(it4.value());
+                               }
+                           }
+                       }
+                   }
+
                    // Update dates
                    if (aggregatedResult.orderInfos->dateMin.isNull() || (result.orderInfos->dateMin.isValid() && result.orderInfos->dateMin < aggregatedResult.orderInfos->dateMin)) {
                        aggregatedResult.orderInfos->dateMin = result.orderInfos->dateMin;
@@ -277,7 +291,7 @@ void PaneOrderFiles::importFile()
                     }
                 }
 
-                DialogViewOrders dialog(*aggregatedResult.orderInfos, &currencyRateManager, companyInfo.getCurrency(), self);
+                DialogViewOrders dialog(*aggregatedResult.orderInfos, &currencyRateManager, companyInfo.getCurrency(), workingDir, companyInfo.getCompanyCountryCode(), self);
                 if (dialog.exec() != QDialog::Accepted) {
                     self->ui->buttonImport->setEnabled(true);
                     co_return;
@@ -321,6 +335,12 @@ void PaneOrderFiles::importFile()
                 // Process InvoicingInfos
                 for (const auto &inv : aggregatedResult.orderInfos->invoicingInfos) {
                     manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
+                }
+
+                // Process Inventory Moves
+                if (!aggregatedResult.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits.isEmpty()) {
+                    manager.recordInventoryMove(
+                            aggregatedResult.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits);
                 }
 
                 // Process Refund Clues

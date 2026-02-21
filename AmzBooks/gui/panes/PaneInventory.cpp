@@ -1,7 +1,6 @@
 #include "PaneInventory.h"
 #include "ui_PaneInventory.h"
 
-#include "inventory/InventoryInvoicesTree.h"
 #include "inventory/InventoryTable.h"
 #include "books/CompanyInfosTable.h"
 #include "CurrencyRateManager.h"
@@ -19,7 +18,6 @@ const QString PaneInventory::SETTINGS_KEY_AMZ_LEDGER_FOLDER = "inventory/amzLedg
 PaneInventory::PaneInventory(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::PaneInventory),
-    m_invoicesTree(nullptr),
     m_inventoryTable(nullptr),
     m_companyInfos(nullptr),
     m_currRateManager(nullptr)
@@ -38,17 +36,12 @@ PaneInventory::PaneInventory(QWidget *parent) :
     }
     ui->lineEditAmzLedgerFolder->setText(ledgerDir);
     
-    m_invoicesTree = new InventoryInvoicesTree(workingDir, this);
-    ui->treeViewExtraPurchases->setModel(m_invoicesTree);
-    ui->treeViewExtraPurchases->setHeaderHidden(true); // Maybe?
-    
     _connectSlots();
 }
 
 PaneInventory::~PaneInventory()
 {
     delete ui;
-    // m_invoicesTree is child of this, deleted auto
     // m_companyInfos is child of this
     // m_currRateManager is child of this
     // m_inventoryTable needs check if it is child of tableView or this.
@@ -56,41 +49,6 @@ PaneInventory::~PaneInventory()
     if (m_inventoryTable) {
         delete m_inventoryTable;
     }
-}
-
-void PaneInventory::addExtraPurchase()
-{
-    QSettings settings;
-    QString lastDir = settings.value("inventory/lastExtraPurchaseDir", QDir::homePath()).toString();
-    
-    QString filePath = QFileDialog::getOpenFileName(this, 
-                                                    tr("Select Invoice"), 
-                                                    lastDir, 
-                                                    tr("CSV Files (*.csv *.CSV)"));
-    
-    if (filePath.isEmpty()) return;
-    
-    settings.setValue("inventory/lastExtraPurchaseDir", QFileInfo(filePath).absolutePath());
-    
-    m_invoicesTree->addFile(filePath);
-}
-
-void PaneInventory::removeExtraPurchase()
-{
-    QModelIndex index = ui->treeViewExtraPurchases->currentIndex();
-    if (!index.isValid()) {
-         QMessageBox::warning(this, tr("No Selection"), tr("Please select a file to remove."));
-         return;
-    }
-    
-
-    // Verify it is a file
-    if (m_invoicesTree->data(index, Qt::UserRole).toString().isEmpty()) {
-        QMessageBox::warning(this, tr("Remove"), tr("Please select a valid file item."));
-        return;
-    }
-    
-    m_invoicesTree->removeFile(index);
 }
 
 void PaneInventory::computeInventory()
@@ -206,14 +164,6 @@ void PaneInventory::browseAmzLedgerFolderPath()
 
 void PaneInventory::_connectSlots()
 {
-    connect(ui->buttonAddPurchase,
-            &QPushButton::clicked,
-            this,
-            &PaneInventory::addExtraPurchase);
-    connect(ui->buttonRemovePurchase,
-            &QPushButton::clicked,
-            this,
-            &PaneInventory::removeExtraPurchase);
     connect(ui->buttonCompute,
             &QPushButton::clicked,
             this,

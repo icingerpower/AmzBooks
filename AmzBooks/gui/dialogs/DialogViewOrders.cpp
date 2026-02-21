@@ -6,11 +6,15 @@
 #include "orders/OrderInvoicingTable.h"
 #include "orders/Shipment.h"
 #include "orders/Refund.h"
+#include "inventory/InventoryMoveTree.h"
+#include "CountriesEu.h"
 #include <QStandardItemModel>
 
 DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfos
                                    , const CurrencyRateManager *currencyRateManager
                                    , const QString &destCurrency
+                                   , const QDir &workingDir
+                                   , const QString &companyCountryCode
                                    , QWidget *parent) :
     QDialog(parent),
     ui(new Ui::DialogViewOrders)
@@ -79,6 +83,48 @@ DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfo
     ui->tableViewStoreInfos->setModel(m_storeInfoModel);
     ui->tableViewStoreInfos->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     
+    // Setup Inventory Move Tree
+    {
+        QHash<QString, QHash<QString, int>> countryCode_sku_unitImported;
+        QHash<QString, QHash<QString, int>> countryCode_sku_unitExported;
+
+        const auto &moves = orderInfos.year_month_countryFrom_countryTo_id_SkuMovedUnits;
+        for (auto it1 = moves.constBegin(); it1 != moves.constEnd(); ++it1) {
+            for (auto it2 = it1.value().constBegin(); it2 != it1.value().constEnd(); ++it2) {
+                for (auto it3 = it2.value().constBegin(); it3 != it2.value().constEnd(); ++it3) {
+                    const QString &from = it3.key();
+                    for (auto it4 = it3.value().constBegin(); it4 != it3.value().constEnd(); ++it4) {
+                        const QString &to = it4.key();
+                        for (auto it5 = it4.value().constBegin(); it5 != it4.value().constEnd(); ++it5) {
+                            countryCode_sku_unitImported[to][it5.value().sku]   += it5.value().units;
+                            countryCode_sku_unitExported[from][it5.value().sku] += it5.value().units;
+                        }
+                    }
+                }
+            }
+        }
+
+        QHash<QString, double> pricePerKilo;
+        for (const QString &cc : CountriesEu::getAmazonPanEuCountryCodes())
+            pricePerKilo[cc] = ui->widgetPurchases->getShippingPrice(cc);
+        pricePerKilo[QString()] = ui->widgetPurchases->getShippingPrice(QString());
+
+        m_inventoryMoveTree = new InventoryMoveTree(
+                ui->widgetPurchases->getPurchaseDir(),
+                countryCode_sku_unitImported,
+                countryCode_sku_unitExported,
+                pricePerKilo,
+                destCurrency,
+                currencyRateManager,
+                workingDir,
+                companyCountryCode,
+                this);
+        ui->treeViewInventoryMove->setModel(m_inventoryMoveTree);
+        ui->treeViewInventoryMove->setSortingEnabled(true);
+        for (int col = 0; col < m_inventoryMoveTree->columnCount(); ++col)
+            ui->treeViewInventoryMove->resizeColumnToContents(col);
+    }
+
     // Connect buttons
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);

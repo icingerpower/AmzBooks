@@ -1,7 +1,12 @@
 #ifndef PANEORDERS_H
 #define PANEORDERS_H
 
+#include <QDate>
 #include <QWidget>
+
+class CompanyInfosTable;
+class CurrencyRateManager;
+class InventoryMoveTree;
 
 namespace Ui {
 class PaneOrders;
@@ -26,6 +31,11 @@ public slots:
 private:
     Ui::PaneOrders *ui;
     void _connectSlots();
+    void _loadInventoryMoveTree(const QDate &dateStart, const QDate &dateEnd);
+
+    CompanyInfosTable  *m_companyInfos;
+    CurrencyRateManager *m_currRateManager;
+    InventoryMoveTree  *m_inventoryMoveTree;
 };
 
 #endif // PANEORDERS_H

@@ -3,6 +3,12 @@ set(INVENTORY_FILES
     inventory/InventoryInvoicesTree.cpp
     inventory/InventoryInvoicesTreeItem.h
     inventory/InventoryInvoicesTreeItem.cpp
+    inventory/InventoryMoveTree.h
+    inventory/InventoryMoveTree.cpp
+    inventory/InventoryMoveTreeItem.h
+    inventory/InventoryMoveTreeItem.cpp
     inventory/InventoryTable.h
     inventory/InventoryTable.cpp
+    inventory/PurchaseCsvLoader.h
+    inventory/PurchaseCsvLoader.cpp
 )

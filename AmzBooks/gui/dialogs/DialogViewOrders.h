@@ -2,6 +2,7 @@
 #define DIALOGVIEWORDERS_H
 
 #include <QDialog>
+#include <QDir>
 #include <QSharedPointer>
 #include "orders/AbstractImporter.h"
 
@@ -10,6 +11,7 @@ class TaxAmountTable;
 class OrderAddressTable;
 class OrderInvoicingTable;
 class CurrencyRateManager;
+class InventoryMoveTree;
 
 namespace Ui {
 class DialogViewOrders;
@@ -20,7 +22,7 @@ class DialogViewOrders : public QDialog
     Q_OBJECT
 
 public:
-    explicit DialogViewOrders(const AbstractImporter::OrderInfos &orderInfos, const CurrencyRateManager *currencyRateManager, const QString &destCurrency, QWidget *parent = nullptr);
+    explicit DialogViewOrders(const AbstractImporter::OrderInfos &orderInfos, const CurrencyRateManager *currencyRateManager, const QString &destCurrency, const QDir &workingDir = QDir(), const QString &companyCountryCode = QString(), QWidget *parent = nullptr);
     ~DialogViewOrders();
 
 private:
@@ -31,6 +33,7 @@ private:
     OrderInvoicingTable *m_invoicingTable;
     class QStandardItemModel *m_refundClueModel;
     class QStandardItemModel *m_storeInfoModel;
+    InventoryMoveTree *m_inventoryMoveTree;
 };
 
 #endif // DIALOGVIEWORDERS_H
