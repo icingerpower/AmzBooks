@@ -6,8 +6,8 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>420</width>
-    <height>415</height>
+    <width>480</width>
+    <height>460</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -83,58 +83,67 @@
      <item row="5" column="1">
       <widget class="QComboBox" name="comboCurrency"/>
      </item>
-     <item row="6" column="0">
-      <widget class="QLabel" name="labelVatAmount">
-       <property name="text">
-        <string>VAT Amount:</string>
+     <item row="6" column="0" colspan="2">
+      <widget class="QGroupBox" name="vatGroupBox">
+       <property name="title">
+        <string>VAT</string>
        </property>
+       <layout class="QVBoxLayout" name="vatGroupLayout">
+        <property name="spacing">
+         <number>4</number>
+        </property>
+        <item>
+         <widget class="QWidget" name="vatEntriesWidget" native="true"/>
+        </item>
+        <item>
+         <layout class="QHBoxLayout" name="addVatLayout">
+          <item>
+           <spacer name="addVatSpacer">
+            <property name="orientation">
+             <enum>Qt::Horizontal</enum>
+            </property>
+            <property name="sizeHint" stdset="0">
+             <size>
+              <width>40</width>
+              <height>20</height>
+             </size>
+            </property>
+           </spacer>
+          </item>
+          <item>
+           <widget class="QPushButton" name="btnAddVat">
+            <property name="text">
+             <string>Add VAT</string>
+            </property>
+           </widget>
+          </item>
+         </layout>
+        </item>
+       </layout>
       </widget>
-     </item>
-     <item row="6" column="1">
-      <widget class="QLineEdit" name="editVatAmount"/>
      </item>
      <item row="7" column="0">
-      <widget class="QLabel" name="labelVatCurrency">
-       <property name="text">
-        <string>VAT Currency:</string>
-       </property>
-      </widget>
-     </item>
-     <item row="7" column="1">
-      <widget class="QComboBox" name="comboVatCurrency"/>
-     </item>
-     <item row="8" column="0">
-      <widget class="QLabel" name="labelVatCountry">
-       <property name="text">
-        <string>VAT Country:</string>
-       </property>
-      </widget>
-     </item>
-     <item row="8" column="1">
-      <widget class="QComboBox" name="comboVatCountry"/>
-     </item>
-     <item row="9" column="0">
       <widget class="QLabel" name="labelInventory">
        <property name="text">
         <string>Inventory:</string>
        </property>
       </widget>
      </item>
-     <item row="9" column="1">
+     <item row="7" column="1">
       <widget class="QCheckBox" name="checkInventory">
        <property name="text">
         <string/>
        </property>
       </widget>
      </item>
-     <item row="10" column="0">
+     <item row="8" column="0">
       <widget class="QLabel" name="labelDdp">
        <property name="text">
         <string>DDP:</string>
        </property>
       </widget>
      </item>
-     <item row="10" column="1">
+     <item row="8" column="1">
       <widget class="QCheckBox" name="checkDdp">
        <property name="text">
         <string/>

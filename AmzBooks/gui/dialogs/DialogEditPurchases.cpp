@@ -54,6 +54,8 @@ void DialogEditPurchases::_populateTable()
     ui->tableWidget->setRowCount(m_filePaths.size());
     m_rows.clear();
 
+    QStringList multiVatFiles;
+
     for (int i = 0; i < m_filePaths.size(); ++i) {
         const QString &filePath = m_filePaths[i];
         const QString fileName = QFileInfo(filePath).fileName();
@@ -72,6 +74,9 @@ void DialogEditPurchases::_populateTable()
             info.filePath = filePath;
             info.originalExtension = QFileInfo(filePath).suffix();
         }
+
+        if (info.vatTokens.size() > 1)
+            multiVatFiles.append(fileName);
 
         // File column (read-only)
         auto *itemFile = new QTableWidgetItem(fileName);
@@ -147,6 +152,18 @@ void DialogEditPurchases::_populateTable()
     // Give the status column some minimum width
     ui->tableWidget->setColumnWidth(COL_STATUS,
         qMax(ui->tableWidget->columnWidth(COL_STATUS), 140));
+
+    if (!multiVatFiles.isEmpty()) {
+        QMessageBox::warning(
+            this,
+            tr("Multiple VAT Rates"),
+            tr("The following file(s) contain multiple VAT rates. "
+               "This dialog can only display and edit a single VAT rate per file. "
+               "The VAT Amount column will show the summed total, and saving will "
+               "collapse the rates into one token. Use the single-file edit dialog "
+               "to manage multiple VAT rates:\n\n%1")
+                .arg(multiVatFiles.join(QStringLiteral("\n"))));
+    }
 }
 
 QComboBox *DialogEditPurchases::_makeCurrencyCombo(const QString &invoiceCurrency) const

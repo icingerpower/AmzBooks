@@ -334,9 +334,9 @@ void PaneBookKeeping::associate()
         // Perform associations using BooksConnections
         try {
             m_booksConnections->tryToConnect(bankTable, bankSelection, selfTable, selfIndex);
-            QMessageBox::information(this, tr("Association Successful"), 
-                tr("Successfully associated %1 bank row(s) with the selected self-entry.")
-                .arg(bankSelection.size()));
+            //QMessageBox::information(this, tr("Association Successful"),
+                //tr("Successfully associated %1 bank row(s) with the selected self-entry.")
+                //.arg(bankSelection.size()));
         } catch (const std::exception &e) {
             QMessageBox::warning(this, tr("Association Failed"), 
                 tr("Failed to associate entries: %1").arg(e.what()));
@@ -540,9 +540,8 @@ void PaneBookKeeping::dissociate()
             }
         }
     }
-    
-    QMessageBox::information(this, tr("Dissociation Successful"), 
-                             tr("Successfully dissociated %1 row(s).").arg(disconnectedCount));
+    //QMessageBox::information(this, tr("Dissociation Successful"),
+                             //tr("Successfully dissociated %1 row(s).").arg(disconnectedCount));
 }
 
 void PaneBookKeeping::selfEntryAdd()

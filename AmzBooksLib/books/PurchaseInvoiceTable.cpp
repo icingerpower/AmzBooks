@@ -47,7 +47,7 @@ void PurchaseInvoiceTable::load(int year)
             info.currency,
             info.label,
             info.account,
-            QString(), // Account 2
+            info.accountSupplier,
             vatOrig,
             vatCountry,
             vatCurrency);
