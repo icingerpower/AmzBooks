@@ -45,5 +45,11 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogPickShipment.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogPickShipment.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogPickShipment.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditPurchase.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditPurchase.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditPurchase.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditPurchases.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditPurchases.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditPurchases.ui
     ${PANES_FILES}
 )

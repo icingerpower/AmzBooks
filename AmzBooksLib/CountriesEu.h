@@ -57,6 +57,9 @@ public:
     // Returns list of currencies for GB and EU countries
     static QStringList getCurrencies();
 
+    // Returns a broader list of world currencies (western + major trading partners)
+    static QStringList getCurrenciesWorld();
+
     static const QStringList DEFAULT_AMAZON_SITES;
 
     // Converts a country name (in English or French) or an existing 2-letter ISO code

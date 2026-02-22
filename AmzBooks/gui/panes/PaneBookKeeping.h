@@ -12,6 +12,7 @@ class PaneBookKeeping;
 class AbstractBooksTableBank;
 class AbstractBooksTable;
 class EntrySelfTable;
+class PurchaseInvoiceTable;
 #include <QCoroTask>
 
 class PaneBookKeeping : public QWidget
@@ -29,7 +30,8 @@ private:
     void _initYears();
     void _connectSlots();
     void _setSubButtonsEnabled(bool enable);
-    const EntrySelfTable *getSeflEntryTable() const;
+    EntrySelfTable *getSeflEntryTable() const;
+    PurchaseInvoiceTable *getPurchaseInvoiceTable() const;
     QList<const AbstractBooksTable *> getAllBookTables() const;
     QList<const AbstractBooksTableBank *> getAllBankTables() const;
     QList<const AbstractBooksTable *> getAllNonBankTables() const;

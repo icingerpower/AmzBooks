@@ -32,6 +32,8 @@
 #include "ExceptionWithTitleText.h"
 #include "../dialogs/DialogAddSelfEntry.h"
 #include "../dialogs/DialogPurchaseInvoices.h"
+#include "../dialogs/DialogEditPurchase.h"
+#include "../dialogs/DialogEditPurchases.h"
 #include "gui/dialogs/DialogEditServiceClients.h"
 #include "gui/dialogs/DialogAddSaleService.h"
 #include "books/ServiceSalesBooksTable.h"
@@ -69,6 +71,10 @@ void PaneBookKeeping::loadYearSelected()
 {
     setCursor(Qt::WaitCursor);
     _setSubButtonsEnabled(true);
+    bool yearOk = false;
+    int year = ui->comboBoxYear->currentText().toInt(&yearOk);
+    Q_ASSERT(yearOk);
+    getPurchaseInvoiceTable()->load(year);
     // TODO AbstractBooksTable::load for all getAllBankTables and getAllNonBankTables
     setCursor(Qt::ArrowCursor);
 }
@@ -301,7 +307,7 @@ void PaneBookKeeping::associate()
     // If self-selection is NOT empty, use the specialized self-entry association
     if (!selfSelection.isEmpty()) {
         // Get the self-entry table
-        EntrySelfTable *selfTable = const_cast<EntrySelfTable*>(getSeflEntryTable());
+        EntrySelfTable *selfTable = getSeflEntryTable();
         if (!selfTable) {
             QMessageBox::warning(this, tr("No Self Entry Table"), 
                 tr("Unable to access the self-entry table."));
@@ -419,7 +425,7 @@ void PaneBookKeeping::dissociate()
     }
     
     // Get selection from self-entry table (handled separately)
-    EntrySelfTable *selfTable = const_cast<EntrySelfTable*>(getSeflEntryTable());
+    EntrySelfTable *selfTable = getSeflEntryTable();
     QModelIndexList selfSelection;
     if (selfTable) {
         selfSelection = ui->tableSelfEntry->selectionModel()->selectedRows();
@@ -540,7 +546,7 @@ void PaneBookKeeping::selfEntryAdd()
 {
     DialogAddSelfEntry dialog(this);
     if (dialog.exec() == QDialog::Accepted) {
-        auto *model = static_cast<EntrySelfTable *>(ui->tableSelfEntry->model());
+        auto *model = getSeflEntryTable();
         model->addRow({dialog.getName(), dialog.getAccount()});
     }
 }
@@ -553,7 +559,7 @@ void PaneBookKeeping::selfEntryRemove()
         return;
     }
 
-    auto *model = static_cast<EntrySelfTable *>(ui->tableSelfEntry->model());
+    auto *model = getSeflEntryTable();
     model->remove(selIndexes.first());
 }
 
@@ -578,10 +584,33 @@ void PaneBookKeeping::purchaseAdd()
     try {
         QFileInfo fi(fileName);
         PurchaseInformation info = PurchaseInvoiceManager::decode(fi.fileName());
-        // We pass the full path so that add() can copy it.
-        // But add() takes sourceFilePath and info.
-        // Info.filePath might be set by decode() if we passed full path but decode() only looks at fileName usually.
-        // Let's rely on info structure from decode, and add just needs correct info date/etc.
+
+        const CompanyInfosTable companyInfos{WorkingDirectoryManager::instance()->workingDir()};
+        const QString companyCurrency = companyInfos.getCurrency();
+
+        while (true) {
+            DialogEditPurchase editDialog(info, companyCurrency, this);
+            if (editDialog.exec() != QDialog::Accepted) {
+                return;
+            }
+            info = editDialog.getInfo();
+
+            const QDate twoMonthsAgo = QDate::currentDate().addMonths(-2);
+            if (info.date < twoMonthsAgo) {
+                const auto answer = QMessageBox::question(
+                    this,
+                    tr("Old Invoice Date"),
+                    tr("The invoice date (%1) is more than 2 months old. "
+                       "Are you sure this date is correct?")
+                        .arg(info.date.toString(Qt::ISODate)),
+                    QMessageBox::Yes | QMessageBox::No,
+                    QMessageBox::No);
+                if (answer != QMessageBox::Yes) {
+                    continue;
+                }
+            }
+            break;
+        }
 
         purchaseTable->manager().add(fileName, info);
         // Reload table for the year of the invoice
@@ -621,17 +650,19 @@ void PaneBookKeeping::purchaseAddMany()
 
     settings.setValue("lastPurchaseDir", QFileInfo(fileNames.first()).absolutePath());
 
-    DialogPurchaseInvoices dialog(fileNames, this);
+    const CompanyInfosTable companyInfos{WorkingDirectoryManager::instance()->workingDir()};
+    const QString companyCurrency = companyInfos.getCurrency();
+
+    DialogEditPurchases dialog(fileNames, companyCurrency, this);
     if (dialog.exec() == QDialog::Accepted) {
         auto purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
-        QList<PurchaseInformation> invoicesToAdd = dialog.selectedInvoices();
+        QList<PurchaseInformation> invoicesToAdd = dialog.getInfos();
 
         int count = 0;
         int errCount = 0;
 
         for (PurchaseInformation info : invoicesToAdd) {
             try {
-                // Here info.filePath is the source file path (set in dialog)
                 purchaseTable->manager().add(info.filePath, info);
                 count++;
             } catch (...) {
@@ -936,7 +967,7 @@ void PaneBookKeeping::_createBooksTables()
     // Self entries
     auto selfEntriesTable = new EntrySelfTable(workingDir, ui->tableSelfEntry);
     ui->tableSelfEntry->setModel(selfEntriesTable);
-    ui->tableSelfEntry->horizontalHeader()->resizeSection(0, 200);
+    ui->tableSelfEntry->horizontalHeader()->resizeSection(0, 250);
 
     // Purchases
     auto purchaseTable = new PurchaseInvoiceTable(m_booksConnections, workingDir, ui->tableInvoices);
@@ -1027,11 +1058,17 @@ void PaneBookKeeping::_setSubButtonsEnabled(bool enabled)
             button->setEnabled(enabled);
         }
     }
+    ui->splitter->setEnabled(enabled);
 }
 
-const EntrySelfTable *PaneBookKeeping::getSeflEntryTable() const
+EntrySelfTable *PaneBookKeeping::getSeflEntryTable() const
 {
-    return static_cast<const EntrySelfTable *>(ui->tableSelfEntry->model());
+    return static_cast<EntrySelfTable *>(ui->tableSelfEntry->model());
+}
+
+PurchaseInvoiceTable *PaneBookKeeping::getPurchaseInvoiceTable() const
+{
+    return static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
 }
 
 QList<const AbstractBooksTable *> PaneBookKeeping::getAllBookTables() const

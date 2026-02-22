@@ -194,6 +194,7 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
     
     // Global checks on the full filename (or base name)
     QString baseName = fileInfo.completeBaseName();
+    baseName.replace(" ", "");
     
     if (baseName.contains("stock", Qt::CaseInsensitive)) {
         info.isInventory = true;

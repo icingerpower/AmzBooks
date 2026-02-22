@@ -73,6 +73,17 @@ QStringList CountriesEu::getCurrencies()
         "EUR", "GBP", "BGN", "CZK", "DKK", "HUF", "PLN", "RON", "SEK"
     };
 }
+
+QStringList CountriesEu::getCurrenciesWorld()
+{
+    return {
+        "EUR", "GBP", "USD", "CAD", "AUD", "NZD", "CHF",
+        "NOK", "SEK", "DKK",
+        "BGN", "CZK", "HUF", "PLN", "RON",
+        "JPY", "CNY", "HKD", "SGD",
+        "TRY", "MXN", "BRL"
+    };
+}
 const QStringList CountriesEu::DEFAULT_AMAZON_SITES = {
     "amazon.ca",
     "amazon.com",
