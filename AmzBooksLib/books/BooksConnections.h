@@ -26,7 +26,7 @@ public:
     void disconnect(EntrySelfTable *selfTable
                     , const QModelIndex &index);
     bool contains(const QString &booksTableId, const QString &rowId) const;
-    void associateTablesToIds(QList<const AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable);
+    void associateTablesToIds(QList<AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable);
     QString getAccount2(AbstractBooksTableBank *tableBank, int row) const;
 
 private:

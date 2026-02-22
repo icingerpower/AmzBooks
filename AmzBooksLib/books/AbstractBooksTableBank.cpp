@@ -17,6 +17,7 @@ void AbstractBooksTableBank::addFilePaths(const QStringList &filePaths, bool sav
     }
 
     for (const QString &filePath : filePaths) {
+        QSet<QString> doneIds;
         auto rows = bank->readRows(filePath);
         if (rows && !rows->isEmpty()) {
             // Determine year from first row
@@ -29,12 +30,19 @@ void AbstractBooksTableBank::addFilePaths(const QStringList &filePaths, bool sav
 
             for (const auto &row : *rows) {
                 // Generate a unique ID based on row content
-                QString id = QString("%1_%2_%3_%4")
+                QString baseId = QString("%1_%2_%3_%4")
                         .arg(bank->getId(),
                              row.date.toString("yyyyMMdd"),
                              QString::number(row.amount, 'f', 2),
-                             QString::number(row.fees, 'f', 2))
-                        + "_" + QDateTime::currentDateTime().toString("yyyyMMdd_hhmmss_zzz");
+                             QString::number(row.fees, 'f', 2));
+                auto id = baseId;
+                int i = 1;
+                while (doneIds.contains(id))
+                {
+                    id = baseId += "-" + QString::number(i);
+                    ++i;
+                }
+                doneIds.insert(id);
 
                 bool hasAmount = qAbs(row.amount) > 0.001;
                 bool hasFees = qAbs(row.fees) > 0.001;
@@ -112,21 +120,21 @@ void AbstractBooksTableBank::remove(const QList<QModelIndex> &indices)
 
 QString AbstractBooksTableBank::_recordFilePaths(int year, const QString &filePath)
 {
-    QDir banksDir(m_workingDir.filePath("banks"));
-    if (!banksDir.exists())
-    {
-        banksDir.mkpath(".");
-    }
-    
-    QDir yearDir(banksDir.filePath(QString::number(year)));
+    QDir yearDir(m_workingDir.filePath("banks/" + QString::number(year)));
     if (!yearDir.exists())
     {
         yearDir.mkpath(".");
     }
-    
+
+    QDir banksDir(yearDir.filePath(getId()));
+    if (!banksDir.exists())
+    {
+        banksDir.mkpath(".");
+    }
+
     QString fileName = QFileInfo(filePath).fileName();
-    QString destPath = yearDir.filePath(fileName);
-    
+    QString destPath = banksDir.filePath(fileName);
+
     // Copy file
     if (filePath != destPath) {
         // If dest exists, maybe remove it first or overwrite?
@@ -135,22 +143,21 @@ QString AbstractBooksTableBank::_recordFilePaths(int year, const QString &filePa
         }
         QFile::copy(filePath, destPath);
     }
-    
+
     return destPath;
 }
 
 QStringList AbstractBooksTableBank::_loadFilePaths(int year)
 {
-    QDir banksDir(m_workingDir.filePath("banks"));
-    QDir yearDir(banksDir.filePath(QString::number(year)));
-    
-    if (!yearDir.exists())
+    QDir banksDir(m_workingDir.filePath("banks/" + QString::number(year) + "/" + getId()));
+
+    if (!banksDir.exists())
     {
         return QStringList();
     }
-    
+
     QStringList files;
-    QFileInfoList infoList = yearDir.entryInfoList(QDir::Files);
+    QFileInfoList infoList = banksDir.entryInfoList(QDir::Files);
     for (const QFileInfo &info : infoList) {
         files.append(info.absoluteFilePath());
     }

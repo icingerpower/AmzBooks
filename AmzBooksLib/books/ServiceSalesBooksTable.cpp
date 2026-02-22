@@ -113,7 +113,12 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     
     // 5. Add to AbstractBooksTable
     // add(rowId, bookId, date, amountFullOrig, currencyAmount, label, account1, account2, vatOrig, vatCountry, vatCurrency)
-    add(orderId, invoiceId, date, amount, currency, serviceLabel, 
+    add(orderId
+        , invoiceId
+        , date
+        , amount
+        , currency
+        , serviceLabel,
         "", // Account 1 
         "", // Account 2
         vatAmount, 

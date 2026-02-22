@@ -74,8 +74,11 @@ void PaneBookKeeping::loadYearSelected()
     bool yearOk = false;
     int year = ui->comboBoxYear->currentText().toInt(&yearOk);
     Q_ASSERT(yearOk);
-    getPurchaseInvoiceTable()->load(year);
-    // TODO AbstractBooksTable::load for all getAllBankTables and getAllNonBankTables
+    auto allBooksTables = getAllBookTables();
+    for (auto &booksTable : allBooksTables)
+    {
+        booksTable->load(year);
+    }
     setCursor(Qt::ArrowCursor);
 }
 
@@ -167,7 +170,7 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     }
 
     // 4.3 Banks Data (Count only)
-    QList<const AbstractBooksTableBank *> bankTables = getAllBankTables();
+    QList<AbstractBooksTableBank *> bankTables = getAllBankTables();
     int bankRowsToProcess = 0;
     for (const AbstractBooksTableBank *bankTable : bankTables) {
          int rowCount = bankTable->rowCount();
@@ -342,7 +345,7 @@ void PaneBookKeeping::associate()
     // If self-selection is empty, use the hash-based tryToConnect with book tables
     else {
         // Get all non-bank, non-self tables (purchase, services, etc.)
-        QList<const AbstractBooksTable *> bookTables = getAllNonBankTables();
+        QList<AbstractBooksTable *> bookTables = getAllNonBankTables();
         
         if (bookTables.isEmpty()) {
             QMessageBox::warning(this, tr("No Book Tables"), 
@@ -432,7 +435,7 @@ void PaneBookKeeping::dissociate()
     }
     
     // Get selection from book tables (purchases, services, etc.)
-    QList<const AbstractBooksTable *> bookTables = getAllNonBankTables();
+    QList<AbstractBooksTable *> bookTables = getAllNonBankTables();
     for (const AbstractBooksTable *bookTable : bookTables) {
         QList<QTableView *> allViews = ui->toolBoxSalePurchases->findChildren<QTableView *>();
         for (QTableView *view : allViews) {
@@ -1071,7 +1074,7 @@ PurchaseInvoiceTable *PaneBookKeeping::getPurchaseInvoiceTable() const
     return static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
 }
 
-QList<const AbstractBooksTable *> PaneBookKeeping::getAllBookTables() const
+QList<AbstractBooksTable *> PaneBookKeeping::getAllBookTables() const
 {
     auto allBookTables = getAllNonBankTables();
     auto allBankTables = getAllBankTables();
@@ -1082,24 +1085,28 @@ QList<const AbstractBooksTable *> PaneBookKeeping::getAllBookTables() const
     return allBookTables;
 }
 
-QList<const AbstractBooksTableBank *> PaneBookKeeping::getAllBankTables() const
+QList<AbstractBooksTableBank *> PaneBookKeeping::getAllBankTables() const
 {
-    QList<const AbstractBooksTableBank *> bankTables;
+    QList<AbstractBooksTableBank *> bankTables;
     QList<QTableView *> allViews = ui->toolBoxBanks->findChildren<QTableView *>();
     for (auto view : allViews)
     {
-        bankTables << static_cast<const AbstractBooksTableBank *>(view->model());
+        bankTables << static_cast<AbstractBooksTableBank *>(view->model());
     }
     return bankTables;
 }
 
-QList<const AbstractBooksTable *> PaneBookKeeping::getAllNonBankTables() const
+QList<AbstractBooksTable *> PaneBookKeeping::getAllNonBankTables() const
 {
-    QList<const AbstractBooksTable *> nonBankTables;
+    QList<AbstractBooksTable *> nonBankTables;
     QList<QTableView *> allViews = ui->toolBoxSalePurchases->findChildren<QTableView *>();
     for (auto view : allViews)
     {
-        nonBankTables << static_cast<const AbstractBooksTable *>(view->model());
+        auto nonBankTalbe = dynamic_cast<AbstractBooksTable *>(view->model());
+        if (nonBankTalbe != nullptr)
+        {
+            nonBankTables << nonBankTalbe;
+        }
     }
     return nonBankTables;
 }

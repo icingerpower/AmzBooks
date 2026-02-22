@@ -251,7 +251,7 @@ bool BooksConnections::contains(const QString &booksTableId, const QString &rowI
 }
 
 void BooksConnections::associateTablesToIds(
-        QList<const AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable)
+        QList<AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable)
 {
     m_cacheId_table.clear();
     m_cacheId_tableSelf.clear();

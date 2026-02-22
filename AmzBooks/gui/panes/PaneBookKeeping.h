@@ -32,9 +32,9 @@ private:
     void _setSubButtonsEnabled(bool enable);
     EntrySelfTable *getSeflEntryTable() const;
     PurchaseInvoiceTable *getPurchaseInvoiceTable() const;
-    QList<const AbstractBooksTable *> getAllBookTables() const;
-    QList<const AbstractBooksTableBank *> getAllBankTables() const;
-    QList<const AbstractBooksTable *> getAllNonBankTables() const;
+    QList<AbstractBooksTable *> getAllBookTables() const;
+    QList<AbstractBooksTableBank *> getAllBankTables() const;
+    QList<AbstractBooksTable *> getAllNonBankTables() const;
     AbstractBooksTableBank *getVisibleBankTable() const;
 
 public slots:

@@ -24,6 +24,7 @@ private slots:
     void testRealData();
     void test_fileManagement();
     void test_persistence();
+    void test_bankTypeIsolation();
 };
 
 void TestBanks::testPaypalTheoretical()
@@ -284,8 +285,8 @@ void TestBanks::test_fileManagement()
         
         QCOMPARE(table.rowCount(), 5);
         
-        // Verify file copied to banks/2025/file1_2025.csv
-        QString expectedPath = dir.filePath("banks/2025/file1_2025.csv");
+        // Verify file copied to banks/2025/TestBankTable/file1_2025.csv
+        QString expectedPath = dir.filePath("banks/2025/TestBankTable/file1_2025.csv");
         QVERIFY(QFile::exists(expectedPath));
     }
     
@@ -308,8 +309,8 @@ void TestBanks::test_fileManagement()
         table.addFilePaths({file2}); // Adds file2 (5 rows)
         
         QCOMPARE(table.rowCount(), 10);
-        QString path1 = dir.filePath("banks/2025/file1_2025.csv");
-        QString path2 = dir.filePath("banks/2025/file2_2025.csv");
+        QString path1 = dir.filePath("banks/2025/TestBankTable/file1_2025.csv");
+        QString path2 = dir.filePath("banks/2025/TestBankTable/file2_2025.csv");
         QVERIFY(QFile::exists(path1));
         QVERIFY(QFile::exists(path2));
         
@@ -339,7 +340,7 @@ void TestBanks::test_fileManagement()
          table.load(2025); // Should only load file1 now (5 rows)
          QCOMPARE(table.rowCount(), 5);
          
-         QString path1 = dir.filePath("banks/2025/file1_2025.csv");
+         QString path1 = dir.filePath("banks/2025/TestBankTable/file1_2025.csv");
          table.removeFile(path1);
          
          QCOMPARE(table.rowCount(), 0);
@@ -395,6 +396,74 @@ void TestBanks::test_persistence()
         // It should have picked up the "FR" from settings
         QCOMPARE(table.data(table.index(0, 7)).toString(), "FR");
         QCOMPARE(table.data(table.index(0, 6)).toDouble(), 20.0);
+    }
+}
+
+void TestBanks::test_bankTypeIsolation()
+{
+    // Verifies that two bank types sharing the same working directory do not
+    // load each other's files (i.e. each type saves under banks/<year>/<id>/).
+    QTemporaryDir tempDir;
+    QDir dir(tempDir.path());
+
+    class TableA : public AbstractBooksTableBank {
+    public:
+        TableA(const QDir &wd) : AbstractBooksTableBank(nullptr, wd, nullptr) {
+            m_stmt = QSharedPointer<BankPaypalEUR>::create();
+        }
+        const AbstractBankStatement *getBankStatement() const override { return m_stmt.data(); }
+        QString getId() const override { return "TableA"; }
+        QSharedPointer<AbstractBankStatement> m_stmt;
+    };
+
+    class TableB : public AbstractBooksTableBank {
+    public:
+        TableB(const QDir &wd) : AbstractBooksTableBank(nullptr, wd, nullptr) {
+            m_stmt = QSharedPointer<BankPaypalEUR>::create();
+        }
+        const AbstractBankStatement *getBankStatement() const override { return m_stmt.data(); }
+        QString getId() const override { return "TableB"; }
+        QSharedPointer<AbstractBankStatement> m_stmt;
+    };
+
+    // Write a PayPal EUR CSV with one row
+    QDir srcDir = dir;
+    srcDir.mkdir("source");
+    srcDir.cd("source");
+
+    QString filePath = srcDir.absoluteFilePath("paypal_2025.csv");
+    {
+        QFile f(filePath);
+        f.open(QIODevice::WriteOnly);
+        QTextStream out(&f);
+        out << "\"Date\",\"Heure\",\"Fuseau horaire\",\"Nom\",\"Nom de la banque\",\"Type\",\"Etat\",\"Devise\",\"Brut\",\"Frais\",\"Net\",\"De l'adresse email\",\"A l'adresse email\",\"Nutr√©ro de transaction\",\"Description\",\"Adresse de livraison\",\"Etat de l'adresse\",\"Titre de l'objet\",\"Num√©ro de l'objet\",\"Montant des frais d'exp√©dition\",\"Montant de l'assurance\",\"TVA\",\"Option 1 - Nom\",\"Option 1 - Valeur\",\"Option 2 - Nom\",\"Option 2 - Valeur\",\"Num√©ro de r√©f√©rence\",\"Num√©ro de facture\",\"Num√©ro de client\",\"Num√©ro de t√©l√©phone\",\"Num√©ro de re√ßu\",\"Avant la commission\",\"Apr√®s la commission\",\"Solde\",\"Contact\",\"Titre de l'objet\"\n";
+        out << "\"01/01/2025\",\"12:00:00\",\"GMT\",\"\",\"\",\"\",\"\",\"EUR\",\"42,00\",\"0,00\",\"42,00\",\"\",\"\",\"TXNISOLATION\",\"IsolationTest\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"\",\"42,00\",\"\",\"\"\n";
+        f.close();
+    }
+
+    // Add file via TableA — it must be saved under banks/2025/TableA/
+    {
+        TableA tableA(dir);
+        tableA.addFilePaths({filePath});
+        QCOMPARE(tableA.rowCount(), 1);
+    }
+
+    // Verify the file landed under TableA's own subdirectory
+    QVERIFY(QFile::exists(dir.filePath("banks/2025/TableA/paypal_2025.csv")));
+    QVERIFY(!QFile::exists(dir.filePath("banks/2025/TableB/paypal_2025.csv")));
+
+    // TableB loading year 2025 must find nothing (its subdirectory is empty)
+    {
+        TableB tableB(dir);
+        tableB.load(2025);
+        QCOMPARE(tableB.rowCount(), 0);
+    }
+
+    // TableA loading year 2025 must find its own file
+    {
+        TableA tableA(dir);
+        tableA.load(2025);
+        QCOMPARE(tableA.rowCount(), 1);
     }
 }
 
