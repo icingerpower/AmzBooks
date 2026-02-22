@@ -24,6 +24,9 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddFbaCenter.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddFbaCenter.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddFbaCenter.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddSelfEntry.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddSelfEntry.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddSelfEntry.ui
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogVatParams.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogVatParams.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogVatParams.ui

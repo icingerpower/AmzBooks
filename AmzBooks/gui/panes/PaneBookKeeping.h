@@ -42,6 +42,9 @@ public slots:
     void associate();
     void dissociate();
 
+    void selfEntryAdd();
+    void selfEntryRemove();
+
     void purchaseAdd();
     void purchaseAddMany();
     void purchaseRemove();

@@ -30,6 +30,7 @@
 
 #include "../../common/utils/CsvHeader.h"
 #include "ExceptionWithTitleText.h"
+#include "../dialogs/DialogAddSelfEntry.h"
 #include "../dialogs/DialogPurchaseInvoices.h"
 #include "gui/dialogs/DialogEditServiceClients.h"
 #include "gui/dialogs/DialogAddSaleService.h"
@@ -66,8 +67,10 @@ PaneBookKeeping::~PaneBookKeeping()
 
 void PaneBookKeeping::loadYearSelected()
 {
+    setCursor(Qt::WaitCursor);
     _setSubButtonsEnabled(true);
     // TODO AbstractBooksTable::load for all getAllBankTables and getAllNonBankTables
+    setCursor(Qt::ArrowCursor);
 }
 
 void PaneBookKeeping::generateBookKeeping()
@@ -530,7 +533,28 @@ void PaneBookKeeping::dissociate()
     }
     
     QMessageBox::information(this, tr("Dissociation Successful"), 
-        tr("Successfully dissociated %1 row(s).").arg(disconnectedCount));
+                             tr("Successfully dissociated %1 row(s).").arg(disconnectedCount));
+}
+
+void PaneBookKeeping::selfEntryAdd()
+{
+    DialogAddSelfEntry dialog(this);
+    if (dialog.exec() == QDialog::Accepted) {
+        auto *model = static_cast<EntrySelfTable *>(ui->tableSelfEntry->model());
+        model->addRow({dialog.getName(), dialog.getAccount()});
+    }
+}
+
+void PaneBookKeeping::selfEntryRemove()
+{
+    const auto &selIndexes = ui->tableSelfEntry->selectionModel()->selectedIndexes();
+    if (selIndexes.size() == 0) {
+        QMessageBox::warning(this, tr("No Selection"), tr("Please select a self entry to remove."));
+        return;
+    }
+
+    auto *model = static_cast<EntrySelfTable *>(ui->tableSelfEntry->model());
+    model->remove(selIndexes.first());
 }
 
 void PaneBookKeeping::purchaseAdd()
@@ -908,7 +932,12 @@ void PaneBookKeeping::_createBooksTables()
 {
     _createBanks();
     QDir workingDir{WorkingDirectoryManager::instance()->workingDir()};
-    
+
+    // Self entries
+    auto selfEntriesTable = new EntrySelfTable(workingDir, ui->tableSelfEntry);
+    ui->tableSelfEntry->setModel(selfEntriesTable);
+    ui->tableSelfEntry->horizontalHeader()->resizeSection(0, 200);
+
     // Purchases
     auto purchaseTable = new PurchaseInvoiceTable(m_booksConnections, workingDir, ui->tableInvoices);
     ui->tableInvoices->setModel(purchaseTable);
@@ -952,6 +981,15 @@ void PaneBookKeeping::_connectSlots()
             this,
             &PaneBookKeeping::dissociate);
 
+    connect(ui->buttonSelfEntryAdd,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::selfEntryAdd);
+    connect(ui->buttonSelfEntryRemove,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::selfEntryRemove);
+
     connect(ui->buttonInvoiceAdd,
             &QPushButton::clicked,
             this,
@@ -980,11 +1018,13 @@ void PaneBookKeeping::_setSubButtonsEnabled(bool enabled)
     // Browse every QPushButton of the main class
     QList<QPushButton *> allButtons = this->findChildren<QPushButton *>();
 
-    for (QPushButton *btn : allButtons) {
-        if (btn != ui->buttonLoadYear)
+    for (QPushButton *button : allButtons) {
+        if (button != ui->buttonLoadYear
+                && button != ui->buttonSelfEntryAdd
+                && button != ui->buttonSelfEntryRemove)
         {
             // It is NOT in the main list, so we enable/disable it
-            btn->setEnabled(enabled);
+            button->setEnabled(enabled);
         }
     }
 }
