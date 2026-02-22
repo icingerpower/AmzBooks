@@ -43,6 +43,7 @@ private slots:
     void test_invoice_decode_error();
     void test_invoice_add();
     void test_get_invoices();
+    void test_invoice_save_load_full_fields();
     
     // JournalEntryFactory tests
     void test_factory_purchase_no_conversion();
@@ -1467,6 +1468,127 @@ void TestBookEntries::test_factory_bank_entry()
         }
     }
     QVERIFY(foundRevenue);
+}
+
+void TestBookEntries::test_invoice_save_load_full_fields()
+{
+    // ── Case 1: full data (two VAT rates + EXTRA + route + flags) ────────────
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    QString sourcePath = dir.filePath("source.pdf");
+    { QFile f(sourcePath); QVERIFY(f.open(QIODevice::WriteOnly)); f.write("x"); }
+
+    PurchaseInformation orig;
+    orig.date             = QDate(2025, 7, 14);
+    orig.account          = "607000";
+    orig.label            = "Computer stock DDP";  // "stock" → isInventory, "DDP" → isDDP
+    orig.accountSupplier  = "TechCorpCNFR";        // suffix "CNFR" → countryCodeFrom=CN, countryCodeTo=FR
+    orig.vatTokens        = {"FR-TVA20-24.0EUR", "FR-TVA5.5-5.5EUR"};
+    orig.totalAmount      = 159.5;
+    orig.rawTotalAmount   = "159.5";
+    orig.currency         = "EUR";
+    orig.subUntaxedAmount["607001"] = 10.0;
+
+    PurchaseInvoiceManager manager(dir);
+    manager.add(sourcePath, orig);
+    QCOMPARE(manager.rowCount(), 1);
+
+    const PurchaseInformation saved =
+        manager.getInvoices(QDate(2025, 1, 1), QDate(2025, 12, 31)).first();
+
+    // Basic fields
+    QCOMPARE(saved.date,             orig.date);
+    QCOMPARE(saved.account,          orig.account);
+    QCOMPARE(saved.label,            orig.label);
+    QCOMPARE(saved.accountSupplier,  orig.accountSupplier);
+    QCOMPARE(saved.totalAmount,      orig.totalAmount);
+    QCOMPARE(saved.rawTotalAmount,   orig.rawTotalAmount);
+    QCOMPARE(saved.currency,         orig.currency);
+    QCOMPARE(saved.originalExtension, QString("pdf"));
+    QVERIFY(!saved.filePath.isEmpty());
+
+    // Flags detected from filename content
+    QCOMPARE(saved.isInventory, true);
+    QCOMPARE(saved.isDDP,       true);
+
+    // Country codes parsed from supplier suffix
+    QCOMPARE(saved.countryCodeFrom, QString("CN"));
+    QCOMPARE(saved.countryCodeTo,   QString("FR"));
+
+    // VAT tokens preserved verbatim
+    QCOMPARE(saved.vatTokens.size(), 2);
+    QVERIFY(saved.vatTokens.contains(QString("FR-TVA20-24.0EUR")));
+    QVERIFY(saved.vatTokens.contains(QString("FR-TVA5.5-5.5EUR")));
+
+    // country_vatRate_vat: correct country code "FR", no spurious "TVA" key
+    QVERIFY( saved.country_vatRate_vat.contains("FR"));
+    QVERIFY(!saved.country_vatRate_vat.contains("TVA"));
+    QCOMPARE(saved.country_vatRate_vat["FR"].size(), 2);
+    QCOMPARE(saved.country_vatRate_vat["FR"]["20.00"], 24.0);
+    QCOMPARE(saved.country_vatRate_vat["FR"]["5.50"],   5.5);
+
+    // rawVatAmount / vatCurrency / vatCountry derived by decode (24.0 + 5.5 = 29.5)
+    QCOMPARE(saved.rawVatAmount.toDouble(), 29.5);
+    QCOMPARE(saved.vatCurrency, QString("EUR"));
+    QCOMPARE(saved.vatCountry,  QString("FR"));
+
+    // subUntaxedAmount round-trip
+    QCOMPARE(saved.subUntaxedAmount.size(), 1);
+    QVERIFY(saved.subUntaxedAmount.contains("607001"));
+    QCOMPARE(saved.subUntaxedAmount["607001"], 10.0);
+
+    // ── Case 2: no VAT, no extras ─────────────────────────────────────────────
+    QString src2Path = dir.filePath("source2.pdf");
+    { QFile f(src2Path); QVERIFY(f.open(QIODevice::WriteOnly)); f.write("y"); }
+
+    PurchaseInformation plain;
+    plain.date            = QDate(2025, 8, 1);
+    plain.account         = "622600";
+    plain.label           = "fees";
+    plain.accountSupplier = "MyBank";
+    plain.totalAmount     = 50.0;
+    plain.rawTotalAmount  = "50.0";
+    plain.currency        = "USD";
+
+    manager.add(src2Path, plain);
+    QCOMPARE(manager.rowCount(), 2);
+
+    const PurchaseInformation savedPlain =
+        manager.getInvoices(QDate(2025, 8, 1), QDate(2025, 8, 31)).first();
+
+    QCOMPARE(savedPlain.date,            plain.date);
+    QCOMPARE(savedPlain.account,         plain.account);
+    QCOMPARE(savedPlain.label,           plain.label);
+    QCOMPARE(savedPlain.accountSupplier, plain.accountSupplier);
+    QCOMPARE(savedPlain.totalAmount,     plain.totalAmount);
+    QCOMPARE(savedPlain.currency,        plain.currency);
+    QCOMPARE(savedPlain.isInventory,     false);
+    QCOMPARE(savedPlain.isDDP,           false);
+    QVERIFY(savedPlain.vatTokens.isEmpty());
+    QVERIFY(savedPlain.country_vatRate_vat.isEmpty());
+    QVERIFY(savedPlain.rawVatAmount.isEmpty());
+    QVERIFY(savedPlain.vatCurrency.isEmpty());
+    QVERIFY(savedPlain.subUntaxedAmount.isEmpty());
+    QVERIFY(savedPlain.vatCountry.isEmpty());
+    QVERIFY(savedPlain.countryCodeFrom.isEmpty());
+    QVERIFY(savedPlain.countryCodeTo.isEmpty());
+
+    // ── Case 3: simple 2-part VAT token generated by dialogs ─────────────────
+    // "TVA-{amount}{currency}" has 2 parts when split by '-', so decode must NOT
+    // create a country_vatRate_vat entry (country would otherwise be "TVA").
+    QString fileSimpleVat =
+        "2025-09-10__607000__Office__Supplier__TVA-15.0EUR__115.0EUR.pdf";
+    PurchaseInformation infoSV = PurchaseInvoiceManager::decode(fileSimpleVat);
+
+    QCOMPARE(infoSV.vatTokens.size(), 1);
+    QCOMPARE(infoSV.vatTokens.first(), QString("TVA-15.0EUR"));
+    QVERIFY(infoSV.country_vatRate_vat.isEmpty());  // no "TVA" country
+    QCOMPARE(infoSV.rawVatAmount.toDouble(), 15.0);
+    QCOMPARE(infoSV.vatCurrency, QString("EUR"));
+    QVERIFY(infoSV.vatCountry.isEmpty());  // 2-part token has no country
+    QCOMPARE(PurchaseInvoiceManager::encode(infoSV), fileSimpleVat); // round-trip
 }
 
 QTEST_MAIN(TestBookEntries)

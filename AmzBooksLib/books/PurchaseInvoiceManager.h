@@ -18,6 +18,9 @@ struct PurchaseInformation {
     double totalAmount = 0.0;
     QString rawTotalAmount; // To preserve formatting (e.g. "10.0")
     QString currency;
+    QString rawVatAmount; // e.g. "13.6" – total VAT amount (simple representation)
+    QString vatCurrency;  // e.g. "EUR" – currency of the VAT amount
+    QString vatCountry;   // e.g. "FR"  – country code for the VAT (EU + GB)
     QString originalExtension; // e.g. "pdf"
     QString filePath; // Absolute path to the file
     bool isInventory = false; // If stock in filename

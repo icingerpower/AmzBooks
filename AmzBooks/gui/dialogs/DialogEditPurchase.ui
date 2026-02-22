@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>420</width>
-    <height>310</height>
+    <height>415</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -84,27 +84,57 @@
       <widget class="QComboBox" name="comboCurrency"/>
      </item>
      <item row="6" column="0">
+      <widget class="QLabel" name="labelVatAmount">
+       <property name="text">
+        <string>VAT Amount:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="6" column="1">
+      <widget class="QLineEdit" name="editVatAmount"/>
+     </item>
+     <item row="7" column="0">
+      <widget class="QLabel" name="labelVatCurrency">
+       <property name="text">
+        <string>VAT Currency:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="7" column="1">
+      <widget class="QComboBox" name="comboVatCurrency"/>
+     </item>
+     <item row="8" column="0">
+      <widget class="QLabel" name="labelVatCountry">
+       <property name="text">
+        <string>VAT Country:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="8" column="1">
+      <widget class="QComboBox" name="comboVatCountry"/>
+     </item>
+     <item row="9" column="0">
       <widget class="QLabel" name="labelInventory">
        <property name="text">
         <string>Inventory:</string>
        </property>
       </widget>
      </item>
-     <item row="6" column="1">
+     <item row="9" column="1">
       <widget class="QCheckBox" name="checkInventory">
        <property name="text">
         <string/>
        </property>
       </widget>
      </item>
-     <item row="7" column="0">
+     <item row="10" column="0">
       <widget class="QLabel" name="labelDdp">
        <property name="text">
         <string>DDP:</string>
        </property>
       </widget>
      </item>
-     <item row="7" column="1">
+     <item row="10" column="1">
       <widget class="QCheckBox" name="checkDdp">
        <property name="text">
         <string/>

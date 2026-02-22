@@ -28,6 +28,8 @@ private:
     PurchaseInformation m_info;
 
     void _setupCurrencies(const QString &companyCurrency, const QString &invoiceCurrency);
+    void _setupVatCurrencies(const QString &companyCurrency, const QString &vatCurrency);
+    void _setupVatCountries(const QString &vatCountry);
 };
 
 #endif // DIALOGEDITPURCHASE_H

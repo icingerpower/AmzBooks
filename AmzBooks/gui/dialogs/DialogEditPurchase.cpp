@@ -19,10 +19,13 @@ DialogEditPurchase::DialogEditPurchase(const PurchaseInformation &info,
     ui->editLabel->setText(info.label);
     ui->editSupplier->setText(info.accountSupplier);
     ui->editAmount->setText(info.rawTotalAmount);
+    ui->editVatAmount->setText(info.rawVatAmount);
     ui->checkInventory->setChecked(info.isInventory);
     ui->checkDdp->setChecked(info.isDDP);
 
     _setupCurrencies(companyCurrency, info.currency);
+    _setupVatCurrencies(companyCurrency, info.vatCurrency);
+    _setupVatCountries(info.vatCountry);
 
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &DialogEditPurchase::_onAccepted);
     connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
@@ -56,6 +59,41 @@ void DialogEditPurchase::_setupCurrencies(const QString &companyCurrency, const 
     }
 }
 
+void DialogEditPurchase::_setupVatCurrencies(const QString &companyCurrency, const QString &vatCurrency)
+{
+    QStringList currencies = CountriesEu::getCurrenciesWorld();
+
+    currencies.removeAll(companyCurrency);
+    currencies.prepend(companyCurrency);
+
+    if (!vatCurrency.isEmpty() && !currencies.contains(vatCurrency)) {
+        currencies.append(vatCurrency);
+    }
+
+    ui->comboVatCurrency->addItems(currencies);
+
+    const QString toSelect = vatCurrency.isEmpty() ? companyCurrency : vatCurrency;
+    const int idx = currencies.indexOf(toSelect);
+    if (idx >= 0) {
+        ui->comboVatCurrency->setCurrentIndex(idx);
+    }
+}
+
+void DialogEditPurchase::_setupVatCountries(const QString &vatCountry)
+{
+    // Empty first entry allows "no country" selection
+    QStringList countries;
+    countries << QString();
+    countries << CountriesEu::getCountries();
+
+    ui->comboVatCountry->addItems(countries);
+
+    const int idx = countries.indexOf(vatCountry);
+    if (idx >= 0) {
+        ui->comboVatCountry->setCurrentIndex(idx);
+    }
+}
+
 PurchaseInformation DialogEditPurchase::getInfo() const
 {
     PurchaseInformation info = m_info;
@@ -66,6 +104,18 @@ PurchaseInformation DialogEditPurchase::getInfo() const
     info.rawTotalAmount = ui->editAmount->text().trimmed();
     info.totalAmount = info.rawTotalAmount.toDouble();
     info.currency = ui->comboCurrency->currentText();
+    info.rawVatAmount = ui->editVatAmount->text().trimmed();
+    info.vatCurrency = ui->comboVatCurrency->currentText();
+    info.vatCountry = ui->comboVatCountry->currentText();
+    info.vatTokens.clear();
+    info.country_vatRate_vat.clear();
+    if (!info.rawVatAmount.isEmpty()) {
+        if (!info.vatCountry.isEmpty()) {
+            info.vatTokens << QString("%1-TVA-%2%3").arg(info.vatCountry, info.rawVatAmount, info.vatCurrency);
+        } else {
+            info.vatTokens << QString("TVA-%1%2").arg(info.rawVatAmount, info.vatCurrency);
+        }
+    }
     info.isInventory = ui->checkInventory->isChecked();
     info.isDDP = ui->checkDdp->isChecked();
     return info;

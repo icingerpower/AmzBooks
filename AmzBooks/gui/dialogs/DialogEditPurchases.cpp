@@ -39,10 +39,11 @@ DialogEditPurchases::~DialogEditPurchases()
 
 void DialogEditPurchases::_setupTable()
 {
-    ui->tableWidget->setColumnCount(10);
+    ui->tableWidget->setColumnCount(13);
     ui->tableWidget->setHorizontalHeaderLabels({
         tr("File"), tr("Date"), tr("Account"), tr("Label"),
         tr("Supplier"), tr("Amount"), tr("Currency"),
+        tr("VAT Amount"), tr("VAT Currency"), tr("VAT Country"),
         tr("Inv."), tr("DDP"), tr("Status")
     });
     ui->tableWidget->horizontalHeader()->setStretchLastSection(true);
@@ -103,6 +104,18 @@ void DialogEditPurchases::_populateTable()
         auto *comboCurrency = _makeCurrencyCombo(info.currency);
         ui->tableWidget->setCellWidget(i, COL_CURRENCY, comboCurrency);
 
+        // VAT Amount
+        auto *editVatAmount = new QLineEdit(info.rawVatAmount);
+        ui->tableWidget->setCellWidget(i, COL_VAT_AMOUNT, editVatAmount);
+
+        // VAT Currency
+        auto *comboVatCurrency = _makeCurrencyCombo(info.vatCurrency);
+        ui->tableWidget->setCellWidget(i, COL_VAT_CURRENCY, comboVatCurrency);
+
+        // VAT Country
+        auto *comboVatCountry = _makeVatCountryCombo(info.vatCountry);
+        ui->tableWidget->setCellWidget(i, COL_VAT_COUNTRY, comboVatCountry);
+
         // Inventory checkbox (centered)
         auto *checkInventory = new QCheckBox;
         checkInventory->setChecked(info.isInventory);
@@ -126,7 +139,8 @@ void DialogEditPurchases::_populateTable()
         ui->tableWidget->setItem(i, COL_STATUS, itemStatus);
 
         m_rows.append({info, dateEdit, editAccount, editLabel, editSupplier,
-                       editAmount, comboCurrency, checkInventory, checkDdp});
+                       editAmount, comboCurrency, editVatAmount, comboVatCurrency,
+                       comboVatCountry, checkInventory, checkDdp});
     }
 
     ui->tableWidget->resizeColumnsToContents();
@@ -154,6 +168,18 @@ QComboBox *DialogEditPurchases::_makeCurrencyCombo(const QString &invoiceCurrenc
     if (idx >= 0) {
         combo->setCurrentIndex(idx);
     }
+    return combo;
+}
+
+QComboBox *DialogEditPurchases::_makeVatCountryCombo(const QString &vatCountry) const
+{
+    auto *combo = new QComboBox;
+    combo->addItem(QString()); // empty = no country
+    combo->addItems(CountriesEu::getCountries());
+
+    const int idx = vatCountry.isEmpty() ? 0 : combo->findText(vatCountry);
+    if (idx >= 0)
+        combo->setCurrentIndex(idx);
     return combo;
 }
 
@@ -264,6 +290,18 @@ QList<PurchaseInformation> DialogEditPurchases::getInfos() const
         info.rawTotalAmount = row.editAmount->text().trimmed();
         info.totalAmount    = info.rawTotalAmount.toDouble();
         info.currency       = row.comboCurrency->currentText();
+        info.rawVatAmount   = row.editVatAmount->text().trimmed();
+        info.vatCurrency    = row.comboVatCurrency->currentText();
+        info.vatCountry     = row.comboVatCountry->currentText();
+        info.vatTokens.clear();
+        info.country_vatRate_vat.clear();
+        if (!info.rawVatAmount.isEmpty()) {
+            if (!info.vatCountry.isEmpty()) {
+                info.vatTokens << QString("%1-TVA-%2%3").arg(info.vatCountry, info.rawVatAmount, info.vatCurrency);
+            } else {
+                info.vatTokens << QString("TVA-%1%2").arg(info.rawVatAmount, info.vatCurrency);
+            }
+        }
         info.isInventory    = row.checkInventory->isChecked();
         info.isDDP          = row.checkDdp->isChecked();
         // filePath is already in originalInfo

@@ -194,13 +194,16 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
     
     // Global checks on the full filename (or base name)
     QString baseName = fileInfo.completeBaseName();
-    baseName.replace(" ", "");
-    
-    if (baseName.contains("stock", Qt::CaseInsensitive)) {
+
+    // Use a space-stripped copy only for flag detection so that labels with
+    // spaces (e.g. "stock DDP") still round-trip correctly through encode().
+    const QString baseNameNoSpaces = QString(baseName).replace(" ", "");
+
+    if (baseNameNoSpaces.contains("stock", Qt::CaseInsensitive)) {
         info.isInventory = true;
     }
-    
-    if (baseName.contains("ddp", Qt::CaseInsensitive)) {
+
+    if (baseNameNoSpaces.contains("ddp", Qt::CaseInsensitive)) {
         info.isDDP = true;
     }
 
@@ -306,6 +309,29 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
         }
     }
     
+    // Derive simple rawVatAmount / vatCurrency / vatCountry from the parsed tokens
+    if (!info.vatTokens.isEmpty()) {
+        double totalVat = 0.0;
+        QString firstVatCurrency;
+        for (const QString &token : std::as_const(info.vatTokens)) {
+            const QString amountPart = token.split('-').last();
+            QRegularExpressionMatch m = regexTotal.match(amountPart);
+            if (m.hasMatch()) {
+                totalVat += m.captured(1).toDouble();
+                if (firstVatCurrency.isEmpty())
+                    firstVatCurrency = m.captured(2);
+            }
+        }
+        if (totalVat > 0.0)
+            info.rawVatAmount = QString::number(totalVat);
+        info.vatCurrency = firstVatCurrency;
+
+        // Extract country code from the first token's leading part (e.g. "FR" in "FR-TVA20-13.6EUR")
+        const QStringList firstParts = info.vatTokens.first().split('-');
+        if (firstParts.size() >= 3)
+            info.vatCountry = firstParts[0];
+    }
+
     return info;
 }
 

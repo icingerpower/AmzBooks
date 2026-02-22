@@ -33,26 +33,32 @@ private slots:
 private:
     struct RowData {
         PurchaseInformation originalInfo;
-        QDateEdit  *dateEdit       = nullptr;
-        QLineEdit  *editAccount    = nullptr;
-        QLineEdit  *editLabel      = nullptr;
-        QLineEdit  *editSupplier   = nullptr;
-        QLineEdit  *editAmount     = nullptr;
-        QComboBox  *comboCurrency  = nullptr;
-        QCheckBox  *checkInventory = nullptr;
-        QCheckBox  *checkDdp       = nullptr;
+        QDateEdit  *dateEdit          = nullptr;
+        QLineEdit  *editAccount       = nullptr;
+        QLineEdit  *editLabel         = nullptr;
+        QLineEdit  *editSupplier      = nullptr;
+        QLineEdit  *editAmount        = nullptr;
+        QComboBox  *comboCurrency     = nullptr;
+        QLineEdit  *editVatAmount     = nullptr;
+        QComboBox  *comboVatCurrency  = nullptr;
+        QComboBox  *comboVatCountry   = nullptr;
+        QCheckBox  *checkInventory    = nullptr;
+        QCheckBox  *checkDdp          = nullptr;
     };
 
-    static constexpr int COL_FILE      = 0;
-    static constexpr int COL_DATE      = 1;
-    static constexpr int COL_ACCOUNT   = 2;
-    static constexpr int COL_LABEL     = 3;
-    static constexpr int COL_SUPPLIER  = 4;
-    static constexpr int COL_AMOUNT    = 5;
-    static constexpr int COL_CURRENCY  = 6;
-    static constexpr int COL_INVENTORY = 7;
-    static constexpr int COL_DDP       = 8;
-    static constexpr int COL_STATUS    = 9;
+    static constexpr int COL_FILE         = 0;
+    static constexpr int COL_DATE         = 1;
+    static constexpr int COL_ACCOUNT      = 2;
+    static constexpr int COL_LABEL        = 3;
+    static constexpr int COL_SUPPLIER     = 4;
+    static constexpr int COL_AMOUNT       = 5;
+    static constexpr int COL_CURRENCY     = 6;
+    static constexpr int COL_VAT_AMOUNT   = 7;
+    static constexpr int COL_VAT_CURRENCY = 8;
+    static constexpr int COL_VAT_COUNTRY  = 9;
+    static constexpr int COL_INVENTORY    = 10;
+    static constexpr int COL_DDP          = 11;
+    static constexpr int COL_STATUS       = 12;
 
     Ui::DialogEditPurchases *ui;
     QStringList m_filePaths;
@@ -62,6 +68,7 @@ private:
     void _setupTable();
     void _populateTable();
     QComboBox *_makeCurrencyCombo(const QString &invoiceCurrency) const;
+    QComboBox *_makeVatCountryCombo(const QString &vatCountry) const;
     static QWidget *_makeCenteredCheckbox(QCheckBox *cb);
     bool _validateAll();
 };
