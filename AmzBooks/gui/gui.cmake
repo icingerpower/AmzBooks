@@ -51,5 +51,8 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditPurchases.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditPurchases.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditPurchases.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogDisplaySkus.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogDisplaySkus.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogDisplaySkus.ui
     ${PANES_FILES}
 )

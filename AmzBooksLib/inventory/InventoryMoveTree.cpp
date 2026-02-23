@@ -7,8 +7,41 @@
 #include <QDirIterator>
 #include <QFileInfo>
 #include <QFileSystemWatcher>
+#include <QSet>
+#include <QStringList>
 #include <QTimer>
 #include <algorithm>
+
+// ---------------------------------------------------------------------------
+// SKU resolution: Amazon regraded SKUs
+// ---------------------------------------------------------------------------
+// Amazon marks regraded inventory with an "amzn.gr." prefix and appends two
+// extra dash-separated components (a random key and an internal code) to the
+// original SKU.  To locate the purchase data for such items, we strip the
+// prefix and the trailing two components:
+//
+//   "amzn.gr.A5-BOOK-COVER-DESIGN-5-QaQJXV-PO"
+//    remove prefix  → "A5-BOOK-COVER-DESIGN-5-QaQJXV-PO"
+//    split by '-'   → ["A5","BOOK","COVER","DESIGN","5","QaQJXV","PO"]
+//    drop last 2    → ["A5","BOOK","COVER","DESIGN","5"]
+//    join           → "A5-BOOK-COVER-DESIGN-5"    ← canonical SKU
+//
+// Non-regraded SKUs are returned unchanged.
+static QString resolveSkuForPurchaseLookup(const QString &sku)
+{
+    const QString prefix = QStringLiteral("amzn.gr.");
+    if (!sku.startsWith(prefix))
+        return sku;
+
+    const QString withoutPrefix = sku.mid(prefix.size());
+    QStringList parts = withoutPrefix.split(QLatin1Char('-'));
+    if (parts.size() <= 2)
+        return sku; // not enough parts to strip; return original unchanged
+
+    parts.removeLast();
+    parts.removeLast();
+    return parts.join(QLatin1Char('-'));
+}
 
 InventoryMoveTree::InventoryMoveTree(const QDir &purchaseDir,
                                      const QHash<QString, QHash<QString, int>> &countryCode_sku_unitImported,
@@ -85,6 +118,34 @@ void InventoryMoveTree::watchRecursive(const QString &path)
         paths << it.next();
     // addPaths() silently ignores paths that are already watched or do not exist.
     m_watcher->addPaths(paths);
+}
+
+// ---------------------------------------------------------------------------
+// Public helpers
+// ---------------------------------------------------------------------------
+
+QStringList InventoryMoveTree::getSkusWithNoPrice() const
+{
+    QStringList result;
+    QSet<QString> seen;
+
+    const int parentCount = m_rootItem->childCount();
+    for (int i = 0; i < parentCount; ++i) {
+        InventoryMoveTreeItem *parentItem = m_rootItem->child(i);
+        const int childCount = parentItem->childCount();
+        for (int j = 0; j < childCount; ++j) {
+            InventoryMoveTreeItem *childItem = parentItem->child(j);
+            if (childItem->data(COL_UNIT_PRICE).toDouble() == 0.0) {
+                const QString sku = childItem->data(COL_SKU).toString();
+                if (!seen.contains(sku)) {
+                    seen.insert(sku);
+                    result.append(sku);
+                }
+            }
+        }
+    }
+
+    return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +237,9 @@ void InventoryMoveTree::buildTree(
         for (auto it = sku_units.cbegin(); it != sku_units.cend(); ++it) {
             const QString &sku = it.key();
             const int units    = it.value();
-            const PurchaseInfo &info = purchaseData.value(sku);
+            // Regraded SKUs (amzn.gr.*) are resolved to their original canonical SKU
+            // before looking up purchase data; the tree item still shows the regraded name.
+            const PurchaseInfo &info = purchaseData.value(resolveSkuForPurchaseLookup(sku));
 
             double finalPrice  = 0.0;
             // origAmount / origCurrency: only set when conversion was applied.

@@ -12,6 +12,7 @@
 #include "inventory/InventoryMoveTree.h"
 #include "CountriesEu.h"
 
+#include "../dialogs/DialogDisplaySkus.h"
 #include "PaneOrders.h"
 #include "ui_PaneOrders.h"
 
@@ -231,6 +232,19 @@ void PaneOrders::filterReset()
         ui->tableViewOrders->setRowHidden(row, false);
 }
 
+void PaneOrders::displayNoPriceSkus()
+{
+    if (!m_inventoryMoveTree) {
+        QMessageBox::information(this, tr("No data"),
+                tr("Please load orders first."));
+        return;
+    }
+
+    const auto skus = m_inventoryMoveTree->getSkusWithNoPrice();
+    DialogDisplaySkus dialog(skus, this);
+    dialog.exec();
+}
+
 void PaneOrders::_loadInventoryMoveTree(const QDate &dateStart, const QDate &dateEnd)
 {
     QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
@@ -326,4 +340,8 @@ void PaneOrders::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneOrders::filterReset);
+    connect(ui->buttonDisplayNoPriceSkus,
+            &QPushButton::clicked,
+            this,
+            &PaneOrders::displayNoPriceSkus);
 }

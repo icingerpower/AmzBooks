@@ -7,6 +7,7 @@
 #include <QFileSystemWatcher>
 #include <QHash>
 #include <QString>
+#include <QStringList>
 #include <QTimer>
 
 class CurrencyRateManager;
@@ -162,6 +163,10 @@ public:
                                const QString &companyCountryCode = QString(),
                                QObject *parent = nullptr);
     ~InventoryMoveTree() override;
+
+    // Returns unique SKUs for all child items whose unit price is 0.0
+    // (i.e., no purchase invoice was found). Each SKU appears at most once.
+    QStringList getSkusWithNoPrice() const;
 
     // QAbstractItemModel interface
     QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;

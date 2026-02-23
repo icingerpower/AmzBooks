@@ -1,6 +1,6 @@
 // test_inventory_move.cpp
 // Unit tests for InventoryMoveTree / InventoryMoveTreeItem / PurchaseCsvLoader
-// 16 test slots
+// 17 test slots
 
 #include <QtTest>
 #include <QDir>
@@ -46,6 +46,7 @@ private slots:
     void test_csv_loader_records_order_and_fields(); // parseFiles returns records newest-first, all fields set
     void test_csv_loader_latest_vs_fifo();   // latest-price policy vs FIFO batch policy on same records
     void test_csv_loader_purchase_date_rate(); // purchase-file date drives conversion, not "today's" rate
+    void test_amazon_regrade_sku();            // amzn.gr. prefix stripped to find canonical SKU in purchase data
 
 private:
     QDir m_testDir;
@@ -1422,6 +1423,89 @@ void TestInventoryMove::test_csv_loader_purchase_date_rate()
     QVERIFY(nearlyEqual(treePrice, 5.00));
 
     delete model;
+}
+
+// ===========================================================================
+// Test 18 – amazon_regrade_sku
+// 10 assertions:
+//   Amazon regraded SKU "amzn.gr.A5-BOOK-COVER-DESIGN-5-QaQJXV-PO" is resolved
+//   to the canonical "A5-BOOK-COVER-DESIGN-5" for purchase-data lookup.
+//   The tree item still shows the original regraded SKU, but price and title
+//   are taken from the canonical SKU's invoice record.
+// ===========================================================================
+void TestInventoryMove::test_amazon_regrade_sku()
+{
+    // Purchase CSV: canonical SKU "A5-BOOK-COVER-DESIGN-5" @ 3.50 EUR, 200 g.
+    writeCsv(m_purchasesDir.filePath(QStringLiteral("2025-06-01__p-regrade.csv")),
+             QStringLiteral("Order ID,Title,SKU,Quantity,Unit Price,Currency,Unit Weight\n"
+                            "1,Book Cover A5,A5-BOOK-COVER-DESIGN-5,100,3.50,EUR,200\n"));
+
+    const QString regradedSku  = QStringLiteral("amzn.gr.A5-BOOK-COVER-DESIGN-5-QaQJXV-PO");
+    const QString canonicalSku = QStringLiteral("A5-BOOK-COVER-DESIGN-5");
+
+    QHash<QString, QHash<QString, int>> imported;
+    imported[QStringLiteral("FR")][regradedSku] = 5;
+
+    auto *model = makeTree(imported, {});
+
+    int pRow = findParentRow(*model, QStringLiteral("EU"), QStringLiteral("FR"));
+    QVERIFY(pRow != -1);
+
+    // [1] regraded SKU appears as a child in the tree under its original name
+    int cRow = findChildRow(*model, pRow, regradedSku);
+    QVERIFY(cRow != -1);
+
+    // [2] unit price is resolved from the canonical SKU's record (not "No invoice found")
+    QVERIFY(nearlyEqual(
+        childData(*model, pRow, cRow, InventoryMoveTree::COL_UNIT_PRICE).toDouble(), 3.50));
+
+    // [3] purchase file is NOT "No invoice found"
+    QVERIFY(childData(*model, pRow, cRow, InventoryMoveTree::COL_PURCHASE_FILE).toString()
+            != QStringLiteral("No invoice found"));
+
+    // [4] total price = 5 × 3.50 = 17.50
+    QVERIFY(nearlyEqual(
+        childData(*model, pRow, cRow, InventoryMoveTree::COL_TOTAL_PRICE).toDouble(), 17.50));
+
+    // [5] product name is inherited from the canonical SKU's record
+    QCOMPARE(childData(*model, pRow, cRow, InventoryMoveTree::COL_PRODUCT_NAME).toString(),
+             QStringLiteral("Book Cover A5"));
+
+    // [6] getSkusWithNoPrice() does NOT include the regraded SKU (price was found)
+    QVERIFY(!model->getSkusWithNoPrice().contains(regradedSku));
+
+    // [7] the canonical SKU itself also finds the price when used directly
+    QHash<QString, QHash<QString, int>> imported2;
+    imported2[QStringLiteral("FR")][canonicalSku] = 3;
+    auto *model2 = makeTree(imported2, {});
+    int pRow2 = findParentRow(*model2, QStringLiteral("EU"), QStringLiteral("FR"));
+    QVERIFY(pRow2 != -1);
+    int cRow2 = findChildRow(*model2, pRow2, canonicalSku);
+    QVERIFY(cRow2 != -1);
+    QVERIFY(nearlyEqual(
+        childData(*model2, pRow2, cRow2, InventoryMoveTree::COL_UNIT_PRICE).toDouble(), 3.50));
+
+    // [8] an amzn.gr. SKU whose canonical part has no invoice still gets "No invoice found"
+    const QString unknownRegrade = QStringLiteral("amzn.gr.UNKNOWN-PRODUCT-XY-QaQJXV-PO");
+    QHash<QString, QHash<QString, int>> imported3;
+    imported3[QStringLiteral("FR")][unknownRegrade] = 2;
+    auto *model3 = makeTree(imported3, {});
+    int pRow3 = findParentRow(*model3, QStringLiteral("EU"), QStringLiteral("FR"));
+    QVERIFY(pRow3 != -1);
+    int cRow3 = findChildRow(*model3, pRow3, unknownRegrade);
+    QVERIFY(cRow3 != -1);
+    QCOMPARE(childData(*model3, pRow3, cRow3, InventoryMoveTree::COL_PURCHASE_FILE).toString(),
+             QStringLiteral("No invoice found"));
+
+    // [9] getSkusWithNoPrice() DOES include the unknown regraded SKU
+    QVERIFY(model3->getSkusWithNoPrice().contains(unknownRegrade));
+
+    // [10] units are still correctly recorded for the regraded SKU
+    QCOMPARE(childData(*model, pRow, cRow, InventoryMoveTree::COL_UNITS).toInt(), 5);
+
+    delete model;
+    delete model2;
+    delete model3;
 }
 
 QTEST_MAIN(TestInventoryMove)

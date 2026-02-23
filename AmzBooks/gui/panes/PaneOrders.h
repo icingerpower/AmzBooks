@@ -27,6 +27,7 @@ public slots:
     void displayOrdersNoInvoices();
     void filter();
     void filterReset();
+    void displayNoPriceSkus();
 
 private:
     Ui::PaneOrders *ui;
