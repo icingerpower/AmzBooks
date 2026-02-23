@@ -54,5 +54,8 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogDisplaySkus.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogDisplaySkus.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogDisplaySkus.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogMapSkuRegraded.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogMapSkuRegraded.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogMapSkuRegraded.ui
     ${PANES_FILES}
 )

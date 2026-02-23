@@ -1,3 +1,4 @@
+#include <QCoroTask>
 #include <QDate>
 #include <QMessageBox>
 
@@ -5,6 +6,7 @@
 
 #include "orders/OrderManager.h"
 #include "books/CompanyInfosTable.h"
+#include "books/SkuRegradedTable.h"
 #include "CurrencyRateManager.h"
 #include "orders/OrderTable.h"
 #include "orders/OrderCompleteTable.h"
@@ -13,6 +15,7 @@
 #include "CountriesEu.h"
 
 #include "../dialogs/DialogDisplaySkus.h"
+#include "../dialogs/DialogMapSkuRegraded.h"
 #include "PaneOrders.h"
 #include "ui_PaneOrders.h"
 
@@ -21,7 +24,9 @@ PaneOrders::PaneOrders(QWidget *parent) :
     ui(new Ui::PaneOrders),
     m_companyInfos(nullptr),
     m_currRateManager(nullptr),
-    m_inventoryMoveTree(nullptr)
+    m_inventoryMoveTree(nullptr),
+    m_skuRegradedTable(new SkuRegradedTable(
+        QDir(WorkingDirectoryManager::instance()->workingDir()), this))
 {
     ui->setupUi(this);
     ui->dateEditMonthlyOrders->setDate(
@@ -234,15 +239,71 @@ void PaneOrders::filterReset()
 
 void PaneOrders::displayNoPriceSkus()
 {
+    auto task = displayNoPriceSkusAsync();
+    QCoro::connect(std::move(task), this, []() {});
+}
+
+QCoro::Task<> PaneOrders::displayNoPriceSkusAsync()
+{
     if (!m_inventoryMoveTree) {
         QMessageBox::information(this, tr("No data"),
                 tr("Please load orders first."));
-        return;
+        co_return;
     }
 
-    const auto skus = m_inventoryMoveTree->getSkusWithNoPrice();
-    DialogDisplaySkus dialog(skus, this);
+    const QStringList noPrice = m_inventoryMoveTree->getSkusWithNoPrice();
+
+    // For each amzn.gr. SKU with no price that has no entry yet in the mapping
+    // table, pre-populate the key and offer to open the mapping editor.
+    auto callbackAddIfMissing =
+        [this](const QString &title, const QString &text) -> QCoro::Task<bool>
+    {
+        const int ret = QMessageBox::question(this, title, text);
+        if (ret != QMessageBox::Yes)
+            co_return false;
+        DialogMapSkuRegraded dialog(m_skuRegradedTable, this);
+        dialog.exec();
+        co_return true;
+    };
+
+    for (const QString &sku : noPrice) {
+        if (!sku.startsWith(QStringLiteral("amzn.gr.")))
+            continue;
+        if (m_skuRegradedTable->contains(sku))
+            continue;
+
+        // Try the heuristic first: strip "amzn.gr.", remove the last two
+        // dash-separated components, and look up the resulting canonical SKU.
+        // This works ~80 % of the time.  When Amazon also shortened the
+        // original SKU before prepending the prefix, the heuristic produces a
+        // wrong canonical (no price found), and we fall back to asking the user
+        // for a manual mapping.
+        const QString canonical = InventoryMoveTree::resolveSkuForPurchaseLookup(sku);
+        if (m_inventoryMoveTree->hasUnitPriceFor(canonical))
+            continue; // heuristic found the price — no manual mapping needed
+
+        // Pre-populate the key with an empty canonical SKU so the user only
+        // needs to fill in the right-hand column in the mapping editor.
+        m_skuRegradedTable->appendRegradedSku(sku);
+
+        co_await callbackAddIfMissing(
+                tr("Unknown regraded SKU"),
+                tr("The regraded SKU \"%1\" has no canonical mapping.\n\n"
+                   "Would you like to open the SKU mapping editor to fill it in?")
+                        .arg(sku));
+    }
+
+    DialogDisplaySkus dialog(noPrice, this);
     dialog.exec();
+}
+
+void PaneOrders::editRegradedSkus()
+{
+    DialogMapSkuRegraded dialog(m_skuRegradedTable, this);
+    dialog.exec();
+    // Rebuild the tree so any newly-added or updated mappings take effect.
+    if (m_inventoryMoveTree)
+        m_inventoryMoveTree->rebuild();
 }
 
 void PaneOrders::_loadInventoryMoveTree(const QDate &dateStart, const QDate &dateEnd)
@@ -306,6 +367,7 @@ void PaneOrders::_loadInventoryMoveTree(const QDate &dateStart, const QDate &dat
             m_currRateManager,
             workingDir,
             m_companyInfos->getCompanyCountryCode(),
+            m_skuRegradedTable,
             this);
 
     ui->treeViewInventory->setModel(m_inventoryMoveTree);
@@ -344,4 +406,8 @@ void PaneOrders::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneOrders::displayNoPriceSkus);
+    connect(ui->buttonEditRegradedSkus,
+            &QPushButton::clicked,
+            this,
+            &PaneOrders::editRegradedSkus);
 }

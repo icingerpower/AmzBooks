@@ -1,6 +1,7 @@
 // test_inventory_move.cpp
 // Unit tests for InventoryMoveTree / InventoryMoveTreeItem / PurchaseCsvLoader
-// 17 test slots
+//             + SkuRegradedTable
+// 21 test slots
 
 #include <QtTest>
 #include <QDir>
@@ -10,6 +11,7 @@
 
 #include "inventory/InventoryMoveTree.h"
 #include "inventory/PurchaseCsvLoader.h"
+#include "books/SkuRegradedTable.h"
 #include "CurrencyRateManager.h"
 
 // ---------------------------------------------------------------------------
@@ -47,6 +49,9 @@ private slots:
     void test_csv_loader_latest_vs_fifo();   // latest-price policy vs FIFO batch policy on same records
     void test_csv_loader_purchase_date_rate(); // purchase-file date drives conversion, not "today's" rate
     void test_amazon_regrade_sku();            // amzn.gr. prefix stripped to find canonical SKU in purchase data
+    void test_sku_regraded_table();            // SkuRegradedTable: append/contains/getSku/data/setData
+    void test_sku_regraded_table_persistence(); // SkuRegradedTable: CSV save + reload
+    void test_regraded_sku_issue();            // bug: regraded SKU stays in noPrice even after user maps it
 
 private:
     QDir m_testDir;
@@ -64,7 +69,8 @@ private:
             const QHash<QString, QHash<QString, int>> &exported,
             const QHash<QString, double> &pricePerKilo = {},
             const QString &companyCurrency = QString(),
-            const CurrencyRateManager *rates = nullptr);
+            const CurrencyRateManager *rates = nullptr,
+            const SkuRegradedTable *skuRegradedTable = nullptr);
 
     // Find the row index of a top-level parent item with the given from/to.
     // Returns -1 if not found.
@@ -124,10 +130,12 @@ InventoryMoveTree *TestInventoryMove::makeTree(
         const QHash<QString, QHash<QString, int>> &exported,
         const QHash<QString, double> &pricePerKilo,
         const QString &companyCurrency,
-        const CurrencyRateManager *rates)
+        const CurrencyRateManager *rates,
+        const SkuRegradedTable *skuRegradedTable)
 {
     return new InventoryMoveTree(m_purchasesDir, imported, exported,
-                                 pricePerKilo, companyCurrency, rates, QDir(), QString(), this);
+                                 pricePerKilo, companyCurrency, rates,
+                                 QDir(), QString(), skuRegradedTable, this);
 }
 
 int TestInventoryMove::findParentRow(InventoryMoveTree &model,
@@ -681,7 +689,7 @@ void TestInventoryMove::test_shipping_cost()
     // [9] Also verify export direction: SKU_S1 exported from FR → same shipping cost applies
     QHash<QString, QHash<QString, int>> exported;
     exported[QStringLiteral("FR")][QStringLiteral("SKU_S1")] = 3;
-    InventoryMoveTree model2(m_purchasesDir, {}, exported, ppk, QString(), nullptr, QDir(), QString(), this);
+    InventoryMoveTree model2(m_purchasesDir, {}, exported, ppk, QString(), nullptr, QDir(), QString(), nullptr, this);
     int expRow = findParentRow(model2, QStringLiteral("FR"), QStringLiteral("EU"));
     QVERIFY(expRow != -1);
     int cS1exp = findChildRow(model2, expRow, QStringLiteral("SKU_S1"));
@@ -864,7 +872,7 @@ void TestInventoryMove::test_sort()
     exported[QStringLiteral("DE")][QStringLiteral("SKU_SORT2")] = 30;
     exported[QStringLiteral("GB")][QStringLiteral("SKU_SORT3")] = 20;
 
-    InventoryMoveTree model(m_purchasesDir, {}, exported, {}, QString(), nullptr, QDir(), QString(), this);
+    InventoryMoveTree model(m_purchasesDir, {}, exported, {}, QString(), nullptr, QDir(), QString(), nullptr, this);
 
     // [1] 3 parent rows exist before sorting
     QCOMPARE(model.rowCount(), 3);
@@ -1101,7 +1109,7 @@ void TestInventoryMove::test_dialog_view_orders_currency()
     imported[QStringLiteral("SK")][QStringLiteral("SKU_DLG")] = 2;
 
     // DialogViewOrders now passes destCurrency directly (no CompanyInfosTable needed).
-    InventoryMoveTree model(m_purchasesDir, imported, {}, {}, QStringLiteral("EUR"), &rates, QDir(), QString(), this);
+    InventoryMoveTree model(m_purchasesDir, imported, {}, {}, QStringLiteral("EUR"), &rates, QDir(), QString(), nullptr, this);
 
     int pRow = findParentRow(model, QStringLiteral("EU"), QStringLiteral("SK"));
     QVERIFY(pRow != -1);
@@ -1410,7 +1418,7 @@ void TestInventoryMove::test_csv_loader_purchase_date_rate()
 
     InventoryMoveTree *model = new InventoryMoveTree(
             dateTestPurchases, imported, {},
-            {}, QStringLiteral("EUR"), &rates, QDir(), QString(), this);
+            {}, QStringLiteral("EUR"), &rates, QDir(), QString(), nullptr, this);
 
     const int pRow = findParentRow(*model, QStringLiteral("EU"), QStringLiteral("FR"));
     QVERIFY(pRow != -1);
@@ -1506,6 +1514,200 @@ void TestInventoryMove::test_amazon_regrade_sku()
     delete model;
     delete model2;
     delete model3;
+}
+
+// ===========================================================================
+// Test 19 – sku_regraded_table
+// 15 assertions: full standalone coverage of SkuRegradedTable's public API.
+//   append (success / duplicate), contains, getSku, data, setData (col 1 ok,
+//   col 0 rejected), rowCount.
+// ===========================================================================
+void TestInventoryMove::test_sku_regraded_table()
+{
+    const QDir dir(m_testDir.filePath(QStringLiteral("regraded_basic")));
+    dir.mkpath(QStringLiteral("."));
+
+    SkuRegradedTable table(dir, this);
+
+    // [1] fresh table is empty
+    QCOMPARE(table.rowCount(), 0);
+
+    // [2] contains() is false before any entry
+    QVERIFY(!table.contains(QStringLiteral("amzn.gr.SHORT-XX-PO")));
+
+    // [3] getSku() returns empty string for an unknown regraded SKU
+    QVERIFY(table.getSku(QStringLiteral("amzn.gr.SHORT-XX-PO")).isEmpty());
+
+    // [4] appendRegradedSku() returns true on first insertion
+    QVERIFY(table.appendRegradedSku(QStringLiteral("amzn.gr.SHORT-XX-PO")));
+
+    // [5] rowCount = 1 after insertion
+    QCOMPARE(table.rowCount(), 1);
+
+    // [6] contains() is true after insertion
+    QVERIFY(table.contains(QStringLiteral("amzn.gr.SHORT-XX-PO")));
+
+    // [7] getSku() returns empty string — canonical not yet filled in
+    QVERIFY(table.getSku(QStringLiteral("amzn.gr.SHORT-XX-PO")).isEmpty());
+
+    // [8] data(COL_SKU_REGRADED) returns the regraded key
+    QCOMPARE(table.data(table.index(0, SkuRegradedTable::COL_SKU_REGRADED)).toString(),
+             QStringLiteral("amzn.gr.SHORT-XX-PO"));
+
+    // [9] data(COL_SKU) is empty before the user fills it in
+    QVERIFY(table.data(table.index(0, SkuRegradedTable::COL_SKU)).toString().isEmpty());
+
+    // [10] duplicate append returns false
+    QVERIFY(!table.appendRegradedSku(QStringLiteral("amzn.gr.SHORT-XX-PO")));
+
+    // [11] rowCount is still 1 — no duplicate row created
+    QCOMPARE(table.rowCount(), 1);
+
+    // [12] setData on column 1 (canonical SKU) succeeds
+    QVERIFY(table.setData(table.index(0, SkuRegradedTable::COL_SKU),
+                          QStringLiteral("FULL-CANONICAL")));
+
+    // [13] getSku() returns the newly set canonical
+    QCOMPARE(table.getSku(QStringLiteral("amzn.gr.SHORT-XX-PO")),
+             QStringLiteral("FULL-CANONICAL"));
+
+    // [14] data(COL_SKU) also reflects the new canonical
+    QCOMPARE(table.data(table.index(0, SkuRegradedTable::COL_SKU)).toString(),
+             QStringLiteral("FULL-CANONICAL"));
+
+    // [15] setData on column 0 must be rejected — the key column is read-only
+    QVERIFY(!table.setData(table.index(0, SkuRegradedTable::COL_SKU_REGRADED),
+                           QStringLiteral("anything")));
+}
+
+// ===========================================================================
+// Test 20 – sku_regraded_table_persistence
+// 9 assertions: data survives a save/reload cycle; header labels and
+// column count are correct.
+// ===========================================================================
+void TestInventoryMove::test_sku_regraded_table_persistence()
+{
+    const QDir dir(m_testDir.filePath(QStringLiteral("regraded_persist")));
+    dir.mkpath(QStringLiteral("."));
+
+    // --- First instance: write a mapping ---
+    {
+        SkuRegradedTable t(dir);
+
+        // [1] columnCount = COL_COUNT (2)
+        QCOMPARE(t.columnCount(), static_cast<int>(SkuRegradedTable::COL_COUNT));
+
+        // [2] header for column 0 = "SKU regraded"
+        QCOMPARE(t.headerData(SkuRegradedTable::COL_SKU_REGRADED, Qt::Horizontal).toString(),
+                 QStringLiteral("SKU regraded"));
+
+        // [3] header for column 1 = "SKU"
+        QCOMPARE(t.headerData(SkuRegradedTable::COL_SKU, Qt::Horizontal).toString(),
+                 QStringLiteral("SKU"));
+
+        t.appendRegradedSku(QStringLiteral("amzn.gr.A-B-C-D-XX-PO"));
+        t.setData(t.index(0, SkuRegradedTable::COL_SKU), QStringLiteral("A-B-C"));
+
+        // [4] getSku() is correct in the same instance (before reload)
+        QCOMPARE(t.getSku(QStringLiteral("amzn.gr.A-B-C-D-XX-PO")),
+                 QStringLiteral("A-B-C"));
+    }
+
+    // --- Second instance: reload from the same directory ---
+    SkuRegradedTable t2(dir);
+
+    // [5] rowCount = 1 after reload
+    QCOMPARE(t2.rowCount(), 1);
+
+    // [6] contains() is true after reload
+    QVERIFY(t2.contains(QStringLiteral("amzn.gr.A-B-C-D-XX-PO")));
+
+    // [7] getSku() is preserved across the save/reload cycle
+    QCOMPARE(t2.getSku(QStringLiteral("amzn.gr.A-B-C-D-XX-PO")),
+             QStringLiteral("A-B-C"));
+
+    // [8] a second entry can be appended after reload; rowCount grows to 2
+    t2.appendRegradedSku(QStringLiteral("amzn.gr.OTHER-XX-PO"));
+    QCOMPARE(t2.rowCount(), 2);
+
+    // [9] contains() is true for the newly added second entry
+    QVERIFY(t2.contains(QStringLiteral("amzn.gr.OTHER-XX-PO")));
+}
+
+// ===========================================================================
+// Test 21 – regraded_sku_issue
+// 6 assertions: confirms the heuristic failure AND the SkuRegradedTable fix.
+//
+// When Amazon shortens the original SKU before prepending "amzn.gr.", the
+// heuristic (strip prefix + remove last 2 dash-separated parts) produces a
+// WRONG canonical.  Assertions [1-4] confirm that a tree built without a
+// SkuRegradedTable cannot find the price in this case.
+//
+// Assertion [5]: the SkuRegradedTable holds the correct mapping.
+// Assertion [6]: a tree built WITH the SkuRegradedTable DOES find the price —
+//                the regraded SKU is NO LONGER in getSkusWithNoPrice().
+// ===========================================================================
+void TestInventoryMove::test_regraded_sku_issue()
+{
+    // Purchase CSV: canonical "FULL-PRODUCT-NAME" @ 4.00 EUR exists.
+    writeCsv(m_purchasesDir.filePath(QStringLiteral("2025-06-01__p-issue.csv")),
+             QStringLiteral("Order ID,Title,SKU,Quantity,Unit Price,Currency,Unit Weight\n"
+                            "1,Full Product,FULL-PRODUCT-NAME,100,4.00,EUR,0\n"));
+
+    // The regraded variant: Amazon shortened "FULL-PRODUCT-NAME" to "FULL-SHORT"
+    // before prepending "amzn.gr." and appending the suffix.
+    //   heuristic → "FULL-SHORT"       (wrong — not in purchase data)
+    //   correct   → "FULL-PRODUCT-NAME" (what the user types in DialogMapSkuRegraded)
+    const QString regradedSku  = QStringLiteral("amzn.gr.FULL-SHORT-XXXX-PO");
+    const QString heuristicSku = QStringLiteral("FULL-SHORT");
+    const QString correctSku   = QStringLiteral("FULL-PRODUCT-NAME");
+
+    QHash<QString, QHash<QString, int>> imported;
+    imported[QStringLiteral("FR")][regradedSku] = 3;
+
+    // ── Part 1: tree WITHOUT SkuRegradedTable — heuristic failure ───────────
+    auto *model = makeTree(imported, {});
+
+    const int pRow = findParentRow(*model, QStringLiteral("EU"), QStringLiteral("FR"));
+    QVERIFY(pRow != -1);
+    const int cRow = findChildRow(*model, pRow, regradedSku);
+    QVERIFY(cRow != -1);
+
+    // [1] resolveSkuForPurchaseLookup gives the wrong canonical ("FULL-SHORT",
+    //     not "FULL-PRODUCT-NAME") — confirms the heuristic is fooled.
+    QCOMPARE(InventoryMoveTree::resolveSkuForPurchaseLookup(regradedSku),
+             heuristicSku);
+
+    // [2] the heuristic canonical has no unit price in the tree
+    QVERIFY(!model->hasUnitPriceFor(heuristicSku));
+
+    // [3] as a result, the regraded SKU is in getSkusWithNoPrice()
+    QVERIFY(model->getSkusWithNoPrice().contains(regradedSku));
+
+    // [4] and its unit price in the tree is 0.0
+    QVERIFY(nearlyEqual(
+        childData(*model, pRow, cRow, InventoryMoveTree::COL_UNIT_PRICE).toDouble(), 0.0));
+
+    // ── Part 2: user fills in the correct mapping ────────────────────────────
+    const QDir dir(m_testDir.filePath(QStringLiteral("regraded_issue")));
+    dir.mkpath(QStringLiteral("."));
+    SkuRegradedTable skuTable(dir);
+    skuTable.appendRegradedSku(regradedSku);
+    skuTable.setData(skuTable.index(0, SkuRegradedTable::COL_SKU), correctSku);
+
+    // [5] SkuRegradedTable now holds the correct mapping (sanity check)
+    QCOMPARE(skuTable.getSku(regradedSku), correctSku);
+
+    // ── Part 3: tree WITH SkuRegradedTable — fix confirmed ──────────────────
+    auto *model2 = makeTree(imported, {}, {}, {}, nullptr, &skuTable);
+
+    // [6] the regraded SKU is NO LONGER in getSkusWithNoPrice():
+    //     InventoryMoveTree now falls back to SkuRegradedTable and finds
+    //     the price for "FULL-PRODUCT-NAME".
+    QVERIFY(!model2->getSkusWithNoPrice().contains(regradedSku));
+
+    delete model;
+    delete model2;
 }
 
 QTEST_MAIN(TestInventoryMove)

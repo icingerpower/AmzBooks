@@ -3,6 +3,7 @@
 #include "InventoryInvoicesTree.h"
 #include "PurchaseCsvLoader.h"
 #include "books/CompanyInfosTable.h"
+#include "books/SkuRegradedTable.h"
 #include <QBrush>
 #include <QDirIterator>
 #include <QFileInfo>
@@ -27,7 +28,10 @@
 //    join           → "A5-BOOK-COVER-DESIGN-5"    ← canonical SKU
 //
 // Non-regraded SKUs are returned unchanged.
-static QString resolveSkuForPurchaseLookup(const QString &sku)
+// When Amazon shortens the original SKU before prepending the prefix, this
+// heuristic produces a wrong canonical (~20 % of cases); hasUnitPriceFor()
+// lets callers detect that situation and fall back to a manual mapping.
+QString InventoryMoveTree::resolveSkuForPurchaseLookup(const QString &sku)
 {
     const QString prefix = QStringLiteral("amzn.gr.");
     if (!sku.startsWith(prefix))
@@ -43,6 +47,11 @@ static QString resolveSkuForPurchaseLookup(const QString &sku)
     return parts.join(QLatin1Char('-'));
 }
 
+bool InventoryMoveTree::hasUnitPriceFor(const QString &canonicalSku) const
+{
+    return m_canonicalsWithPrice.contains(canonicalSku);
+}
+
 InventoryMoveTree::InventoryMoveTree(const QDir &purchaseDir,
                                      const QHash<QString, QHash<QString, int>> &countryCode_sku_unitImported,
                                      const QHash<QString, QHash<QString, int>> &countryCode_sku_unitExported,
@@ -51,6 +60,7 @@ InventoryMoveTree::InventoryMoveTree(const QDir &purchaseDir,
                                      const CurrencyRateManager *currencyRateManager,
                                      const QDir &workingDir,
                                      const QString &companyCountryCode,
+                                     const SkuRegradedTable *skuRegradedTable,
                                      QObject *parent)
     : QAbstractItemModel(parent)
     , m_purchaseDir(purchaseDir)
@@ -59,6 +69,7 @@ InventoryMoveTree::InventoryMoveTree(const QDir &purchaseDir,
     , m_companyCurrency(companyCurrency)
     , m_companyCountryCode(companyCountryCode)
     , m_currencyRateManager(currencyRateManager)
+    , m_skuRegradedTable(skuRegradedTable)
     , m_rootItem(new InventoryMoveTreeItem())
     , m_countryCode_sku_unitImported(countryCode_sku_unitImported)
     , m_countryCode_sku_unitExported(countryCode_sku_unitExported)
@@ -220,6 +231,8 @@ void InventoryMoveTree::buildTree(
         const QHash<QString, QHash<QString, int>> &countryCode_sku_unitImported,
         const QHash<QString, QHash<QString, int>> &countryCode_sku_unitExported)
 {
+    m_canonicalsWithPrice.clear();
+
     QHash<QString, PurchaseInfo> purchaseData;
     loadPurchaseData(purchaseData);
 
@@ -239,7 +252,16 @@ void InventoryMoveTree::buildTree(
             const int units    = it.value();
             // Regraded SKUs (amzn.gr.*) are resolved to their original canonical SKU
             // before looking up purchase data; the tree item still shows the regraded name.
-            const PurchaseInfo &info = purchaseData.value(resolveSkuForPurchaseLookup(sku));
+            // Primary: heuristic (strip "amzn.gr." + drop last 2 dash-separated parts).
+            // Fallback: SkuRegradedTable manual mapping when the heuristic canonical has
+            //           no purchase data (~20 % of cases where Amazon shortened the SKU).
+            QString resolvedSku = resolveSkuForPurchaseLookup(sku);
+            if (m_skuRegradedTable && !purchaseData.value(resolvedSku).hasPriceFromFile) {
+                const QString mapped = m_skuRegradedTable->getSku(sku);
+                if (!mapped.isEmpty())
+                    resolvedSku = mapped;
+            }
+            const PurchaseInfo &info = purchaseData.value(resolvedSku);
 
             double finalPrice  = 0.0;
             // origAmount / origCurrency: only set when conversion was applied.
@@ -260,6 +282,7 @@ void InventoryMoveTree::buildTree(
 
                 finalPrice   = info.unitPrice + shippingCost;
                 purchaseFile = info.purchaseFile;
+                m_canonicalsWithPrice.insert(resolvedSku);
             } else {
                 // No purchase invoice found for this SKU.
                 finalPrice   = 0.0;

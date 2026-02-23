@@ -157,7 +157,7 @@
          <x>0</x>
          <y>0</y>
          <width>1512</width>
-         <height>479</height>
+         <height>456</height>
         </rect>
        </property>
        <attribute name="label">
@@ -175,7 +175,7 @@
          <x>0</x>
          <y>0</y>
          <width>1512</width>
-         <height>479</height>
+         <height>456</height>
         </rect>
        </property>
        <attribute name="label">
@@ -191,6 +191,13 @@
             </property>
             <property name="text">
              <string>No price SKUs</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QPushButton" name="buttonEditRegradedSkus">
+            <property name="text">
+             <string>Edit regraded skus</string>
             </property>
            </widget>
           </item>

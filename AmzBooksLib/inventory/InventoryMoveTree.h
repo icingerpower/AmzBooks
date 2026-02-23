@@ -6,12 +6,14 @@
 #include <QDir>
 #include <QFileSystemWatcher>
 #include <QHash>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QTimer>
 
 class CurrencyRateManager;
 class InventoryMoveTreeItem;
+class SkuRegradedTable;
 
 /*
  * InventoryMoveTree — QAbstractItemModel for inventory movements between the
@@ -153,6 +155,11 @@ public:
     //                         managed by InventoryInvoicesTree (workingDir/inventory/YYYY/).
     //                         When the inventory subdirectory does not exist the fallback
     //                         is silently skipped.  Pass QDir() to disable invoice lookup.
+    // skuRegradedTable      – optional manual mapping from Amazon regraded SKUs to their
+    //                         canonical SKUs.  Consulted as a fallback when the heuristic
+    //                         (resolveSkuForPurchaseLookup) produces a canonical with no
+    //                         purchase data (~20 % of cases).  May be null; the fallback
+    //                         is silently skipped when null.
     explicit InventoryMoveTree(const QDir &purchaseDir,
                                const QHash<QString, QHash<QString, int>> &countryCode_sku_unitImported,
                                const QHash<QString, QHash<QString, int>> &countryCode_sku_unitExported,
@@ -161,12 +168,25 @@ public:
                                const CurrencyRateManager *currencyRateManager,
                                const QDir &workingDir = QDir(),
                                const QString &companyCountryCode = QString(),
+                               const SkuRegradedTable *skuRegradedTable = nullptr,
                                QObject *parent = nullptr);
     ~InventoryMoveTree() override;
 
     // Returns unique SKUs for all child items whose unit price is 0.0
     // (i.e., no purchase invoice was found). Each SKU appears at most once.
     QStringList getSkusWithNoPrice() const;
+
+    // Resolves an Amazon regraded SKU ("amzn.gr.*") to its likely canonical SKU
+    // using the strip-prefix + remove-last-2-parts heuristic.  Returns the input
+    // unchanged when it does not start with "amzn.gr." or does not have enough
+    // dash-separated parts.
+    static QString resolveSkuForPurchaseLookup(const QString &sku);
+
+    // Returns true if canonicalSku was resolved (via the heuristic or directly)
+    // and had a non-zero unit price when the tree was last built.  A false result
+    // means the heuristic either produced a wrong canonical or no purchase invoice
+    // exists for it, and a manual SKU mapping may be required.
+    bool hasUnitPriceFor(const QString &canonicalSku) const;
 
     // QAbstractItemModel interface
     QModelIndex index(int row, int column, const QModelIndex &parent = QModelIndex()) const override;
@@ -178,6 +198,12 @@ public:
     Qt::ItemFlags flags(const QModelIndex &index) const override;
     void sort(int column, Qt::SortOrder order = Qt::AscendingOrder) override;
 
+public slots:
+    // Deletes all item data and rebuilds from the stored hashes and current CSV
+    // files.  Also re-registers any newly-appeared subdirectories with m_watcher.
+    // Safe to call from external code (e.g. after updating SkuRegradedTable).
+    void rebuild();
+
 private slots:
     // Triggered by m_watcher whenever a watched directory reports a change.
     // Restarts m_rebuildTimer; the actual rebuild fires once the directory has
@@ -185,11 +211,6 @@ private slots:
     void onDirectoryChanged();
 
 private:
-    // Deletes all item data and rebuilds from the stored hashes and current CSV
-    // files.  Also re-registers any newly-appeared subdirectories with m_watcher.
-    // Must only be called from within beginResetModel() / endResetModel() brackets
-    // — rebuild() handles those brackets itself.
-    void rebuild();
 
     // Adds path and every subdirectory it currently contains to m_watcher.
     // Paths already registered are silently ignored by QFileSystemWatcher.
@@ -201,6 +222,7 @@ private:
     QString m_companyCurrency;
     QString m_companyCountryCode;
     const CurrencyRateManager *m_currencyRateManager;
+    const SkuRegradedTable    *m_skuRegradedTable;
     InventoryMoveTreeItem *m_rootItem;
 
     // Stored so that rebuild() can reconstruct the tree without external input.
@@ -212,6 +234,11 @@ private:
     // QTimer debounces bursts of events into a single rebuild().
     QFileSystemWatcher *m_watcher;
     QTimer             *m_rebuildTimer;
+
+    // Set of canonical SKUs (after heuristic resolution) that had a non-zero
+    // unit price in the most-recently completed buildTree() run.
+    // Cleared at the start of each buildTree(); used by hasUnitPriceFor().
+    QSet<QString> m_canonicalsWithPrice;
 
     // Per-SKU data aggregated by loadPurchaseData() from PurchaseCsvLoader records.
     // Currency conversion is applied by PurchaseCsvLoader::parseFiles before

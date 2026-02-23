@@ -118,6 +118,7 @@ DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfo
                 currencyRateManager,
                 workingDir,
                 companyCountryCode,
+                nullptr,
                 this);
         ui->treeViewInventoryMove->setModel(m_inventoryMoveTree);
         ui->treeViewInventoryMove->setSortingEnabled(true);
