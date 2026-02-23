@@ -44,6 +44,8 @@ private slots:
     void test_invoice_add();
     void test_get_invoices();
     void test_invoice_save_load_full_fields();
+    void test_invoice_proportion_encode_decode();
+    void test_invoice_extra_tokens();
     
     // JournalEntryFactory tests
     void test_factory_purchase_no_conversion();
@@ -55,6 +57,10 @@ private slots:
     void test_factory_purchase_with_extra();
     void test_factory_single_shipment();
     void test_factory_bank_entry();
+    void test_invoice_decode_no_country_code();
+    void test_factory_purchase_multi_vat_rates();
+    void test_factory_purchase_missing_vat_rate();
+    void test_invoice_label_country_decode();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -380,13 +386,10 @@ void TestBookEntries::test_invoice_encoding()
     // Check Parsing into country_vatRate_vat
     QCOMPARE(info.country_vatRate_vat.size(), 1);
     QVERIFY(info.country_vatRate_vat.contains("FR"));
-    // "TVA" -> Rate Label empty -> "" key? Or check logic.
-    // Logic: "TVA" -> matchRate matches nothing or empty?
-    // Regex "[0-9.]+" on "TVA". No match.
-    // Logic: if matchRate.hasMatch() ... else rateKey = "";
-    // So key is ""
-    QVERIFY(info.country_vatRate_vat["FR"].contains(""));
-    QCOMPARE(info.country_vatRate_vat["FR"][""], 13.6);
+    // "TVA" -> Rate Label empty -> Calculated from VAT/Untaxed
+    // VAT = 13.6, Total = 81.6 -> Untaxed = 68.0 -> Rate = 13.6 / 68.0 = 20.00% -> 0.2
+    QVERIFY(info.country_vatRate_vat["FR"].contains("0.2"));
+    QCOMPARE(info.country_vatRate_vat["FR"]["0.2"], 13.6);
     
     QCOMPARE(info.totalAmount, 81.6);
     QCOMPARE(info.currency, QString("EUR"));
@@ -416,12 +419,12 @@ void TestBookEntries::test_invoice_encoding()
     // Check parsed VATs
     // FR, 5.5 -> 13.6
     QVERIFY(info2.country_vatRate_vat.contains("FR"));
-    QVERIFY(info2.country_vatRate_vat["FR"].contains("5.50"));
-    QCOMPARE(info2.country_vatRate_vat["FR"]["5.50"], 13.6);
+    QVERIFY(info2.country_vatRate_vat["FR"].contains("0.055"));
+    QCOMPARE(info2.country_vatRate_vat["FR"]["0.055"], 13.6);
     
     // FR, 20 -> 20.0
-    QVERIFY(info2.country_vatRate_vat["FR"].contains("20.00")); // formatted %.2f
-    QCOMPARE(info2.country_vatRate_vat["FR"]["20.00"], 20.0);
+    QVERIFY(info2.country_vatRate_vat["FR"].contains("0.2")); // formatted proportion
+    QCOMPARE(info2.country_vatRate_vat["FR"]["0.2"], 20.0);
     
     QCOMPARE(info2.totalAmount, 133.6);
     
@@ -447,7 +450,43 @@ void TestBookEntries::test_invoice_encoding()
     // Test Folder Structure Path
     QString path = PurchaseInvoiceManager::getRelativePath(info);
     QCOMPARE(path, QString("purchase-invoices/2025/02"));
+}
+
+void TestBookEntries::test_invoice_proportion_encode_decode()
+{
+    QString fileName = "2026-01-29__647700__cheques-CESU-25E__FDOMIS__FR-TVA20-5EUR__411EUR.pdf";
+    PurchaseInformation info1 = PurchaseInvoiceManager::decode(fileName);
     
+    QVERIFY(info1.country_vatRate_vat.contains("FR"));
+    
+    // Check that the VAT rate is 0.2 (allowing for formatting variations like "0.20" or "0.2")
+    bool hasProportionRate = info1.country_vatRate_vat["FR"].contains("0.20") || info1.country_vatRate_vat["FR"].contains("0.2");
+    QVERIFY2(hasProportionRate, "The VAT rate should be 0.2, not 20 or 20.00");
+    
+    if (info1.country_vatRate_vat["FR"].contains("0.20")) {
+        QCOMPARE(info1.country_vatRate_vat["FR"]["0.20"], 5.0);
+    } else {
+        QCOMPARE(info1.country_vatRate_vat["FR"]["0.2"], 5.0);
+    }
+    
+    // Encode and Decode again
+    QString encoded = PurchaseInvoiceManager::encode(info1);
+    QCOMPARE(encoded, fileName);
+    
+    PurchaseInformation info2 = PurchaseInvoiceManager::decode(encoded);
+    
+    // Check all information is the same
+    QCOMPARE(info1.date, info2.date);
+    QCOMPARE(info1.account, info2.account);
+    QCOMPARE(info1.label, info2.label);
+    QCOMPARE(info1.accountSupplier, info2.accountSupplier);
+    QCOMPARE(info1.totalAmount, info2.totalAmount);
+    QCOMPARE(info1.vatTokens, info2.vatTokens);
+    QCOMPARE(info1.country_vatRate_vat, info2.country_vatRate_vat);
+}    
+
+void TestBookEntries::test_invoice_extra_tokens()
+{
     // Test Case 4: EXTRA tokens
     QString fileName4 = "2025-05-10__607222__Mix__Supplier__EXTRA-607223-20.1EUR__120.1EUR.pdf";
     PurchaseInformation info4 = PurchaseInvoiceManager::decode(fileName4);
@@ -532,7 +571,7 @@ void TestBookEntries::test_invoice_model_loading()
     QModelIndex idxAccount = manager.index(0, 1);
     QCOMPARE(manager.data(idxAccount).toString(), QString("607000"));
     
-    QModelIndex idxTotal = manager.index(0, 5);
+    QModelIndex idxTotal = manager.index(0, 7);
     QCOMPARE(manager.data(idxTotal).toDouble(), 133.6);
 }
 
@@ -667,7 +706,7 @@ void TestBookEntries::test_factory_purchase_no_conversion()
     JournalTable journalTable(dir);
     
     // Add purchase account for FR
-    purchaseAccounts.addAccount("FR", 20.0, "445660", "445710");
+    // Account FR 0.2 is created by default
     
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
     
@@ -679,7 +718,7 @@ void TestBookEntries::test_factory_purchase_no_conversion()
     purchase.accountSupplier = "SoftCorp";
     purchase.totalAmount = 120.0; // 100 HT + 20 VAT
     purchase.currency = "EUR";
-    purchase.country_vatRate_vat["FR"]["20.00"] = 20.0;
+    purchase.country_vatRate_vat["FR"]["0.2"] = 20.0;
     purchase.countryCodeFrom = "FR";
     purchase.countryCodeTo = "FR";
     
@@ -743,7 +782,7 @@ void TestBookEntries::test_factory_purchase_with_conversion()
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
-    purchaseAccounts.addAccount("FR", 20.0, "445660", "445710");
+    // Account FR 0.2 is created by default
     
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
     
@@ -755,7 +794,7 @@ void TestBookEntries::test_factory_purchase_with_conversion()
     purchase.accountSupplier = "AWS";
     purchase.totalAmount = 120.0; // USD
     purchase.currency = "USD";
-    purchase.country_vatRate_vat["FR"]["20.00"] = 20.0;
+    purchase.country_vatRate_vat["FR"]["0.2"] = 20.0;
     purchase.countryCodeFrom = "FR";
     purchase.countryCodeTo = "FR";
     
@@ -812,7 +851,7 @@ void TestBookEntries::test_factory_purchase_refund()
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
-    purchaseAccounts.addAccount("FR", 20.0, "445660", "445710");
+    // Account FR 0.2 is created by default
     
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
     
@@ -824,7 +863,7 @@ void TestBookEntries::test_factory_purchase_refund()
     purchase.accountSupplier = "RetailCorp";
     purchase.totalAmount = -120.0; // Negative = refund
     purchase.currency = "EUR";
-    purchase.country_vatRate_vat["FR"]["20.00"] = 20.0;
+    purchase.country_vatRate_vat["FR"]["0.2"] = 20.0;
     purchase.countryCodeFrom = "FR";
     purchase.countryCodeTo = "FR";
     
@@ -890,7 +929,7 @@ void TestBookEntries::test_factory_purchase_with_extra()
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
-    purchaseAccounts.addAccount("FR", 20.0, "445660", "445710");
+    // Account FR 0.2 is created by default
     
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
     
@@ -1526,8 +1565,20 @@ void TestBookEntries::test_invoice_save_load_full_fields()
     QVERIFY( saved.country_vatRate_vat.contains("FR"));
     QVERIFY(!saved.country_vatRate_vat.contains("TVA"));
     QCOMPARE(saved.country_vatRate_vat["FR"].size(), 2);
-    QCOMPARE(saved.country_vatRate_vat["FR"]["20.00"], 24.0);
-    QCOMPARE(saved.country_vatRate_vat["FR"]["5.50"],   5.5);
+    // Allow either format like in proportion check
+    if (saved.country_vatRate_vat["FR"].contains("0.20")) {
+        QCOMPARE(saved.country_vatRate_vat["FR"]["0.20"], 24.0);
+    } else {
+        QCOMPARE(saved.country_vatRate_vat["FR"]["0.2"], 24.0);
+    }
+    
+    if (saved.country_vatRate_vat["FR"].contains("0.055")) {
+        QCOMPARE(saved.country_vatRate_vat["FR"]["0.055"],   5.5);
+    } else {
+        // Just in case it preserves some formatting differently
+        QVERIFY(saved.country_vatRate_vat["FR"].contains("0.055") || saved.country_vatRate_vat["FR"].contains("0.055"));
+        QCOMPARE(saved.country_vatRate_vat["FR"]["0.055"],   5.5);
+    }
 
     // rawVatAmount / vatCurrency / vatCountry derived by decode (24.0 + 5.5 = 29.5)
     QCOMPARE(saved.rawVatAmount.toDouble(), 29.5);
@@ -1589,6 +1640,139 @@ void TestBookEntries::test_invoice_save_load_full_fields()
     QCOMPARE(infoSV.vatCurrency, QString("EUR"));
     QVERIFY(infoSV.vatCountry.isEmpty());  // 2-part token has no country
     QCOMPARE(PurchaseInvoiceManager::encode(infoSV), fileSimpleVat); // round-trip
+}
+
+void TestBookEntries::test_invoice_decode_no_country_code()
+{
+    // "FUBER" has no two-letter country-code suffix pair, so countryCodeFrom
+    // and countryCodeTo must both be empty after decoding.
+    QString fileName = "2026-01-05__625100__frais-deplacement__FUBER__FR-TVA-1.81EUR__19.91EUR.pdf";
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QVERIFY(info.countryCodeFrom.isEmpty());
+    QVERIFY(info.countryCodeTo.isEmpty());
+}
+
+void TestBookEntries::test_invoice_label_country_decode()
+{
+    QString fileName = "2026-01-09__604000__photographie-PH-FR__FCIPID__39GBP.pdf";
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    
+    QCOMPARE(info.date.toString(Qt::ISODate), QString("2026-01-09"));
+    QCOMPARE(info.account, QString("604000"));
+    QCOMPARE(info.label, QString("photographie-PH-FR"));
+    QCOMPARE(info.accountSupplier, QString("FCIPID"));
+    QCOMPARE(info.countryCodeFrom, QString("PH"));
+    QCOMPARE(info.countryCodeTo, QString("FR"));
+    QCOMPARE(info.totalAmount, 39.0);
+    QCOMPARE(info.currency, QString("GBP"));
+    
+    // Encode back
+    QString encoded = PurchaseInvoiceManager::encode(info);
+    QCOMPARE(encoded, fileName);
+    
+    // Decode again
+    PurchaseInformation info2 = PurchaseInvoiceManager::decode(encoded);
+    QCOMPARE(info2.countryCodeFrom, QString("PH"));
+    QCOMPARE(info2.countryCodeTo, QString("FR"));
+}
+
+// ── helpers shared by the two multi-rate tests ────────────────────────────────
+static void setupCompanyInfoFr(const QDir &dir)
+{
+    QString companyInfoPath = dir.filePath("company.csv");
+    QFile f(companyInfoPath);
+    f.open(QIODevice::WriteOnly | QIODevice::Text);
+    QTextStream out(&f);
+    out << "Id;Parameter;Value\n";
+    out << "Currency;Currency;EUR\n";
+    out << "Country;Country Code;FR\n";
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: two VAT rates on the same invoice (FR 20 % + FR 5.5 %) both configured
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_purchase_multi_vat_rates()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+
+    CompanyInfosTable companyInfos(dir);
+    CurrencyRateManager currencyManager(dir, "");
+    BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountPurchaseTable purchaseAccounts(dir, "FR");
+    JournalTable journalTable(dir);
+
+    // Accounts for both rates that appear in the filename
+    // Account FR 0.2 is created by default
+    purchaseAccounts.addAccount("FR", 0.055,  "445661", "445711");
+    // Explicitly add DE so it doesn't fail lookup during factory creation
+    purchaseAccounts.addAccount("DE", 0.19, "44566DE", "44571DE");
+
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+
+    PurchaseInformation info = PurchaseInvoiceManager::decode(
+        "2026-01-05__625100__frais-deplacement__FUBER__FR-TVA20-1.81EUR__FR-TVA5.5-1EUR__19.91EUR.pdf");
+
+    // Both FR|20 and FR|5.5 accounts exist → must not throw
+    QSharedPointer<JournalEntry> entry;
+    try {
+        entry = factory.createEntry(info);
+    } catch (const ExceptionWithTitleText &e) {
+        QFAIL(QString("Unexpected exception: %1 – %2")
+                  .arg(e.errorTitle(), e.errorText()).toUtf8().constData());
+    }
+
+    QVERIFY(!entry.isNull());
+
+    // Both VAT debit lines must be present
+    const auto &debits = entry->getDebits();
+    bool found20 = false, found55 = false;
+    for (const auto &line : debits) {
+        if (line.account == "445660") { found20 = true; QCOMPARE(line.currency_amount["EUR"], 1.81); }
+        if (line.account == "445661") { found55 = true; QCOMPARE(line.currency_amount["EUR"], 1.0);  }
+    }
+    QVERIFY(found20);
+    QVERIFY(found55);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: FR 6 % rate has no configured account → ExceptionWithTitleText expected
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_purchase_missing_vat_rate()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+
+    CompanyInfosTable companyInfos(dir);
+    CurrencyRateManager currencyManager(dir, "");
+    BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountPurchaseTable purchaseAccounts(dir, "FR");
+    JournalTable journalTable(dir);
+
+    // Only FR 20 % is configured – FR 6 % deliberately omitted
+    // Account FR 0.2 is created by default
+
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+
+    PurchaseInformation info = PurchaseInvoiceManager::decode(
+        "2026-01-05__625100__frais-deplacement__FUBER__FR-TVA20-1.81EUR__FR-TVA6-1EUR__19.91EUR.pdf");
+
+    // FR 6 % has no account → must throw "Account Missing"
+    bool caught = false;
+    try {
+        factory.createEntry(info);
+    } catch (const ExceptionWithTitleText &e) {
+        caught = true;
+        QCOMPARE(e.errorTitle(), QString("Account Missing"));
+    }
+    QVERIFY2(caught, "ExceptionWithTitleText should have been thrown for missing FR 6% VAT account");
 }
 
 QTEST_MAIN(TestBookEntries)

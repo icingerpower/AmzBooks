@@ -4,9 +4,10 @@
 #include <QMessageBox>
 #include "ExceptionWithTitleText.h"
 
-DialogPurchaseInvoices::DialogPurchaseInvoices(const QStringList &filePaths, QWidget *parent) :
+DialogPurchaseInvoices::DialogPurchaseInvoices(const BookAccountPurchaseTable *purchaseTable, const QStringList &filePaths, QWidget *parent) :
     QDialog(parent),
     ui(new Ui::DialogPurchaseInvoices),
+    m_purchaseTable(purchaseTable),
     m_filePaths(filePaths)
 {
     ui->setupUi(this);
@@ -53,7 +54,7 @@ void DialogPurchaseInvoices::_populateTable()
             // Note: decode uses the filename, not the full path, but here we pass the filepath to decode?
             // AbstractBooksTable::decode expects filename structure. 
             // PurchaseInvoiceManager::decode expects filename to decode info.
-            PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+            PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, m_purchaseTable);
             // Also need to set filePath
             info.filePath = filePath;
             

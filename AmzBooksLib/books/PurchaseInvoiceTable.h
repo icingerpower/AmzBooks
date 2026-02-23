@@ -23,6 +23,10 @@ public:
     // Remove invoice from table and manager (deletes file)
     void removeInvoice(const QModelIndex &index);
 
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+
 private:
     PurchaseInvoiceManager *m_manager;
     QDir m_workingDir;

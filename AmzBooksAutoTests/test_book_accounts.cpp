@@ -235,7 +235,8 @@ private slots:
             co_return false; // Cancel
         };
         QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, cbRetryThenCancel)), ExceptionWithTitleText);
-        QCOMPARE(countRetry, 5);
+        // It immediately throws if it wasn't added correctly in the first retry.
+        QCOMPARE(countRetry, 1);
 
         // 4. Missing with callback that Adds -> Returns Account
         auto cbAdd = [&](const QString& title, const QString& text) -> QCoro::Task<bool> {
@@ -253,12 +254,13 @@ private slots:
         QCOMPARE(res.saleAccount, "DynamicSale");
         
         // 5. Retry loop: Callback calls true (Retry) then Adds on second attempt
+        // Since our anti-infinite-loop logic throws instead of retrying forever, this will throw.
         int countSuccess = 0;
         auto cbRetryThenAdd = [&](const QString&, const QString&) -> QCoro::Task<bool> {
             countSuccess++;
             if (countSuccess == 1) co_return true; // Just retry, don't add yet
             
-            // Add on 2nd attempt
+            // Add on 2nd attempt (won't be reached)
              BooksAccountsSalesTable::Accounts acc;
              acc.saleAccount = "RetrySale";
              acc.vatAccount = "RetryVat";
@@ -266,25 +268,11 @@ private slots:
              co_return true;
         };
         
-        auto res2 = syncWait(table.getAccounts(vc, 88.8, cbRetryThenAdd));
-        QCOMPARE(res2.saleAccount, "RetrySale");
-        QCOMPARE(countSuccess, 2);
+        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 88.8, cbRetryThenAdd)), ExceptionWithTitleText);
+        QCOMPARE(countSuccess, 1);
     }
 
     // --- PURCHASE TESTS ---
-
-    void test_purchaseDoubleVatEntry() {
-        // Test isDoubleVatEntryNeeded
-        BookAccountPurchaseTable table(QDir::tempPath(), "FR");
-        
-        QVERIFY(!table.isDoubleVatEntryNeeded("FR", "FR")); // Domestic
-        QVERIFY(table.isDoubleVatEntryNeeded("DE", "FR")); // Intra-Community
-        QVERIFY(table.isDoubleVatEntryNeeded("CN", "FR")); // Import
-        
-        // Dest != Company (FR) -> False (Not French Auto-liquidation)
-        QVERIFY(!table.isDoubleVatEntryNeeded("FR", "DE")); 
-        QVERIFY(!table.isDoubleVatEntryNeeded("DE", "IT"));
-    }
 
     void test_purchasePersistence() {
         QTemporaryDir tempDir;
@@ -294,10 +282,10 @@ private slots:
         // 1. Init & Defaults
         {
             BookAccountPurchaseTable table(dir, "FR");
-            QVERIFY(table.rowCount() == 1); // Should have 1 default row for FR
+            QVERIFY(table.rowCount() == 3); // Should have 3 default rows for FR
             
-            QString debit = table.getAccountsDebit6("FR");
-            QString credit = table.getAccountsCredit4("FR");
+            QString debit = table.getAccountsDebit6("FR", 0.2);
+            QString credit = table.getAccountsCredit4("FR", 0.2);
             QCOMPARE(debit, "445660");
             QCOMPARE(credit, "445710");
         }
@@ -305,30 +293,30 @@ private slots:
         // 2. Add & Save
         {
             BookAccountPurchaseTable table(dir, "FR");
-            // Add account for DE (Import/Intra)
-            table.addAccount("DE", 19.0, "600DE", "400DE");
+            // Add account for DE
+            table.addAccount("DE", 0.19, "600DE", "400DE");
             
-            QCOMPARE(table.getAccountsDebit6("DE"), "600DE");
-            QCOMPARE(table.getAccountsCredit4("DE"), "400DE");
+            QCOMPARE(table.getAccountsDebit6("DE", 0.19), "600DE");
+            QCOMPARE(table.getAccountsCredit4("DE", 0.19), "400DE");
         }
-        
+
         // 3. Reload
         {
             BookAccountPurchaseTable table(dir, "FR");
-            QCOMPARE(table.rowCount(), 2); // FR + DE
-            
-            QCOMPARE(table.getAccountsDebit6("DE"), "600DE");
-            QCOMPARE(table.getAccountsCredit4("DE"), "400DE");
+            QCOMPARE(table.rowCount(), 4); // 3 defaults + DE
+
+            QCOMPARE(table.getAccountsDebit6("DE", 0.19), "600DE");
+            QCOMPARE(table.getAccountsCredit4("DE", 0.19), "400DE");
         }
-        
+
         // 4. Robustness: Inject Fake Column
         QString csvPath = dir.filePath("purchaseBookAccounts.csv");
         injectFakeColumn(csvPath);
-        
+
         {
             BookAccountPurchaseTable table(dir, "FR");
             // Check Data valid
-            QString val = table.getAccountsDebit6("DE");
+            QString val = table.getAccountsDebit6("DE", 0.19);
             QCOMPARE(val, "600DE");
         }
     }
@@ -339,26 +327,26 @@ private slots:
         
         // 1. Invalid Country
         QVERIFY_EXCEPTION_THROWN(
-            table.addAccount("US", 10.0, "6", "4"),
+            table.addAccount("US", 0.1, "6", "4"),
             ExceptionWithTitleText
         );
         
         // 2. Valid Country, New Rate
-        table.addAccount("DE", 19.0, "6DE", "4DE");
+        table.addAccount("DE", 0.19, "6DE", "4DE");
         
         // 3. Duplicate (DE, 19.0)
         QVERIFY_EXCEPTION_THROWN(
-            table.addAccount("DE", 19.0, "6New", "4New"),
+            table.addAccount("DE", 0.19, "6New", "4New"),
             ExceptionWithTitleText
         );
         
         // 4. Same Country, Diff Rate -> OK
-        table.addAccount("DE", 7.0, "6DE7", "4DE7");
+        table.addAccount("DE", 0.07, "6DE7", "4DE7");
         
         // Check GB/UK
-        table.addAccount("GB", 20.0, "6GB", "4GB");
+        table.addAccount("GB", 0.2, "6GB", "4GB");
         try {
-            table.addAccount("UK", 20.0, "6UK", "4UK"); // Assuming UK is accepted string? Logic said UK or GB.
+            table.addAccount("UK", 0.2, "6UK", "4UK"); // Assuming UK is accepted string? Logic said UK or GB.
         } catch(...) {
             // Depending on implementation
         }
@@ -368,14 +356,14 @@ private slots:
           QTemporaryDir tempDir;
           BookAccountPurchaseTable table(QDir(tempDir.path()), "FR");
           
-          table.addAccount("IT", 22.0, "600IT", "400IT");
+          table.addAccount("IT", 0.22, "600IT", "400IT");
           
-          // Case 1: Known country
-          QCOMPARE(table.getAccountsDebit6("IT"), "600IT");
-          
-          // Case 2: Unknown country -> Exception
-          QVERIFY_EXCEPTION_THROWN(table.getAccountsDebit6("ES"), ExceptionWithTitleText);
-          QVERIFY_EXCEPTION_THROWN(table.getAccountsCredit4("ES"), ExceptionWithTitleText);
+          // Case 1: Known country+rate
+          QCOMPARE(table.getAccountsDebit6("IT", 0.22), "600IT");
+
+          // Case 2: Unknown country+rate -> Exception
+          QVERIFY_EXCEPTION_THROWN(table.getAccountsDebit6("ES", 0.21), ExceptionWithTitleText);
+          QVERIFY_EXCEPTION_THROWN(table.getAccountsCredit4("ES", 0.21), ExceptionWithTitleText);
     }
 
     void test_CompanyAddressTable() {

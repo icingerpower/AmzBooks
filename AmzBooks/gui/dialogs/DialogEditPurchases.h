@@ -14,13 +14,15 @@ class QDateEdit;
 class QLineEdit;
 class QComboBox;
 class QCheckBox;
+class BookAccountPurchaseTable;
 
 class DialogEditPurchases : public QDialog
 {
     Q_OBJECT
 
 public:
-    explicit DialogEditPurchases(const QStringList &filePaths,
+    explicit DialogEditPurchases(const BookAccountPurchaseTable *purchaseTable,
+                                 const QStringList &filePaths,
                                  const QString &companyCurrency,
                                  QWidget *parent = nullptr);
     ~DialogEditPurchases();
@@ -61,6 +63,7 @@ private:
     static constexpr int COL_STATUS       = 12;
 
     Ui::DialogEditPurchases *ui;
+    const BookAccountPurchaseTable *m_purchaseTable;
     QStringList m_filePaths;
     QString m_companyCurrency;
     QList<RowData> m_rows;

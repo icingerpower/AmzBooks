@@ -299,7 +299,8 @@ QString BooksConnections::getAccount2(AbstractBooksTableBank *tableBank, int row
         auto selfTable = m_cacheId_tableSelf[otherId];
         return selfTable->getAccount(row);
     }
-    Q_ASSERT(false); // Should not happen
+    return "TODO"; //TODOCEDRIC
+    //Q_ASSERT(false); // Should not happen
     return QString{};
 }
 

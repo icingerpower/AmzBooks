@@ -25,40 +25,44 @@ BookAccountPurchaseTable::BookAccountPurchaseTable(
     _fillIfEmpty();
 }
 
-bool BookAccountPurchaseTable::isDoubleVatEntryNeeded(const QString &countryFrom, const QString &countryTo) const
+QString BookAccountPurchaseTable::getAccountsDebit6(const QString &countryCode, double vatRate) const
 {
-    // French bookkeeping rules (and general VAT rules):
-    // "TVA auto-liquidé" (Reverse Charge) applies when purchasing goods/services from outside the domestic tax jurisdiction
-    // but tax is due in the domestic jurisdiction (Place of supply = Destination).
-    // This happens for:
-    // 1. Intra-Community Acquisitions (EU to FR): Mandatory Reverse Charge.
-    // 2. Imports (Non-EU to FR): Mandatory Reverse Charge (Autoliquidation à l'importation) since 2022 in France.
-    // 
-    // Condition: 
-    // - Destination must be the company's country (where we file VAT).
-    // - Origin must be different from company's country.
-    
-    return (countryTo == m_countryCodeCompany) && (countryFrom != m_countryCodeCompany);
+    const QString key = countryCode + "|" + QString::number(vatRate);
+    if (m_cache.contains(key))
+        return m_cache[key].debit6;
+        
+    // Fallback: if specific From isn't found, try empty (wildcard)
+    const QString wildcardKey = "|" + QString::number(vatRate);
+    if (m_cache.contains(wildcardKey))
+        return m_cache[wildcardKey].debit6;
+
+    ExceptionWithTitleText exception(tr("Account Missing"),
+        tr("No VAT Debit (6) account found for country %1 and rate %2. "
+           "Please add it in the purchase accounts settings.")
+            .arg(countryCode)
+            .arg(vatRate));
+    exception.raise();
+    return {};
 }
 
-QString BookAccountPurchaseTable::getAccountsDebit6(const QString &countryCode) const
+QString BookAccountPurchaseTable::getAccountsCredit4(const QString &countryCode, double vatRate) const
 {
-    if (m_cache.contains(countryCode)) {
-        return m_cache[countryCode].debit6;
-    }
-    ExceptionWithTitleText exception(tr("Account Missing"),
-                              tr("No VAT Debit (6) account found for country %1").arg(countryCode));
-    exception.raise();
-}
+    const QString key = countryCode + "|" + QString::number(vatRate);
+    if (m_cache.contains(key))
+        return m_cache[key].credit4;
+        
+    // Fallback wildcard
+    const QString wildcardKey = "|" + QString::number(vatRate);
+    if (m_cache.contains(wildcardKey))
+        return m_cache[wildcardKey].credit4;
 
-QString BookAccountPurchaseTable::getAccountsCredit4(const QString &countryCode) const
-{
-    if (m_cache.contains(countryCode)) {
-        return m_cache[countryCode].credit4;
-    }
     ExceptionWithTitleText exception(tr("Account Missing"),
-                              tr("No VAT Credit (4) account found for country %1").arg(countryCode));
+        tr("No VAT Credit (4) account found for country %1 and rate %2. "
+           "Please add it in the purchase accounts settings.")
+            .arg(countryCode)
+            .arg(vatRate));
     exception.raise();
+    return {};
 }
 
 // ... (existing code)
@@ -69,54 +73,10 @@ void BookAccountPurchaseTable::addAccount(
         , const QString &vatAccountDebit6
         , const QString &vatAccountCredit4)
 {
-    // Validation 1: EU or UK check
-    // "UK" usually refers to GB code in this system.
-    // We check if it is an EU member (at any time? or current?) or specifically "UK"/"GB".
-    // CountriesEu has isEuMember(code, date) and all().
-    // If we want strict check: it must be in the list of supported countries.
-    // The user said: "check countryCode is UK or in EU".
-    bool isEuOrUk = (countryCode == "UK" || countryCode == "GB" || CountriesEu::all().contains(countryCode));
-    // Also check if valid EU member via helper if needed, but strictly:
-    // "GB" is in CountriesEu::all() list in this codebase? Let's check CountriesEu.cpp again.
-    // CountriesEu::all() includes GB? No, lines 47-51 in cpp: "AT... SK, MC, XI". GB is NOT in all().
-    // GB is in getAmazonPanEuCountryCodes().
-    // So I must explicit check for GB.
+    bool isEuOrUk = countryCode.isEmpty() || (countryCode == "UK" || countryCode == "GB" || CountriesEu::all().contains(countryCode));
     
     if (!isEuOrUk) {
-        // What exception? User only mentioned VatAccountExistingException for existence.
-        // But for country validity? " trigger an Exception otherwise".
-        // Maybe reused or generic?
-        // Let's assume generic QException or simple one if not specified, 
-        // BUT the user said "(Create a new file with Exception (VatAccountExisting)...)".
-        // It implies using that one or maybe I should have created CountryNotSupportedException?
-        // "and trigger an Exception otherwise". It's vague if it refers to "VatAccountExisting" for both.
-        // "check ... that ... doesn't exist (and trigger an Exception otherwise)."
-        // It likely refers to VatAccountExistingException for the duplication.
-        // For the country check: "Create a new file with Exception (VatAccountExisting) (similar to TaxSchemeInvalidException)".
-        // It sounds like one exception for the duplicate scenarios.
-        // I will throw VatAccountExistingException for duplication.
-        // For Invalid Country? User didn't specify checking country triggers *that* exception.
-        // "check countryCode is UK or in EU ... and trigger an Exception otherwise" -> This phrasing covers both checks.
-        // So I will use `VatAccountExistingException` for both or maybe `TaxSchemeInvalidException`? No.
-        // I'll create `VatAccountExistingException` and maybe abuse it or create another one "InvalidCountryException"?
-        // Given constraints, I'll use `TaxSchemeInvalidException` (renaming it mentaly to InvalidInput?) or just throw strict string message in QException/std::runtime_error?
-        // User explicitly asked to create `VatAccountExistingException`.
-        // Let's split hairs: "check ... that couple ... doesn't exist (and trigger an Exception otherwise)."
-        // This parenthesis links existence to exception.
-        // The first part "addAccount should check countryCode is UK or in EU".
-        // I'll assume standard exception (TaxSchemeInvalidException or new one invalidArgument).
-        // Let's use `VatAccountExistingException` for "Existing".
-        // What for "Invalid Country"? I'll use `TaxSchemeInvalidException` as "Invalid Configuration"?
-        // Or simply throw `VatAccountExistingException` with specific message? No, name is bad.
-        // I will throw `TaxSchemeInvalidException` ("Invalid Country", ...) for country check as I already have it and it fits "Invalid...".
-        // Or just std::invalid_argument?
-        // User said: "Create a new file with Exception (VatAccountExisting)".
-        // I'll stick to: Invalid Country -> TaxSchemeInvalidException (or similar generic).
-        // Duplicate -> VatAccountExistingException.
-    }
-    
-    if (!isEuOrUk) {
-         ExceptionWithTitleText exception("Invalid Country", "The country " + countryCode + " is not UK or an EU member.");
+         ExceptionWithTitleText exception("Invalid Country", "The country is not UK or an EU member.");
          exception.raise();
     }
 
@@ -124,7 +84,8 @@ void BookAccountPurchaseTable::addAccount(
     QString key = countryCode + "|" + QString::number(vatRate);
     if (m_existenceCache.contains(key)) {
          ExceptionWithTitleText exception(tr("Account Exists"),
-            QString(tr("An account for country %1 and rate %2 already exists.")).arg(countryCode).arg(vatRate));
+            QString(tr("An account for country %1 and rate %2 already exists."))
+                .arg(countryCode).arg(vatRate));
          exception.raise();
     }
 
@@ -151,7 +112,7 @@ QVariant BookAccountPurchaseTable::headerData(int section, Qt::Orientation orien
         }
     } else if (role == Qt::ToolTipRole && orientation == Qt::Horizontal) {
         static const QStringList TOOLTIPS = {
-            QObject::tr("The country code"),
+            QObject::tr("Country"),
             QObject::tr("Vat rate"),
             QObject::tr("VAT debit account (alongside account class 6)"),
             QObject::tr("VAT credit account (alongside account class 4)")
@@ -186,6 +147,10 @@ QVariant BookAccountPurchaseTable::data(const QModelIndex &index, int role) cons
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
         if (index.row() >= 0 && index.row() < m_listOfStringList.size() &&
             index.column() >= 0 && index.column() < m_listOfStringList[index.row()].size()) {
+             if (role == Qt::DisplayRole && index.column() == 1) { // VAT Rate column
+                 double ratePct = m_listOfStringList[index.row()][1].toDouble() * 100.0;
+                 return QString("%1%").arg(ratePct, 0, 'f', 2);
+             }
              return m_listOfStringList[index.row()][index.column()];
         }
     }
@@ -221,9 +186,11 @@ void BookAccountPurchaseTable::_fillIfEmpty()
 {
     if (m_listOfStringList.isEmpty()) {
         QString countryCode = m_countryCodeCompany;
-        if (countryCode.isEmpty()) countryCode = "FR"; // Fallback provided by logic usually, but here strict.
+        if (countryCode.isEmpty()) {
+            countryCode = "FR"; // Fallback provided by logic usually, but here strict.
+        }
         
-        double rate = 20.0; // Default
+        double rate = 0.2; // Default
         
         // Attempt to get default rate from VatResolver
         // VatResolver vatResolver(...)
@@ -239,15 +206,29 @@ void BookAccountPurchaseTable::_fillIfEmpty()
         // To do it properly:
         VatResolver resolver(QFileInfo(m_filePath).dir(), nullptr);
         rate = resolver.getRate(QDate::currentDate(), countryCode, SaleType::Products, "", "");
-        if (rate == 0.0) rate = 20.0;
+        if (rate == 0.0) rate = 0.2;
         
         QStringList row;
-        row << countryCode 
-            << QString::number(rate) 
+        row << ""
+            << QString::number(0.2)
             << tr("445660", "french vat bookkeeping account")
             << tr("445710", "french vat bookkeeping account");
         m_listOfStringList.append(row);
         
+        row.clear();
+        row << ""
+            << QString::number(0.1)
+            << tr("445661", "french vat bookkeeping account")
+            << tr("445711", "french vat bookkeeping account");
+        m_listOfStringList.append(row);
+
+        row.clear();
+        row << ""
+            << QString::number(0.055)
+            << tr("445662", "french vat bookkeeping account")
+            << tr("445712", "french vat bookkeeping account");
+        m_listOfStringList.append(row);
+
         _rebuildCache();
         _save();
     }
@@ -277,19 +258,15 @@ void BookAccountPurchaseTable::_rebuildCache()
             continue;
         }
         
-        QString country = row[0];
-        // QString rate = row[1]; // Not used in key for now as getAccounts is by Country
-        
+        QString countryCode = row[0];
+        const QString cacheKey = countryCode + "|" + QString::number(row[1].toDouble());
+
         AccountPair acc;
         acc.debit6 = row[2];
         acc.credit4 = row[3];
-        
-        // Last one wins? or First? 
-        m_cache[country] = acc;
-        
-        // Populate existence cache
-        // Key format: "Country|Rate"
-        m_existenceCache.insert(country + "|" + row[1]);
+
+        m_cache[cacheKey] = acc;
+        m_existenceCache.insert(cacheKey);
     }
 }
 
@@ -326,30 +303,16 @@ void BookAccountPurchaseTable::_load()
     QString headerLine = in.readLine();
     QStringList headers = headerLine.split(";");
     
-    // Legacy check:
-    // Legacy Header (Display Strings): "Country", "Vat rate", "VAT Debit (6)", "VAT Credit (4)" (or localized!)
-    // But in `SaleBookAccountsTable`, we assumed data only in legacy.
-    // In `BookAccountPurchaseTable`, it might be data only too.
-    // First line data: Country Code (2 chars).
-    // New Header: "Country".
-    // Check if first token is "Country".
-    bool isLegacy = (headers.first().trimmed() != "Country");
-    
     QMap<QString, int> columnMap;
-    if (!isLegacy) {
-        for (int i = 0; i < headers.size(); ++i) {
-            columnMap[headers[i].trimmed()] = i;
-        }
-    } else {
-        // Legacy Map: Fixed Order
-        columnMap["Country"] = 0;
-        columnMap["VatRate"] = 1;
-        columnMap["VatDebit6"] = 2;
-        columnMap["VatCredit4"] = 3;
+    for (int i = 0; i < headers.size(); ++i) {
+        columnMap[headers[i].trimmed()] = i;
     }
     
-    // Canonical Indices
     int idxCountry = columnMap.value("Country", -1);
+    if (idxCountry == -1 && columnMap.contains("CountryTo")) {
+        // Fallback for previous change structure where we saved "CountryTo" effectively as "Country"
+         idxCountry = columnMap.value("CountryTo", -1);
+    }
     int idxRate = columnMap.value("VatRate", -1);
     int idxDebit = columnMap.value("VatDebit6", -1);
     int idxCredit = columnMap.value("VatCredit4", -1);
@@ -366,14 +329,10 @@ void BookAccountPurchaseTable::_load()
         if (idxDebit != -1 && idxDebit < parts.size()) normalizedRow[2] = parts[idxDebit];
         if (idxCredit != -1 && idxCredit < parts.size()) normalizedRow[3] = parts[idxCredit];
         
-        if (normalizedRow[0].isEmpty()) return;
+        if (normalizedRow[1].isEmpty()) return; // Required (Rate)
         
         m_listOfStringList.append(normalizedRow);
     };
-
-    if (isLegacy) {
-        processLine(headerLine);
-    }
     
     while (!in.atEnd()) {
         processLine(in.readLine());

@@ -6,6 +6,7 @@
 #include "ExceptionWithTitleText.h"
 
 #include "PurchaseInvoiceManager.h"
+#include "BookAccountPurchaseTable.h"
 
 // PurchaseInvoiceManager is Q_OBJECT, so we can use tr() inside member functions, but decode is static.
 // So we should use QObject::tr() or QCoreApplication::translate.
@@ -16,7 +17,7 @@
 
 
 const QStringList PurchaseInvoiceManager::HEADER = {
-    "Date", "Account", "Label", "Supplier", "VAT", "Total", "Currency"
+    "Date", "Account", "Label", "Supplier", "From", "To", "VAT", "Total", "Currency"
 };
 
 PurchaseInvoiceManager::PurchaseInvoiceManager(const QDir &workingDir, QObject *parent)
@@ -24,6 +25,11 @@ PurchaseInvoiceManager::PurchaseInvoiceManager(const QDir &workingDir, QObject *
     , m_workingDir(workingDir)
 {
     _load();
+}
+
+bool PurchaseInvoiceManager::isSupplierWithCountries(const QString &supplierAccount) const
+{
+    return m_suppliersWithCountries.contains(supplierAccount);
 }
 
 int PurchaseInvoiceManager::rowCount(const QModelIndex &parent) const
@@ -53,9 +59,11 @@ QVariant PurchaseInvoiceManager::data(const QModelIndex &index, int role) const
         case 1: return item.account;
         case 2: return item.label;
         case 3: return item.accountSupplier;
-        case 4: return item.vatTokens.join(", ");
-        case 5: return item.totalAmount;
-        case 6: return item.currency;
+        case 4: return item.countryCodeFrom;
+        case 5: return item.countryCodeTo;
+        case 6: return item.vatTokens.join(", ");
+        case 7: return item.totalAmount;
+        case 8: return item.currency;
         }
     }
     
@@ -107,8 +115,10 @@ void PurchaseInvoiceManager::add(const QString &sourceFilePath, PurchaseInformat
         exception.raise();
     }
     
-    // Refresh model
-    _load();
+    if (!info.countryCodeFrom.isEmpty() || !info.countryCodeTo.isEmpty()) {
+        m_suppliersWithCountries.insert(info.accountSupplier);
+    }
+    
     // Refresh model
     _load();
 }
@@ -146,6 +156,7 @@ void PurchaseInvoiceManager::_load()
 {
     beginResetModel();
     m_data.clear();
+    m_suppliersWithCountries.clear();
     
     QDir invoiceDir(m_workingDir);
     if (invoiceDir.cd("purchase-invoices")) {
@@ -171,6 +182,10 @@ void PurchaseInvoiceManager::scanDirectory(const QDir &dir)
         if (info.date.isValid()) {
             info.filePath = filePath;
             m_data.append(info);
+            
+            if (!info.countryCodeFrom.isEmpty() || !info.countryCodeTo.isEmpty()) {
+                m_suppliersWithCountries.insert(info.accountSupplier);
+            }
         }
     }
 }
@@ -186,7 +201,7 @@ QList<PurchaseInformation> PurchaseInvoiceManager::getInvoices(const QDate &from
     return result;
 }
 
-PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
+PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, const BookAccountPurchaseTable *purchaseTable)
 {
     PurchaseInformation info;
     QFileInfo fileInfo(fileName);
@@ -228,11 +243,36 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
     info.accountSupplier = parts[3];
     
     // Check for Route in Supplier (Ends with 4 caps, e.g. CNFR)
+    // Both 2-letter groups must be valid ISO 3166-1 alpha-2 country codes.
+    static const QSet<QString> validCountryCodes = {
+        // EU
+        "AT", "BE", "BG", "CY", "CZ", "DE", "DK", "EE", "ES", "FI",
+        "FR", "GR", "HR", "HU", "IE", "IT", "LT", "LU", "LV", "MT",
+        "NL", "PL", "PT", "RO", "SE", "SI", "SK",
+        // EEA / other European
+        "CH", "GB", "IS", "LI", "NO", "TR", "UA", "RU",
+        // Major world
+        "AU", "BR", "CA", "CN", "IN", "JP", "KR", "MX", "US",
+        // Others common in e-commerce
+        "AE", "HK", "MA", "SG", "TH", "TW", "VN", "ZA", "PH", "ID"
+    };
     static QRegularExpression regexRoute("([A-Z]{2})([A-Z]{2})$");
     QRegularExpressionMatch matchRoute = regexRoute.match(info.accountSupplier);
-    if (matchRoute.hasMatch()) {
+    if (matchRoute.hasMatch()
+            && validCountryCodes.contains(matchRoute.captured(1))
+            && validCountryCodes.contains(matchRoute.captured(2))) {
         info.countryCodeFrom = matchRoute.captured(1);
         info.countryCodeTo = matchRoute.captured(2);
+    }
+    
+    // Check for Route in Label (Ends with -XX-YY, e.g. -PH-FR)
+    static QRegularExpression regexRouteLabel("-([A-Z]{2})-([A-Z]{2})$");
+    QRegularExpressionMatch matchRouteLabel = regexRouteLabel.match(info.label);
+    if (matchRouteLabel.hasMatch()
+            && validCountryCodes.contains(matchRouteLabel.captured(1))
+            && validCountryCodes.contains(matchRouteLabel.captured(2))) {
+        info.countryCodeFrom = matchRouteLabel.captured(1);
+        info.countryCodeTo = matchRouteLabel.captured(2);
     }
     
     // The last part is Total
@@ -299,12 +339,52 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
                 QRegularExpressionMatch matchRate = regexRate.match(label);
                 QString rateKey = ""; // Default empty
                 if (matchRate.hasMatch()) {
-                    double rateVal = matchRate.captured(0).toDouble();
-                    // Format with 2 decimal places
-                    rateKey = QString::number(rateVal, 'f', 2);
+                    double rateValPercentage = matchRate.captured(0).toDouble();
+                    // Store as proportion
+                    rateKey = QString::number(rateValPercentage / 100.0);
                 }
                 
+                // If rateKey is missing, we need to calculate it: VAT / Untaxed
+                // We know info.totalAmount is the total with VAT.
+                // However, we process tokens sequentially, so we might need to defer this calculation,
+                // or just calculate it using the overall totalAmount and this vatAmount.
+                // Assuming this VAT applies to the totalAmount: Untaxed = totalAmount - all VATs.
+                // But since we are inside a loop that parses VATs, we can't do it accurately yet.
+                // So we temporarily store it under an empty key, and we will fix it after the loop.
                 info.country_vatRate_vat[country][rateKey] += vatAmount;
+            }
+        }
+    }
+    
+    // Defer VAT rate calculation for empty rateKeys now that we have all VATs
+    double totalVatDeferred = 0.0;
+    for (const auto &countryRates : info.country_vatRate_vat) {
+        for (double amt : countryRates.values()) {
+            totalVatDeferred += amt;
+        }
+    }
+    
+    // Compute total extra (subUntaxedAmount) to subtract from the taxable base
+    double totalExtraDeferred = 0.0;
+    for (double amt : info.subUntaxedAmount.values()) {
+        totalExtraDeferred += amt;
+    }
+
+    double untaxedAmount = qAbs(info.totalAmount) - totalVatDeferred - totalExtraDeferred;
+
+    // Now go through and fix empty VAT rates
+    for (auto itCountry = info.country_vatRate_vat.begin(); itCountry != info.country_vatRate_vat.end(); ++itCountry) {
+        if (itCountry.value().contains("")) {
+            double vatAmount = itCountry.value().take("");
+            if (untaxedAmount > 0.001) {
+                double calculatedRate = (vatAmount / untaxedAmount) * 100.0;
+                // Round to 1 decimal place to match typical rates (e.g. 5.5, 20.0), then convert to proportion
+                double roundedRate = qRound(calculatedRate * 10.0) / 10.0;
+                QString newRateKey = QString::number(roundedRate / 100.0);
+                itCountry.value()[newRateKey] += vatAmount;
+            } else {
+                // Fallback to 0 if untaxed is 0 (should not happen normally)
+                itCountry.value()["0"] += vatAmount;
             }
         }
     }
@@ -330,6 +410,18 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName)
         const QStringList firstParts = info.vatTokens.first().split('-');
         if (firstParts.size() >= 3)
             info.vatCountry = firstParts[0];
+    }
+    
+    // Validate VAT rates if a purchase table is provided
+    if (purchaseTable) {
+        for (auto itCountry = info.country_vatRate_vat.constBegin(); itCountry != info.country_vatRate_vat.constEnd(); ++itCountry) {
+            QString countryCode = itCountry.key();
+            for (auto itRate = itCountry.value().constBegin(); itRate != itCountry.value().constEnd(); ++itRate) {
+                double rate = itRate.key().toDouble();
+                // This validates the configuration and throws ExceptionWithTitleText if it doesn't exist
+                purchaseTable->getAccountsDebit6(info.countryCodeTo, rate);
+            }
+        }
     }
 
     return info;
@@ -385,3 +477,4 @@ QString PurchaseInvoiceManager::getRelativePath(const PurchaseInformation &info)
             .arg(info.date.year())
             .arg(info.date.month(), 2, 10, QChar('0'));
 }
+

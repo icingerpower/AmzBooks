@@ -26,14 +26,14 @@
      <item row="0" column="1">
       <widget class="QComboBox" name="comboCountry"/>
      </item>
-     <item row="1" column="0">
+     <item row="2" column="0">
       <widget class="QLabel" name="labelVatRate">
        <property name="text">
         <string>VAT Rate (%):</string>
        </property>
       </widget>
      </item>
-     <item row="1" column="1">
+     <item row="2" column="1">
       <widget class="QDoubleSpinBox" name="spinVatRate">
        <property name="decimals">
         <number>2</number>
@@ -43,27 +43,37 @@
        </property>
       </widget>
      </item>
-     <item row="2" column="0">
+     <item row="3" column="0">
       <widget class="QLabel" name="labelAccountDebit6">
        <property name="text">
         <string>Account Debit (Class 6):</string>
        </property>
       </widget>
      </item>
-     <item row="2" column="1">
+     <item row="3" column="1">
       <widget class="QLineEdit" name="editAccountDebit6"/>
      </item>
-     <item row="3" column="0">
+     <item row="4" column="0">
       <widget class="QLabel" name="labelAccountCredit4">
        <property name="text">
         <string>Account Credit (Class 4):</string>
        </property>
       </widget>
      </item>
-     <item row="3" column="1">
+     <item row="4" column="1">
       <widget class="QLineEdit" name="editAccountCredit4"/>
      </item>
     </layout>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="buttonBox">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <property name="standardButtons">
+      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+     </property>
+    </widget>
    </item>
   </layout>
  </widget>

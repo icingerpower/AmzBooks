@@ -45,50 +45,37 @@ void BookSaverFull::save(
             QSharedPointer<JournalEntry> entry = itDate.value();
             if (!entry) continue;
             
+            const QString &targetCurrency = entry->getCurrency();
+
+            auto amountInTargetCurrency = [&](const JournalEntry::EntryLine &line) -> double {
+                if (line.currency_amount.contains(targetCurrency))
+                    return line.currency_amount[targetCurrency];
+                if (!line.currency_amount.isEmpty())
+                    return line.currency_amount.constBegin().value();
+                return 0.0;
+            };
+
             // Debits
             for (const auto &line : entry->getDebits()) {
-                // Determine amount in entry currency?
-                // JournalEntry has `currency_amount` hash. 
-                // We assume we want the value in the "target currency" of the entry? or always EUR?
-                // The prompt example shows "22.94 EUR".
-                // If the map has multiple currencies, which one to pick?
-                // Usually JournalEntry is created with a target currency.
-                // We should probably sum up if there are multiple? Or take the first?
-                // Let's assume EUR or the first available for now.
-                // But `JournalEntry` structure `QHash<QString, double> currency_amount;` suggests multi-currency support.
-                // For a CSV export, we typically want the bookkeeping currency amount.
-                
-                double amount = 0.0;
-                if (!line.currency_amount.isEmpty()) {
-                     amount = line.currency_amount.constBegin().value();
-                }
-
                 CsvLine csvLine;
                 csvLine.date = date;
                 csvLine.journal = journalId;
                 csvLine.account = line.account;
-                csvLine.debit = amount;
+                csvLine.debit = amountInTargetCurrency(line);
                 csvLine.credit = 0.0;
-                csvLine.label = line.title; // "TVA OSS ..."
-                
+                csvLine.label = line.title;
                 organizedData[year][month][journalId].append(csvLine);
             }
-            
+
             // Credits
             for (const auto &line : entry->getCredits()) {
-                double amount = 0.0;
-                if (!line.currency_amount.isEmpty()) {
-                     amount = line.currency_amount.constBegin().value();
-                }
-
                 CsvLine csvLine;
                 csvLine.date = date;
                 csvLine.journal = journalId;
                 csvLine.account = line.account;
                 csvLine.debit = 0.0;
-                csvLine.credit = amount;
+                csvLine.credit = amountInTargetCurrency(line);
                 csvLine.label = line.title;
-                
                 organizedData[year][month][journalId].append(csvLine);
             }
         }
@@ -125,6 +112,8 @@ void BookSaverFull::save(
         }
     };
 
+    const bool saveLatin1 = QStringConverter::encodingForName("latin1").has_value();
+
     // Iterate and Save
     for (auto itYear = organizedData.constBegin(); itYear != organizedData.constEnd(); ++itYear) {
         int year = itYear.key();
@@ -153,19 +142,23 @@ void BookSaverFull::save(
                 
                 // <year_dir>/<month_dir>/<journal_dir>/<journal_dir>_<year_dir>_<month_dir>.csv
                 QString fileName = QString("%1_%2_%3.csv").arg(journal, yearStr, monthStr);
-                QString fileNameLatin1 = QString("%1_%2_%3-latin1.csv").arg(journal, yearStr, monthStr);
-                
+
                 writeCsv(QFileInfo(monthDir.filePath(journal + "/" + fileName)), lines, false);
-                writeCsv(QFileInfo(monthDir.filePath(journal + "/" + fileNameLatin1)), lines, true);
+                if (saveLatin1) {
+                    QString fileNameLatin1 = QString("%1_%2_%3-latin1.csv").arg(journal, yearStr, monthStr);
+                    writeCsv(QFileInfo(monthDir.filePath(journal + "/" + fileNameLatin1)), lines, true);
+                }
             }
             
             // All aggregated
             // <year_dir>/<month_dir>/all/all_<year_dir>_<month_dir>.csv
             QString allFileName = QString("all_%1_%2.csv").arg(yearStr, monthStr);
-            QString allFileNameLatin1 = QString("all_%1_%2-latin1.csv").arg(yearStr, monthStr);
-            
+
             writeCsv(QFileInfo(monthDir.filePath("all/" + allFileName)), allLines, false);
-            writeCsv(QFileInfo(monthDir.filePath("all/" + allFileNameLatin1)), allLines, true);
+            if (saveLatin1) {
+                QString allFileNameLatin1 = QString("all_%1_%2-latin1.csv").arg(yearStr, monthStr);
+                writeCsv(QFileInfo(monthDir.filePath("all/" + allFileNameLatin1)), allLines, true);
+            }
         }
     }
 }

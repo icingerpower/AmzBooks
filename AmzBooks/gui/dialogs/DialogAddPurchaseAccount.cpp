@@ -17,8 +17,13 @@ DialogAddPurchaseAccount::~DialogAddPurchaseAccount()
 
 void DialogAddPurchaseAccount::_setupCountries()
 {
-    ui->comboCountry->addItems(CountriesEu::getCountries());
-    // Select FR by default if available, or just first one
+    QStringList countries = CountriesEu::getCountries();
+    // Add an empty country representation for "Any" or wildcard
+    countries.prepend("");
+    
+    ui->comboCountry->addItems(countries);
+    
+    // Select FR by default if available
     int index = ui->comboCountry->findText("FR");
     if (index != -1) {
         ui->comboCountry->setCurrentIndex(index);

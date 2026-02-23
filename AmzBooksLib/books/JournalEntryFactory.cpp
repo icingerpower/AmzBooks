@@ -69,17 +69,17 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
                             purchaseInformation.currency);
     }
     
-    QString commonTitle = QString("%1%2%3 %4 - %5%6")
-                          .arg(prefix,
-                               flagDDP,
-                               countries,
-                               purchaseInformation.accountSupplier,
-                               purchaseInformation.label,
-                               currencyInfo);
+    QString labelWithSpaces = purchaseInformation.label;
+    labelWithSpaces.replace("-", " ");
+    labelWithSpaces[0] = labelWithSpaces[0].toUpper();
+    QString head = prefix + flagDDP + countries;
+    if (!purchaseInformation.accountSupplier.isEmpty())
+        head += " " + purchaseInformation.accountSupplier;
+    QString commonTitle = head + " - " + labelWithSpaces + currencyInfo;
     
     // Subtract extra amounts (subUntaxedAmount) from main expense
     double totalExtra = 0.0;
-    for (double amt : purchaseInformation.subUntaxedAmount) {
+    for (double amt : std::as_const(purchaseInformation.subUntaxedAmount)) {
         totalExtra += amt;
     }
     double mainHT = totalHT - totalExtra;
@@ -122,51 +122,26 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
         const auto &rateMap = itCountry.value();
         
         for (auto itRate = rateMap.constBegin(); itRate != rateMap.constEnd(); ++itRate) {
-            const QString &rateKey = itRate.key();
+            double vatRate = itRate.key().toDouble();
             double vatAmount = itRate.value();
             
-            // Get VAT accounts from PurchaseBookAccountsTable
-            QString vatDebit6 = m_purchaseBookAccounts->getAccountsDebit6(country);
-            QString vatCredit4 = m_purchaseBookAccounts->getAccountsCredit4(country);
-            
-            // Check if double VAT entry is needed (autoliquidation)
+            // Fallback empty fields to company country for VAT lookup
             QString companyCountry = m_companyInfos->getCompanyCountryCode();
-            bool needsDoubleVat = m_purchaseBookAccounts->isDoubleVatEntryNeeded(
-                purchaseInformation.countryCodeFrom,
-                purchaseInformation.countryCodeTo.isEmpty() ? companyCountry : purchaseInformation.countryCodeTo
-            );
+            QString countryCode = purchaseInformation.countryCodeTo.isEmpty() ? companyCountry : purchaseInformation.countryCodeTo;
             
-            if (needsDoubleVat) {
-                // Autoliquidation: TVA déductible (Debit) and TVA à payer (Credit)
-                JournalEntry::EntryLine vatDeductibleLine;
-                vatDeductibleLine.title = commonTitle;
-                vatDeductibleLine.account = vatDebit6;
-                vatDeductibleLine.currency_amount[purchaseInformation.currency] = vatAmount;
-                
-                JournalEntry::EntryLine vatPayableLine;
-                vatPayableLine.title = commonTitle;
-                vatPayableLine.account = vatCredit4;
-                vatPayableLine.currency_amount[purchaseInformation.currency] = vatAmount;
-                
-                if (isRefund) {
-                    entry->addCreditRight(vatDeductibleLine, purchaseInformation.currency, currencyRate);
-                    entry->addDebitLeft(vatPayableLine, purchaseInformation.currency, currencyRate);
-                } else {
-                    entry->addDebitLeft(vatDeductibleLine, purchaseInformation.currency, currencyRate);
-                    entry->addCreditRight(vatPayableLine, purchaseInformation.currency, currencyRate);
-                }
+            QString vatDebit6 = m_purchaseBookAccounts->getAccountsDebit6(purchaseInformation.vatCountry, vatRate);
+            QString vatCredit4 = m_purchaseBookAccounts->getAccountsCredit4(purchaseInformation.vatCountry, vatRate);
+            
+            // Normal purchase VAT
+            JournalEntry::EntryLine vatLine;
+            vatLine.title = commonTitle;
+            vatLine.account = vatDebit6;
+            vatLine.currency_amount[purchaseInformation.currency] = vatAmount;
+            
+            if (isRefund) {
+                entry->addCreditRight(vatLine, purchaseInformation.currency, currencyRate);
             } else {
-                // Normal purchase VAT (déductible only)
-                JournalEntry::EntryLine vatLine;
-                vatLine.title = commonTitle;
-                vatLine.account = vatDebit6;
-                vatLine.currency_amount[purchaseInformation.currency] = vatAmount;
-                
-                if (isRefund) {
-                    entry->addCreditRight(vatLine, purchaseInformation.currency, currencyRate);
-                } else {
-                    entry->addDebitLeft(vatLine, purchaseInformation.currency, currencyRate);
-                }
+                entry->addDebitLeft(vatLine, purchaseInformation.currency, currencyRate);
             }
         }
     }

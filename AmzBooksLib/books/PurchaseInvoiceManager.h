@@ -8,6 +8,8 @@
 #include <QDate>
 #include <QList>
 
+class BookAccountPurchaseTable;
+
 struct PurchaseInformation {
     QDate date;
     QString account;
@@ -37,6 +39,7 @@ class PurchaseInvoiceManager : public QAbstractTableModel
 public:
     explicit PurchaseInvoiceManager(const QDir &workingDir, QObject *parent = nullptr);
 
+    bool isSupplierWithCountries(const QString &supplierAccount) const;
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
@@ -48,7 +51,7 @@ public:
     QList<PurchaseInformation> getInvoices(const QDate &from, const QDate &to) const;
 
     static QString encode(const PurchaseInformation &info);
-    static PurchaseInformation decode(const QString &fileName);
+    static PurchaseInformation decode(const QString &fileName, const BookAccountPurchaseTable *purchaseTable = nullptr);
     // Helpers for storage path
     static QString getRelativePath(const PurchaseInformation &info);
 
@@ -56,6 +59,7 @@ public:
 private:
     QDir m_workingDir;
     QList<PurchaseInformation> m_data;
+    QSet<QString> m_suppliersWithCountries;
     static const QStringList HEADER;
 
     void _load();

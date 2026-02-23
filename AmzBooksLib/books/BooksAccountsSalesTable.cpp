@@ -132,7 +132,16 @@ QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccou
              ExceptionWithTitleText exception(errorTitle, errorText);
              exception.raise();
         }
-        // If true (retry/added), loop again to check cache
+        
+        // If we got here, retry is true but lookup STILL failed.
+        // It means the callback didn't actually add the account to our table/cache.
+        // To prevent an infinite loop, we should throw an exception.
+        ExceptionWithTitleText exception(errorTitle, tr("The account was not added properly. Still missing for TaxScheme %1, From %2, To %3, Rate %4")
+                                  .arg(taxSchemeToString(vatCountries.taxScheme), 
+                                       vatCountries.countryCodeFrom, 
+                                       vatCountries.countryCodeTo, 
+                                       QString::number(vatRate)));
+        exception.raise();
     }
     
     // Should not reach here if loop breaks only on !callback or handled inside, 

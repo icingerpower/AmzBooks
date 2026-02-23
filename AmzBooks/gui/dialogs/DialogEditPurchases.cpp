@@ -14,11 +14,13 @@
 #include "CountriesEu.h"
 #include "ExceptionWithTitleText.h"
 
-DialogEditPurchases::DialogEditPurchases(const QStringList &filePaths,
+DialogEditPurchases::DialogEditPurchases(const BookAccountPurchaseTable *purchaseTable,
+                                         const QStringList &filePaths,
                                          const QString &companyCurrency,
                                          QWidget *parent) :
     QDialog(parent),
     ui(new Ui::DialogEditPurchases),
+    m_purchaseTable(purchaseTable),
     m_filePaths(filePaths),
     m_companyCurrency(companyCurrency)
 {

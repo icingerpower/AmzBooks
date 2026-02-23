@@ -14,10 +14,8 @@ public:
     explicit BookAccountPurchaseTable(const QDir &workingDir
                                        , const QString &countryCodeCompany, QObject *parent = nullptr);
     
-    QString getAccountsDebit6(const QString &countryCode) const;
-    QString getAccountsCredit4(const QString &countryCode) const;
-
-    bool isDoubleVatEntryNeeded(const QString &countryFrom, const QString &countryTo) const;
+    QString getAccountsDebit6(const QString &countryCode, double vatRate) const;
+    QString getAccountsCredit4(const QString &countryCode, double vatRate) const;
 
     void addAccount(const QString &countryCode
                     , double vatRate

@@ -1,4 +1,5 @@
 #include <QDateTime>
+#include <QDebug>
 
 #include "../../common/workingdirectory/WorkingDirectoryManager.h"
 
@@ -39,6 +40,7 @@
 #include "books/ServiceSalesBooksTable.h"
 #include "books/ServiceClientManager.h"
 #include "books/CompanyInfosTable.h"
+#include "books/BookAccountPurchaseTable.h"
 #include "orders/OrderManager.h"
 
 // For confirmation message box
@@ -84,36 +86,38 @@ void PaneBookKeeping::loadYearSelected()
 
 void PaneBookKeeping::generateBookKeeping()
 {
+    qDebug() << "[PaneBookKeeping] generateBookKeeping() button clicked - starting task";
     auto task = generateBookKeepingAsync();
-    // We start the task. Since it interacts with UI (message boxes), it should be fine running on main thread.
-    // However, QCoro::Task is lazy. We need to await it or start it.
-    // Common pattern for void slot:
-    // (void) task; // If task constructor starts it? No check QCoro.
-    // We need to ensure it runs.
-    // If we can't await, we can connect it?
-    // Using a lambda wrapper to launch:
-    [](QCoro::Task<> t) -> QCoro::Task<> {
-        co_await t;
-    }(std::move(task));
+    
+    // To properly start a lazy QCoro::Task without co_awaiting in a non-coroutine:
+    QCoro::connect(std::move(task), this, []() {
+        qDebug() << "[PaneBookKeeping] generateBookKeepingAsync() task finished";
+    });
 }
-
 
 QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
 {
+    qDebug() << "[PaneBookKeeping] generateBookKeepingAsync() entered";
     // 1. Ask for output directory
     QSettings settings;
     QString lastDir = settings.value("lastBookKeepingDir", QDir::homePath()).toString();
+    
+    qDebug() << "[PaneBookKeeping] Prompting for directory. Last dir was:" << lastDir;
     QString dir = QFileDialog::getExistingDirectory(this, tr("Select BookKeeping Folder"), lastDir);
     if (dir.isEmpty()) {
+        qDebug() << "[PaneBookKeeping] Directory selection cancelled. Exiting.";
         co_return;
     }
+    qDebug() << "[PaneBookKeeping] Selected directory:" << dir;
+    
     settings.setValue("lastBookKeepingDir", dir);
     QDir outDir(dir);
 
+    qDebug() << "[PaneBookKeeping] Associating tables...";
     // 2. Associate tables
     m_booksConnections->associateTablesToIds(getAllBookTables(), getSeflEntryTable());
 
-    // 3. Prepare Factory and Dependencies
+    qDebug() << "[PaneBookKeeping] Preparing factory and dependencies...";
     QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
     CompanyInfosTable companyInfo{workingDir};
     BooksAccountsSalesTable salesAccountTable(workingDir); // Load sales accounts config
@@ -125,18 +129,23 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     const auto &apiKey = companyInfo.getApiKeyFixer();
     if (apiKey.isEmpty())
     {
+        qDebug() << "[PaneBookKeeping] Fixer API key is missing. Showing warning and exiting.";
         QMessageBox::warning(
                     this,
                     tr("Fixer API key"),
                     tr("Fixer API key is needed for currency rate retrieval"));
         co_return;
     }
+    qDebug() << "[PaneBookKeeping] Fetching currency rates...";
     CurrencyRateManager currencyRateManager(workingDir, apiKey);
 
     // Callback for adding missing accounts
     auto callbackAddIfMissing = [](const QString &title, const QString &text) -> QCoro::Task<bool> {
-        auto result = QMessageBox::warning(nullptr, title, text, QMessageBox::Yes | QMessageBox::No);
-        co_return result == QMessageBox::Yes;
+        // We currently do not have a UI to add the account dynamically here.
+        // Returning false ensures the getAccounts method will abort and throw an exception
+        // instead of getting stuck in an infinite loop trying to find an account that wasn't added.
+        QMessageBox::warning(nullptr, title, text);
+        co_return false;
     };
 
     JournalEntryFactory factory(&currencyRateManager, &companyInfo, &salesAccountTable, &purchaseAccountTable, &journalTable);
@@ -151,6 +160,7 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     };
 
     int year = ui->comboBoxYear->currentText().toInt();
+    qDebug() << "[PaneBookKeeping] Selected year for generation:" << year;
     QDate dateIfConflict(year, 12, 31); // Default date? Unused here.
     QDate from(year, 1, 1);
     QDate to(year, 12, 31);
@@ -158,17 +168,22 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     // 4. PREPARE DATA & PROGRESS
     // --------------------------
 
+    qDebug() << "[PaneBookKeeping] Loading sales data...";
     // 4.1 Sales Data
     auto acceptCallback = [](const ActivitySource*, const Shipment*) { return true; };
     auto sourceMap = m_orderManager->getActivitySource_ShipmentAndRefunds(from, to, acceptCallback);
     
-    // 4.2 Purchases Data
+    qDebug() << "[PaneBookKeeping] Loading purchases data...";
     auto *purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
     QList<PurchaseInformation> invoices;
     if (purchaseTable) {
         invoices = purchaseTable->manager().getInvoices(from, to);
+        qDebug() << "[PaneBookKeeping] Loaded Invoices. Count:" << invoices.size();
+    } else {
+        qDebug() << "[PaneBookKeeping] Warning: purchaseTable is null!";
     }
 
+    qDebug() << "[PaneBookKeeping] Loading Bank Data...";
     // 4.3 Banks Data (Count only)
     QList<AbstractBooksTableBank *> bankTables = getAllBankTables();
     int bankRowsToProcess = 0;
@@ -189,58 +204,70 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     totalSteps += invoices.size();
     totalSteps += bankRowsToProcess;
 
+    qDebug() << "[PaneBookKeeping] Total entries to process:" << totalSteps;
+
     QProgressDialog progress(tr("Generating Bookkeeping..."), tr("Cancel"), 0, totalSteps, this);
     progress.setWindowModality(Qt::WindowModal);
     progress.setMinimumDuration(0);
     int currentStep = 0;
 
-    // 5. GENERATE ENTRIES
+    qDebug() << "[PaneBookKeeping] Starting generation of entries (Sales, Purchases, Banks).";
     // -------------------
 
-    // 5.1 Sales
-    for (auto it = sourceMap.begin(); it != sourceMap.end(); ++it) {
-        if (progress.wasCanceled()) {
-            co_return;
-        }
-        progress.setValue(currentStep++);
-
-        ActivitySource source = it.key();
-        const auto &shipments = it.value();
-        
-        QSharedPointer<JournalEntry> entry = co_await factory.createEntry(&source, shipments, callbackAddIfMissing);
-        QString journalId = journalTable.getJournal(&source);
-        addEntry(entry, journalId);
-    }
-
-    // 5.2 Purchases
-    for (const auto &info : invoices) {
-         if (progress.wasCanceled()) {
-             co_return;
-         }
-         progress.setValue(currentStep++);
-
-         QSharedPointer<JournalEntry> entry = factory.createEntry(info);
-         // Determine Journal ID for Purchases (usually "AC")
-         QString journalId = journalTable.getJournalPurchaseInvoice().code;
-         addEntry(entry, journalId);
-    }
-
-    // 5.3 Banks
-    for (const AbstractBooksTableBank *bankTable : bankTables) {
-        int rowCount = bankTable->rowCount();
-        QString journalId = bankTable->getBankStatement() ? bankTable->getBankStatement()->defaultJournal() : "BQ"; // Default to BQ
-        
-        for (int i = 0; i < rowCount; ++i) {
-            
-            QDate date = bankTable->getDate(i);
-            if (date.year() != year) continue; // Filter by year
-
+    try {
+        // 5.1 Sales
+        for (auto it = sourceMap.begin(); it != sourceMap.end(); ++it) {
             if (progress.wasCanceled()) {
+                qDebug() << "[PaneBookKeeping] Progress was canceled (Sales)";
                 co_return;
             }
             progress.setValue(currentStep++);
 
+            ActivitySource source = it.key();
+            const auto &shipments = it.value();
+            
+            QSharedPointer<JournalEntry> entry = co_await factory.createEntry(&source, shipments, callbackAddIfMissing);
+            QString journalId = journalTable.getJournal(&source);
+            addEntry(entry, journalId);
+        }
+
+        qDebug() << "[PaneBookKeeping] Sales completed. Starting purchases...";
+        // 5.2 Purchases
+        for (const auto &info : invoices) {
+             if (progress.wasCanceled()) {
+                 qDebug() << "[PaneBookKeeping] Progress was canceled (Purchases)";
+                 co_return;
+             }
+             progress.setValue(currentStep++);
+
+             QSharedPointer<JournalEntry> entry = factory.createEntry(info);
+             // Determine Journal ID for Purchases (usually "AC")
+             QString journalId = journalTable.getJournalPurchaseInvoice().code;
+             addEntry(entry, journalId);
+        }
+
+        qDebug() << "[PaneBookKeeping] Purchases completed. Starting Banks...";
+        // 5.3 Banks
+        for (const AbstractBooksTableBank *bankTable : bankTables) {
+            int rowCount = bankTable->rowCount();
+            QString journalId = bankTable->getBankStatement() ? bankTable->getBankStatement()->defaultJournal() : "BQ"; // Default to BQ
+            
+            for (int i = 0; i < rowCount; ++i) {
+                
+                QDate date = bankTable->getDate(i);
+                if (date.year() != year) continue; // Filter by year
+
+                if (progress.wasCanceled()) {
+                    qDebug() << "[PaneBookKeeping] Progress was canceled (Banks)";
+                    co_return;
+                }
+                progress.setValue(currentStep++);
+
             QString account2 = m_booksConnections->getAccount2(const_cast<AbstractBooksTableBank*>(bankTable), i);
+            if (account2.isEmpty())
+            {
+                account2 = "TODO"; //TODOCEDRIC
+            }
             if (account2.isEmpty())
             {
                 QMessageBox::warning(
@@ -259,13 +286,27 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     
     progress.setValue(totalSteps);
 
+    qDebug() << "[PaneBookKeeping] Generating complete. Saving...";
     // 6. Save
     try {
         BookSaverFull saver;
         saver.save(journal_date_entries, outDir);
+        qDebug() << "[PaneBookKeeping] Saved successfully.";
         QMessageBox::information(this, tr("Success"), tr("Bookkeeping generated successfully in %1").arg(outDir.absolutePath()));
     } catch (const std::exception &e) {
+        qDebug() << "[PaneBookKeeping] Exception during saving:" << e.what();
         QMessageBox::critical(this, tr("Error"), tr("Failed to save documents: %1").arg(e.what()));
+    }
+
+    } catch (const ExceptionWithTitleText &e) {
+        qDebug() << "[PaneBookKeeping] ExceptionWithTitleText catching in loop:" << e.errorTitle() << "-" << e.errorText();
+        QMessageBox::critical(this, e.errorTitle(), e.errorText());
+    } catch (const std::exception &e) {
+        qDebug() << "[PaneBookKeeping] std::exception catching in loop:" << e.what();
+        QMessageBox::critical(this, tr("Error"), tr("Failed to generate documents: %1").arg(e.what()));
+    } catch (...) {
+        qDebug() << "[PaneBookKeeping] Unknown exception catching in loop!";
+        QMessageBox::critical(this, tr("Error"), tr("An unknown error occurred during generation."));
     }
 }
 
@@ -436,8 +477,8 @@ void PaneBookKeeping::dissociate()
     
     // Get selection from book tables (purchases, services, etc.)
     QList<AbstractBooksTable *> bookTables = getAllNonBankTables();
-    for (const AbstractBooksTable *bookTable : bookTables) {
-        QList<QTableView *> allViews = ui->toolBoxSalePurchases->findChildren<QTableView *>();
+    for (const AbstractBooksTable *bookTable : std::as_const(bookTables)) {
+        const QList<QTableView *> &allViews = ui->toolBoxSalePurchases->findChildren<QTableView *>();
         for (QTableView *view : allViews) {
             if (view->model() == bookTable) {
                 QModelIndexList selection = view->selectionModel()->selectedRows();
@@ -477,7 +518,7 @@ void PaneBookKeeping::dissociate()
     
     // Check self-entry table
     if (selfTable && !selfSelection.isEmpty()) {
-        for (const QModelIndex &index : selfSelection) {
+        for (const QModelIndex &index : std::as_const(selfSelection)) {
             QString rowId = selfTable->getRowId(index);
             if (m_booksConnections->contains(selfTable->getId(), rowId)) {
                 hasConnections = true;
@@ -512,7 +553,7 @@ void PaneBookKeeping::dissociate()
     
     // Disconnect self-entry table
     if (selfTable && !selfSelection.isEmpty()) {
-        for (const QModelIndex &index : selfSelection) {
+        for (const QModelIndex &index : std::as_const(selfSelection)) {
             QString rowId = selfTable->getRowId(index);
             if (m_booksConnections->contains(selfTable->getId(), rowId)) {
                 m_booksConnections->disconnect(selfTable, index);
@@ -531,9 +572,9 @@ void PaneBookKeeping::dissociate()
     if (selfTable) {
         ui->tableSelfEntry->viewport()->update();
     }
-    for (const AbstractBooksTable *bookTable : bookTables) {
+    for (const AbstractBooksTable *bookTable : std::as_const(bookTables)) {
         QList<QTableView *> allViews = ui->toolBoxSalePurchases->findChildren<QTableView *>();
-        for (QTableView *view : allViews) {
+        for (QTableView *view : std::as_const(allViews)) {
             if (view->model() == bookTable) {
                 view->viewport()->update();
                 break;
@@ -585,10 +626,13 @@ void PaneBookKeeping::purchaseAdd()
 
     try {
         QFileInfo fi(fileName);
-        PurchaseInformation info = PurchaseInvoiceManager::decode(fi.fileName());
-
+        
         const CompanyInfosTable companyInfos{WorkingDirectoryManager::instance()->workingDir()};
         const QString companyCurrency = companyInfos.getCurrency();
+        
+        const BookAccountPurchaseTable purchaseAccountTable{WorkingDirectoryManager::instance()->workingDir(), companyInfos.getCompanyCountryCode()};
+        
+        PurchaseInformation info = PurchaseInvoiceManager::decode(fi.fileName(), &purchaseAccountTable);
 
         while (true) {
             DialogEditPurchase editDialog(info, companyCurrency, this);
@@ -611,6 +655,22 @@ void PaneBookKeeping::purchaseAdd()
                     continue;
                 }
             }
+
+            if (info.countryCodeFrom.isEmpty() && info.countryCodeTo.isEmpty()) {
+                if (purchaseTable->manager().isSupplierWithCountries(info.accountSupplier)) {
+                    if (QMessageBox::question(
+                            this,
+                            tr("Missing Country"),
+                            tr("The supplier '%1' usually has country information, but it is missing here. "
+                               "Are you sure you want to proceed?")
+                                .arg(info.accountSupplier),
+                            QMessageBox::Yes | QMessageBox::No,
+                            QMessageBox::No) != QMessageBox::Yes) {
+                        continue;
+                    }
+                }
+            }
+
             break;
         }
 
@@ -654,8 +714,10 @@ void PaneBookKeeping::purchaseAddMany()
 
     const CompanyInfosTable companyInfos{WorkingDirectoryManager::instance()->workingDir()};
     const QString companyCurrency = companyInfos.getCurrency();
+    
+    const BookAccountPurchaseTable purchaseAccountTable{WorkingDirectoryManager::instance()->workingDir(), companyInfos.getCompanyCountryCode()};
 
-    DialogEditPurchases dialog(fileNames, companyCurrency, this);
+    DialogEditPurchases dialog(&purchaseAccountTable, fileNames, companyCurrency, this);
     if (dialog.exec() == QDialog::Accepted) {
         auto purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
         QList<PurchaseInformation> invoicesToAdd = dialog.getInfos();
@@ -665,6 +727,21 @@ void PaneBookKeeping::purchaseAddMany()
 
         for (PurchaseInformation info : invoicesToAdd) {
             try {
+                if (info.countryCodeFrom.isEmpty() && info.countryCodeTo.isEmpty()) {
+                    if (purchaseTable->manager().isSupplierWithCountries(info.accountSupplier)) {
+                        if (QMessageBox::question(
+                                this,
+                                tr("Missing Country"),
+                                tr("For '%1', country information is missing though the supplier usually has it. "
+                                   "Are you sure you want to add it?")
+                                    .arg(info.accountSupplier),
+                                QMessageBox::Yes | QMessageBox::No,
+                                QMessageBox::No) != QMessageBox::Yes) {
+                            continue;
+                        }
+                    }
+                }
+
                 purchaseTable->manager().add(info.filePath, info);
                 count++;
             } catch (...) {
@@ -708,11 +785,20 @@ void PaneBookKeeping::purchaseRemove()
     // Better strategy: Collect Row IDs first.
 
     QStringList rowIds;
-    for (const QModelIndex &idx : selection) {
+    for (const QModelIndex &idx : std::as_const(selection)) {
         rowIds << purchaseTable->getRowId(idx);
     }
 
-    for (const QString &id : rowIds) {
+    for (const QString &id : std::as_const(rowIds)) {
+        if (m_booksConnections->contains(purchaseTable->getId(), id)) {
+            // Find the index for the current id to disconnect
+            for (const QModelIndex &idx : std::as_const(selection)) {
+                if (purchaseTable->getRowId(idx) == id) {
+                    m_booksConnections->disconnect(purchaseTable, idx);
+                    break;
+                }
+            }
+        }
         purchaseTable->manager().remove(id);
     }
 
