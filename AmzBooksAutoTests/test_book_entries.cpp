@@ -6,6 +6,7 @@
 #include "books/CompanyInfosTable.h"
 #include "books/BooksAccountsSalesTable.h"
 #include "books/BookAccountPurchaseTable.h"
+#include "books/BookAccountSelfVatTable.h"
 #include "books/JournalTable.h"
 #include "CurrencyRateManager.h"
 #include "orders/ActivitySource.h"
@@ -61,6 +62,18 @@ private slots:
     void test_factory_purchase_multi_vat_rates();
     void test_factory_purchase_missing_vat_rate();
     void test_invoice_label_country_decode();
+    void test_invoice_no_country_from_short_supplier();
+
+    // --- Self-VAT (auto-liquidation / reverse charge) tests ---
+    void test_factory_selfvat_intracom_eu();
+    void test_factory_selfvat_extracom_noneu();
+    void test_factory_selfvat_domestic_no_autoliquidation();
+    void test_factory_selfvat_thirdparty_no_autoliquidation();
+    void test_factory_selfvat_no_amount_no_lines();
+    void test_factory_selfvat_has_normal_vat_no_autoliquidation();
+    void test_factory_selfvat_custom_accounts();
+    void test_factory_selfvat_refund();
+    void test_factory_selfvat_invoice_us_fr_label_route();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -1677,6 +1690,45 @@ void TestBookEntries::test_invoice_label_country_decode()
     QCOMPARE(info2.countryCodeTo, QString("FR"));
 }
 
+void TestBookEntries::test_invoice_no_country_from_short_supplier()
+{
+    // "FNEEDE" ends with "EE" (Estonia) + "DE" (Germany) which are both valid
+    // ISO 3166 country codes, but the supplier name is too short (6 chars) to
+    // carry a meaningful 3-char prefix + 4-char route suffix.
+    // The decoder must NOT extract country codes in this situation.
+    const QString fileName =
+        "2026-01-02__622600__compta__FNEEDE__FR-TVA-50EUR__300EUR.pdf";
+
+    // ── First decode ──────────────────────────────────────────────────────────
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date, QDate(2026, 1, 2));
+    QCOMPARE(info.account, QString("622600"));
+    QCOMPARE(info.label, QString("compta"));
+    QCOMPARE(info.accountSupplier, QString("FNEEDE"));
+    QVERIFY(info.countryCodeFrom.isEmpty());
+    QVERIFY(info.countryCodeTo.isEmpty());
+
+    QCOMPARE(info.totalAmount, 300.0);
+    QCOMPARE(info.currency, QString("EUR"));
+
+    // VAT token preserved verbatim, amount 50 EUR, rate computed to 0.2
+    QVERIFY(info.country_vatRate_vat.contains("FR"));
+    QVERIFY(info.country_vatRate_vat["FR"].contains("0.2"));
+    QCOMPARE(info.country_vatRate_vat["FR"]["0.2"], 50.0);
+
+    // ── Encode → same filename ────────────────────────────────────────────────
+    const QString encoded = PurchaseInvoiceManager::encode(info);
+    QCOMPARE(encoded, fileName);
+
+    // ── Second decode → country codes still absent ────────────────────────────
+    PurchaseInformation info2 = PurchaseInvoiceManager::decode(encoded);
+    QVERIFY(info2.countryCodeFrom.isEmpty());
+    QVERIFY(info2.countryCodeTo.isEmpty());
+    QCOMPARE(info2.totalAmount, 300.0);
+    QCOMPARE(info2.accountSupplier, QString("FNEEDE"));
+}
+
 // ── helpers shared by the two multi-rate tests ────────────────────────────────
 static void setupCompanyInfoFr(const QDir &dir)
 {
@@ -1773,6 +1825,491 @@ void TestBookEntries::test_factory_purchase_missing_vat_rate()
         QCOMPARE(e.errorTitle(), QString("Account Missing"));
     }
     QVERIFY2(caught, "ExceptionWithTitleText should have been thrown for missing FR 6% VAT account");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 1: intracom EU supplier (DE→FR) with rawVatAmount → 2 extra lines
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_selfvat_intracom_eu()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    PurchaseInformation p;
+    p.date            = QDate(2025, 6, 1);
+    p.account         = "607000";
+    p.label           = "goods";
+    p.accountSupplier = "GMBHDE";
+    p.totalAmount     = 100.0;
+    p.currency        = "EUR";
+    p.rawVatAmount    = "20.0";   // buyer-declared self-VAT
+    p.vatCurrency     = "EUR";
+    p.countryCodeFrom = "DE";     // EU supplier
+    p.countryCodeTo   = "FR";     // company country
+    // country_vatRate_vat intentionally empty → triggers self-VAT path
+
+    auto entry = f.createEntry(p);
+    QVERIFY(!entry.isNull());
+
+    // Entry must balance
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+
+    // Debits: expense(100) + self-VAT deductible(20) = 2 lines
+    const auto &debits = entry->getDebits();
+    QCOMPARE(debits.size(), 2);
+
+    // Credits: supplier(100) + self-VAT due(20) = 2 lines
+    const auto &credits = entry->getCredits();
+    QCOMPARE(credits.size(), 2);
+
+    // Find each specific line
+    bool foundExpense    = false;
+    bool foundDeductible = false;
+    for (const auto &line : debits) {
+        if (line.account == "607000") {
+            foundExpense = true;
+            QCOMPARE(line.currency_amount["EUR"], 100.0);
+        }
+        if (line.account == "445663") {   // default EU deductible
+            foundDeductible = true;
+            QCOMPARE(line.currency_amount["EUR"], 20.0);
+        }
+    }
+    QVERIFY(foundExpense);
+    QVERIFY(foundDeductible);
+
+    bool foundSupplier = false;
+    bool foundDue      = false;
+    for (const auto &line : credits) {
+        if (line.account == "GMBHDE") {
+            foundSupplier = true;
+            QCOMPARE(line.currency_amount["EUR"], 100.0);
+        }
+        if (line.account == "445300") {   // default EU due
+            foundDue = true;
+            QCOMPARE(line.currency_amount["EUR"], 20.0);
+        }
+    }
+    QVERIFY(foundSupplier);
+    QVERIFY(foundDue);
+
+    // Total sums
+    QCOMPARE(entry->getDebitSum(),  120.0);
+    QCOMPARE(entry->getCreditSum(), 120.0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 2: extracom non-EU supplier (CN→FR) → same default accounts, non-EU row
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_selfvat_extracom_noneu()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    PurchaseInformation p;
+    p.date            = QDate(2025, 7, 1);
+    p.account         = "607000";
+    p.label           = "import";
+    p.accountSupplier = "SUPPLCN";
+    p.totalAmount     = 200.0;
+    p.currency        = "EUR";
+    p.rawVatAmount    = "40.0";
+    p.vatCurrency     = "EUR";
+    p.countryCodeFrom = "CN";    // non-EU
+    p.countryCodeTo   = "FR";
+
+    auto entry = f.createEntry(p);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+
+    const auto &debits  = entry->getDebits();
+    const auto &credits = entry->getCredits();
+    QCOMPARE(debits.size(),  2);
+    QCOMPARE(credits.size(), 2);
+
+    bool foundDeductible = false;
+    for (const auto &line : debits)
+        if (line.account == "445663") { foundDeductible = true; QCOMPARE(line.currency_amount["EUR"], 40.0); }
+    QVERIFY(foundDeductible);
+
+    bool foundDue = false;
+    for (const auto &line : credits)
+        if (line.account == "445300") { foundDue = true; QCOMPARE(line.currency_amount["EUR"], 40.0); }
+    QVERIFY(foundDue);
+
+    QCOMPARE(entry->getDebitSum(),  240.0);
+    QCOMPARE(entry->getCreditSum(), 240.0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 3: domestic FR→FR, rawVatAmount set → no auto-liquidation (not intracom)
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_selfvat_domestic_no_autoliquidation()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    PurchaseInformation p;
+    p.date            = QDate(2025, 8, 1);
+    p.account         = "622600";
+    p.label           = "services";
+    p.accountSupplier = "FRSUPP";
+    p.totalAmount     = 100.0;
+    p.currency        = "EUR";
+    p.rawVatAmount    = "20.0";   // set, but route is domestic → no self-VAT
+    p.vatCurrency     = "EUR";
+    p.countryCodeFrom = "FR";     // same as company → domestic
+    p.countryCodeTo   = "FR";
+
+    auto entry = f.createEntry(p);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+
+    // Only expense debit + supplier credit → 1 + 1
+    QCOMPARE(entry->getDebits().size(),  1);
+    QCOMPARE(entry->getCredits().size(), 1);
+
+    // No self-VAT accounts anywhere
+    for (const auto &line : entry->getDebits())
+        QVERIFY(line.account != "445663");
+    for (const auto &line : entry->getCredits())
+        QVERIFY(line.account != "445300");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 4: third-party route (CN→DE, company=FR) → no auto-liquidation
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_selfvat_thirdparty_no_autoliquidation()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    PurchaseInformation p;
+    p.date            = QDate(2025, 9, 1);
+    p.account         = "607000";
+    p.label           = "goods";
+    p.accountSupplier = "DESUPP";
+    p.totalAmount     = 100.0;
+    p.currency        = "EUR";
+    p.rawVatAmount    = "20.0";
+    p.vatCurrency     = "EUR";
+    p.countryCodeFrom = "CN";    // third-party: countryTo != FR
+    p.countryCodeTo   = "DE";    // company is FR, so this route returns empty
+
+    auto entry = f.createEntry(p);
+    QVERIFY(!entry.isNull());
+
+    QCOMPARE(entry->getDebits().size(),  1);   // expense only
+    QCOMPARE(entry->getCredits().size(), 1);   // supplier only
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+
+    for (const auto &line : entry->getDebits() + entry->getCredits()) {
+        QVERIFY(line.account != "445663");
+        QVERIFY(line.account != "445300");
+    }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 5: route qualifies but rawVatAmount is empty → no self-VAT lines
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_selfvat_no_amount_no_lines()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    PurchaseInformation p;
+    p.date            = QDate(2025, 10, 1);
+    p.account         = "607000";
+    p.label           = "goods";
+    p.accountSupplier = "DESUPP";
+    p.totalAmount     = 100.0;
+    p.currency        = "EUR";
+    p.rawVatAmount    = "0"; // explicit zero: accountant chose no self-VAT
+    p.countryCodeFrom = "DE";
+    p.countryCodeTo   = "FR";
+
+    auto entry = f.createEntry(p);
+    QVERIFY(!entry.isNull());
+
+    // Route qualifies but amount explicitly "0" → no self-VAT lines
+    QCOMPARE(entry->getDebits().size(),  1);
+    QCOMPARE(entry->getCredits().size(), 1);
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+    QCOMPARE(entry->getDebitSum(), 100.0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 6: invoice already has normal VAT → condition not met → no auto-liquidation
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_selfvat_has_normal_vat_no_autoliquidation()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    PurchaseInformation p;
+    p.date            = QDate(2025, 11, 1);
+    p.account         = "607000";
+    p.label           = "goods-with-vat";
+    p.accountSupplier = "DESUPP";
+    p.totalAmount     = 120.0;
+    p.currency        = "EUR";
+    p.rawVatAmount    = "20.0";
+    p.vatCurrency     = "EUR";
+    p.countryCodeFrom = "DE";
+    p.countryCodeTo   = "FR";
+    // Normal VAT present → self-VAT must NOT fire
+    p.country_vatRate_vat["FR"]["0.2"] = 20.0;
+
+    auto entry = f.createEntry(p);
+    QVERIFY(!entry.isNull());
+
+    // Debits: expense(100) + regular VAT debit6(20) = 2 lines
+    QCOMPARE(entry->getDebits().size(),  2);
+    // Credits: supplier(120) = 1 line  (no self-VAT due line)
+    QCOMPARE(entry->getCredits().size(), 1);
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+
+    // No self-VAT due account
+    for (const auto &line : entry->getCredits())
+        QVERIFY(line.account != "445300");
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 7: custom self-VAT accounts are used in the entry
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_selfvat_custom_accounts()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+
+    // Customise EU accounts before building the factory
+    sva.setData(sva.index(0, 1), "CUSTOM_DED", Qt::EditRole);
+    sva.setData(sva.index(0, 2), "CUSTOM_DUE", Qt::EditRole);
+
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    PurchaseInformation p;
+    p.date            = QDate(2025, 12, 1);
+    p.account         = "607000";
+    p.label           = "custom";
+    p.accountSupplier = "EUSUPP";
+    p.totalAmount     = 100.0;
+    p.currency        = "EUR";
+    p.rawVatAmount    = "20.0";
+    p.vatCurrency     = "EUR";
+    p.countryCodeFrom = "IT";    // EU member
+    p.countryCodeTo   = "FR";
+
+    auto entry = f.createEntry(p);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+
+    bool foundCustomDed = false;
+    for (const auto &line : entry->getDebits())
+        if (line.account == "CUSTOM_DED") { foundCustomDed = true; QCOMPARE(line.currency_amount["EUR"], 20.0); }
+    QVERIFY(foundCustomDed);
+
+    bool foundCustomDue = false;
+    for (const auto &line : entry->getCredits())
+        if (line.account == "CUSTOM_DUE") { foundCustomDue = true; QCOMPARE(line.currency_amount["EUR"], 20.0); }
+    QVERIFY(foundCustomDue);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 8: refund with self-VAT → deductible on credit, due on debit
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_selfvat_refund()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    PurchaseInformation p;
+    p.date            = QDate(2026, 1, 1);
+    p.account         = "607000";
+    p.label           = "refund-goods";
+    p.accountSupplier = "DESUPP";
+    p.totalAmount     = -100.0;  // refund
+    p.currency        = "EUR";
+    p.rawVatAmount    = "20.0";
+    p.vatCurrency     = "EUR";
+    p.countryCodeFrom = "DE";
+    p.countryCodeTo   = "FR";
+
+    auto entry = f.createEntry(p);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+
+    // For refund: expense goes to credit, supplier goes to debit
+    // Self-VAT deductible (normally debit) → credit for refund
+    // Self-VAT due (normally credit) → debit for refund
+    bool foundDeductibleOnCredit = false;
+    for (const auto &line : entry->getCredits())
+        if (line.account == "445663") { foundDeductibleOnCredit = true; QCOMPARE(line.currency_amount["EUR"], 20.0); }
+    QVERIFY(foundDeductibleOnCredit);
+
+    bool foundDueOnDebit = false;
+    for (const auto &line : entry->getDebits())
+        if (line.account == "445300") { foundDueOnDebit = true; QCOMPARE(line.currency_amount["EUR"], 20.0); }
+    QVERIFY(foundDueOnDebit);
+
+    // Total must still be 120 (100 expense + 20 self-VAT) on each side
+    QCOMPARE(entry->getDebitSum(),  120.0);
+    QCOMPARE(entry->getCreditSum(), 120.0);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test 9: real invoice filename with route in label, no VAT token in filename
+//         → factory must default to 20% self-VAT on totalAmount
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_selfvat_invoice_us_fr_label_route()
+{
+    // US→FR non-EU service invoice (e.g. OpenAI API).  No VAT appears in the
+    // filename; the route is encoded in the label as "-US-FR".
+    const QString fileName =
+        "2026-01-06__622810__api-web-openai-US-FR__FOPENA__25.73EUR.pdf";
+
+    // ── Decode ────────────────────────────────────────────────────────────────
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date, QDate(2026, 1, 6));
+    QCOMPARE(info.account, QString("622810"));
+    QCOMPARE(info.label, QString("api-web-openai-US-FR"));
+    QCOMPARE(info.accountSupplier, QString("FOPENA"));
+    // Route comes from label suffix "-US-FR", NOT from the supplier name
+    QCOMPARE(info.countryCodeFrom, QString("US"));
+    QCOMPARE(info.countryCodeTo,   QString("FR"));
+    QCOMPARE(info.totalAmount, 25.73);
+    QCOMPARE(info.currency, QString("EUR"));
+    QVERIFY(info.country_vatRate_vat.isEmpty()); // no VAT on the invoice
+    QVERIFY(info.rawVatAmount.isEmpty());        // rawVatAmount absent from filename
+
+    // ── Encode roundtrip ──────────────────────────────────────────────────────
+    // rawVatAmount is not part of the filename encoding, so the roundtrip is exact
+    QCOMPARE(PurchaseInvoiceManager::encode(info), fileName);
+
+    // ── Build factory with FR company ─────────────────────────────────────────
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+
+    // rawVatAmount is empty → factory falls back to totalAmountAbs * 20%
+    // selfVatAmount = 25.73 * 0.20 = 5.146 EUR
+    // Debits : expense(25.73) + TVA déductible(5.146) = 2 lines
+    QCOMPARE(entry->getDebits().size(),  2);
+    // Credits: supplier(25.73) + TVA due(5.146) = 2 lines
+    QCOMPARE(entry->getCredits().size(), 2);
+
+    bool foundExpense    = false;
+    bool foundDeductible = false;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == "622810") foundExpense    = true;
+        if (line.account == "445663") foundDeductible = true; // default non-EU deductible
+    }
+    QVERIFY(foundExpense);
+    QVERIFY(foundDeductible);
+
+    bool foundSupplier = false;
+    bool foundDue      = false;
+    for (const auto &line : entry->getCredits()) {
+        if (line.account == "FOPENA") foundSupplier = true;
+        if (line.account == "445300") foundDue      = true; // default non-EU due
+    }
+    QVERIFY(foundSupplier);
+    QVERIFY(foundDue);
 }
 
 QTEST_MAIN(TestBookEntries)

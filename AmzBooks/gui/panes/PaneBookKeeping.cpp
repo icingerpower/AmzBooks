@@ -13,6 +13,7 @@
 #include "books/BookSaverFull.h"
 #include "books/BooksAccountsSalesTable.h"
 #include "books/BookAccountPurchaseTable.h"
+#include "books/BookAccountSelfVatTable.h"
 #include <QCoroTask>
 
 #include <QTableView>
@@ -124,7 +125,8 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     
     // Purchase Account Table needs company country code
     BookAccountPurchaseTable purchaseAccountTable(workingDir, companyInfo.getCompanyCountryCode());
-    
+    BookAccountSelfVatTable selfVatAccountTable(workingDir, companyInfo.getCompanyCountryCode());
+
     JournalTable journalTable(workingDir);
     const auto &apiKey = companyInfo.getApiKeyFixer();
     if (apiKey.isEmpty())
@@ -148,7 +150,7 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         co_return false;
     };
 
-    JournalEntryFactory factory(&currencyRateManager, &companyInfo, &salesAccountTable, &purchaseAccountTable, &journalTable);
+    JournalEntryFactory factory(&currencyRateManager, &companyInfo, &salesAccountTable, &purchaseAccountTable, &journalTable, &selfVatAccountTable);
 
     QHash<QString, QMultiMap<QDate, QSharedPointer<JournalEntry>>> journal_date_entries;
 

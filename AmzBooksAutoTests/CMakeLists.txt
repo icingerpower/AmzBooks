@@ -96,6 +96,11 @@ add_custom_command(TARGET TestBookAccounts POST_BUILD
     $<TARGET_FILE_DIR:TestBookAccounts>/data/amazon-vat-reports
 )
 
+add_executable(TestBookAccountSelfVatTable test_book_account_self_vat_table.cpp)
+add_test(NAME TestBookAccountSelfVatTable COMMAND TestBookAccountSelfVatTable)
+target_link_libraries(TestBookAccountSelfVatTable PRIVATE Qt${QT_VERSION_MAJOR}::Test -Wl,--whole-archive AmzBooksLib -Wl,--no-whole-archive)
+target_include_directories(TestBookAccountSelfVatTable PRIVATE ../AmzBooksLib)
+
 add_executable(TestCurrencies test_currencies.cpp)
 add_test(NAME TestCurrencies COMMAND TestCurrencies)
 target_link_libraries(TestCurrencies PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)

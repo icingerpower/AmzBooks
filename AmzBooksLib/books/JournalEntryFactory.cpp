@@ -3,6 +3,7 @@
 #include "CompanyInfosTable.h"
 #include "BooksAccountsSalesTable.h"
 #include "BookAccountPurchaseTable.h"
+#include "BookAccountSelfVatTable.h"
 #include "JournalTable.h"
 #include "orders/ActivitySource.h"
 #include "orders/Shipment.h"
@@ -16,12 +17,14 @@ JournalEntryFactory::JournalEntryFactory(
     const CompanyInfosTable *companyInfos,
     const BooksAccountsSalesTable *saleBookAccounts,
     const BookAccountPurchaseTable *purchaseBookAccounts,
-    const JournalTable *journalTable)
+    const JournalTable *journalTable,
+    const BookAccountSelfVatTable *selfVatBookAccounts)
     : m_currencyRateManager(currencyRateManager)
     , m_companyInfos(companyInfos)
     , m_saleBookAccounts(saleBookAccounts)
     , m_purchaseBookAccounts(purchaseBookAccounts)
     , m_journalTable(journalTable)
+    , m_selfVatBookAccounts(selfVatBookAccounts)
 {
 }
 
@@ -146,6 +149,57 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
         }
     }
     
+    // Auto-liquidation (reverse charge / self-VAT)
+    // Applies only when the invoice carries no VAT at all and the purchase route
+    // is intracom (EU supplier → company) or extracom (non-EU → company).
+    if (m_selfVatBookAccounts && purchaseInformation.country_vatRate_vat.isEmpty()) {
+        const QString selfVatDeductible = m_selfVatBookAccounts->getAccountVatDeductible(
+            purchaseInformation.countryCodeFrom, purchaseInformation.countryCodeTo);
+        const QString selfVatDue = m_selfVatBookAccounts->getAccountVatDue(
+            purchaseInformation.countryCodeFrom, purchaseInformation.countryCodeTo);
+
+        if (!selfVatDeductible.isEmpty() && !selfVatDue.isEmpty()) {
+            double selfVatAmount = purchaseInformation.rawVatAmount.toDouble();
+            // When rawVatAmount is not provided at all (empty = not in the invoice filename),
+            // apply the standard French TVA rate of 20% on the HT total.
+            // An explicit "0" means the accountant chose no self-VAT; leave it at 0.
+            if (selfVatAmount <= 0.0 && purchaseInformation.rawVatAmount.isEmpty())
+                selfVatAmount = totalAmountAbs * 0.20;
+            if (selfVatAmount > 0.0) {
+                const QString selfCurrency = purchaseInformation.vatCurrency.isEmpty()
+                                             ? purchaseInformation.currency
+                                             : purchaseInformation.vatCurrency;
+                double selfCurrencyRate = 1.0;
+                if (selfCurrency != companyCurrency) {
+                    selfCurrencyRate = m_currencyRateManager->rate(
+                        selfCurrency, companyCurrency, purchaseInformation.date);
+                }
+
+                // Débit : TVA déductible sur achats (auto-liquidation)
+                JournalEntry::EntryLine deductibleLine;
+                deductibleLine.title = commonTitle;
+                deductibleLine.account = selfVatDeductible;
+                deductibleLine.currency_amount[selfCurrency] = selfVatAmount;
+                if (isRefund) {
+                    entry->addCreditRight(deductibleLine, selfCurrency, selfCurrencyRate);
+                } else {
+                    entry->addDebitLeft(deductibleLine, selfCurrency, selfCurrencyRate);
+                }
+
+                // Crédit : TVA due à l'état (auto-liquidation)
+                JournalEntry::EntryLine dueLine;
+                dueLine.title = commonTitle;
+                dueLine.account = selfVatDue;
+                dueLine.currency_amount[selfCurrency] = selfVatAmount;
+                if (isRefund) {
+                    entry->addDebitLeft(dueLine, selfCurrency, selfCurrencyRate);
+                } else {
+                    entry->addCreditRight(dueLine, selfCurrency, selfCurrencyRate);
+                }
+            }
+        }
+    }
+
     // Supplier account (Class 4 - Fournisseurs)
     JournalEntry::EntryLine supplierLine;
     supplierLine.title = commonTitle;

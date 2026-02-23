@@ -259,6 +259,7 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
     static QRegularExpression regexRoute("([A-Z]{2})([A-Z]{2})$");
     QRegularExpressionMatch matchRoute = regexRoute.match(info.accountSupplier);
     if (matchRoute.hasMatch()
+            && matchRoute.capturedStart(1) >= 3   // require ≥3-char prefix before the route
             && validCountryCodes.contains(matchRoute.captured(1))
             && validCountryCodes.contains(matchRoute.captured(2))) {
         info.countryCodeFrom = matchRoute.captured(1);

@@ -13,6 +13,7 @@ class CurrencyRateManager;
 class CompanyInfosTable;
 class BooksAccountsSalesTable;
 class BookAccountPurchaseTable;
+class BookAccountSelfVatTable;
 class JournalTable;
 class ActivitySource;
 class Shipment;
@@ -26,7 +27,8 @@ public:
                         const CompanyInfosTable *companyInfos,
                         const BooksAccountsSalesTable *saleBookAccounts,
                         const BookAccountPurchaseTable *purchaseBookAccounts,
-                        const JournalTable *journalTable);
+                        const JournalTable *journalTable,
+                        const BookAccountSelfVatTable *selfVatBookAccounts = nullptr);
 
     // Create journal entry for purchase invoice
     // Negative amount is a refund
@@ -56,6 +58,7 @@ private:
     const BooksAccountsSalesTable *m_saleBookAccounts;
     const BookAccountPurchaseTable *m_purchaseBookAccounts;
     const JournalTable *m_journalTable;
+    const BookAccountSelfVatTable *m_selfVatBookAccounts;
 };
 
 #endif // JOURNALENTRYFACTORY_H

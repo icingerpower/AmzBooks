@@ -45,6 +45,11 @@
       </item>
       <item>
        <property name="text">
+        <string>Self-VAT accounts</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
         <string>Bank accounts</string>
        </property>
       </item>
@@ -69,6 +74,7 @@
       <widget class="PaneSettingsVatRates" name="pageVatRates"/>
       <widget class="PaneSettingsSaleAccounts" name="pageSaleAccounts"/>
       <widget class="PanePurchaseAccount" name="pagePurchaseAccounts"/>
+      <widget class="PaneSettingsSelfVatAccounts" name="pageSelfVatAccounts"/>
       <widget class="PaneSettingsBankAccounts" name="pageBankAccounts"/>
       <widget class="PaneSettingsAmzBalanceAccounts" name="pageAmzBalanceAccounts"/>
       <widget class="PaneSettingsJournal" name="pageJournals"/>
@@ -101,6 +107,12 @@
    <class>PanePurchaseAccount</class>
    <extends>QWidget</extends>
    <header>gui/panes/PanePurchaseAccount.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneSettingsSelfVatAccounts</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneSettingsSelfVatAccounts.h</header>
    <container>1</container>
   </customwidget>
    <customwidget>
