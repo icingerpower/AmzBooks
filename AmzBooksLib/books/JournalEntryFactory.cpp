@@ -36,7 +36,7 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
     bool isRefund = purchaseInformation.totalAmount < 0;
     double totalAmountAbs = qAbs(purchaseInformation.totalAmount);
     
-    // Get currency conversion rate if needed
+    // Get currency conversion rate if needed (total currency → company currency)
     double currencyRate = 1.0;
     if (purchaseInformation.currency != companyCurrency) {
         currencyRate = m_currencyRateManager->rate(
@@ -45,16 +45,33 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
             purchaseInformation.date
         );
     }
+
+    // Get VAT currency conversion rate — may differ from the total currency
+    QString vatCurrency = purchaseInformation.vatCurrency.isEmpty()
+                          ? purchaseInformation.currency
+                          : purchaseInformation.vatCurrency;
+    double vatCurrencyRate = 1.0;
+    if (vatCurrency != companyCurrency) {
+        vatCurrencyRate = m_currencyRateManager->rate(
+            vatCurrency, companyCurrency, purchaseInformation.date);
+    }
+
     double totalVat = 0.0;
-    
-    // Sum all VAT amounts
+
+    // Sum all VAT amounts converted to the total currency for HT computation.
+    // When vatCurrency differs from the invoice currency we convert via the
+    // company currency (EUR): vatAmountInTotalCurrency = vatAmount * vatCurrencyRate / currencyRate
     for (const auto &country : purchaseInformation.country_vatRate_vat.keys()) {
         const auto &rateMap = purchaseInformation.country_vatRate_vat[country];
         for (const auto &vatAmount : rateMap.values()) {
-            totalVat += vatAmount;
+            if (vatCurrency == purchaseInformation.currency || currencyRate == 0.0) {
+                totalVat += vatAmount;
+            } else {
+                totalVat += vatAmount * vatCurrencyRate / currencyRate;
+            }
         }
     }
-    
+
     double totalHT = totalAmountAbs - totalVat; // Hors Taxes (before tax)
     
     // Common title for all lines
@@ -135,16 +152,16 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
             QString vatDebit6 = m_purchaseBookAccounts->getAccountsDebit6(purchaseInformation.vatCountry, vatRate);
             QString vatCredit4 = m_purchaseBookAccounts->getAccountsCredit4(purchaseInformation.vatCountry, vatRate);
             
-            // Normal purchase VAT
+            // Normal purchase VAT — use vatCurrency (may differ from total currency)
             JournalEntry::EntryLine vatLine;
             vatLine.title = commonTitle;
             vatLine.account = vatDebit6;
-            vatLine.currency_amount[purchaseInformation.currency] = vatAmount;
-            
+            vatLine.currency_amount[vatCurrency] = vatAmount;
+
             if (isRefund) {
-                entry->addCreditRight(vatLine, purchaseInformation.currency, currencyRate);
+                entry->addCreditRight(vatLine, vatCurrency, vatCurrencyRate);
             } else {
-                entry->addDebitLeft(vatLine, purchaseInformation.currency, currencyRate);
+                entry->addDebitLeft(vatLine, vatCurrency, vatCurrencyRate);
             }
         }
     }

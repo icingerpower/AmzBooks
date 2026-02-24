@@ -81,6 +81,7 @@ private slots:
     void test_invoice_mixed_currency_vat_eur_total_sek();
     void test_invoice_mixed_currency_vat_sek_total_eur();
     void test_invoice_same_currency_sek_rate_computed();
+    void test_invoice_four_currency_variants_same_eur_amounts();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -2731,6 +2732,88 @@ void TestBookEntries::test_invoice_same_currency_sek_rate_computed()
     QVERIFY(foundExpense);
     QVERIFY(foundVat);
     QVERIFY(foundSupplier);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: all four currency-variant filenames for the same invoice always produce
+//       identical EUR amounts via JournalEntryFactory (FR/EUR company).
+//
+//  Exchange rate recorded: 27.67 SEK = 2.63 EUR  →  1 SEK = 2.63/27.67 EUR
+//
+//  The four variants (same invoice, different currency encoding):
+//   1. VAT in EUR, total in EUR  → FR-TVA20-2.63EUR__15.78EUR
+//   2. VAT in EUR, total in SEK  → FR-TVA20-2.63EUR__165.99SEK
+//   3. VAT in SEK, total in EUR  → FR-TVA20-27.67SEK__15.78EUR
+//   4. VAT in SEK, total in SEK  → FR-TVA-27.67SEK__165.99SEK
+//
+//  Expected EUR amounts in every entry:
+//   - Supplier credit : 15.78 EUR
+//   - VAT debit       :  2.63 EUR
+//   - Expense debit   : 13.15 EUR  (= 15.78 − 2.63)
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_invoice_four_currency_variants_same_eur_amounts()
+{
+    const double SEK_EUR = 2.63 / 27.67; // 1 SEK in EUR
+
+    const QStringList fileNames = {
+        "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA20-2.63EUR__15.78EUR.pdf",
+        "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA20-2.63EUR__165.99SEK.pdf",
+        "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA20-27.67SEK__15.78EUR.pdf",
+        "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA-27.67SEK__165.99SEK.pdf",
+    };
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-01-31", "SEK", "EUR", SEK_EUR);
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt);
+
+    const QString vatAccount = pa.getAccountsDebit6("FR", 0.2);
+
+    for (const QString &fileName : fileNames) {
+        PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+        QSharedPointer<JournalEntry> entry;
+        QVERIFY2(!entry, qPrintable(fileName + ": entry should be null before creation"));
+        entry = f.createEntry(info);
+        QVERIFY2(!entry.isNull(), qPrintable(fileName + ": factory returned null entry"));
+
+        // Entry must balance
+        QVERIFY2(qAbs(entry->getDebitSum() - entry->getCreditSum()) < 0.01,
+                 qPrintable(fileName + ": entry not balanced"));
+
+        // Structure: 2 debits (expense + VAT), 1 credit (supplier)
+        QCOMPARE(entry->getDebits().size(),  2);
+        QCOMPARE(entry->getCredits().size(), 1);
+
+        // ── Check EUR amounts on each line ────────────────────────────────────
+        double supplierEur = 0.0, vatEur = 0.0, expenseEur = 0.0;
+
+        for (const auto &line : entry->getCredits()) {
+            if (line.account == "FAMZMK")
+                supplierEur = line.currency_amount.value("EUR");
+        }
+        for (const auto &line : entry->getDebits()) {
+            if (line.account == vatAccount)
+                vatEur = line.currency_amount.value("EUR");
+            if (line.account == "622201")
+                expenseEur = line.currency_amount.value("EUR");
+        }
+
+        QVERIFY2(qAbs(supplierEur - 15.78) < 0.01,
+                 qPrintable(fileName + QString(": supplier EUR %1 ≠ 15.78").arg(supplierEur)));
+        QVERIFY2(qAbs(vatEur - 2.63) < 0.01,
+                 qPrintable(fileName + QString(": VAT EUR %1 ≠ 2.63").arg(vatEur)));
+        QVERIFY2(qAbs(expenseEur - 13.15) < 0.01,
+                 qPrintable(fileName + QString(": expense EUR %1 ≠ 13.15").arg(expenseEur)));
+    }
 }
 
 QTEST_MAIN(TestBookEntries)
