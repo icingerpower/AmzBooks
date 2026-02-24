@@ -5,13 +5,13 @@
 #include "books/BookAccountPurchaseTable.h"
 #include "books/CompanyInfosTable.h"
 #include "ExceptionWithTitleText.h"
-#include "PanePurchaseAccount.h"
-#include "ui_PanePurchaseAccount.h"
+#include "PaneSettingsPurchaseAccount.h"
+#include "ui_PaneSettingsPurchaseAccount.h"
 #include "gui/dialogs/DialogAddPurchaseAccount.h"
 
-PanePurchaseAccount::PanePurchaseAccount(QWidget *parent) :
+PaneSettingsPurchaseAccount::PaneSettingsPurchaseAccount(QWidget *parent) :
     QWidget(parent),
-    ui(new Ui::PanePurchaseAccount)
+    ui(new Ui::PaneSettingsPurchaseAccount)
 {
     ui->setupUi(this);
 
@@ -27,12 +27,12 @@ PanePurchaseAccount::PanePurchaseAccount(QWidget *parent) :
     _connectSlots();
 }
 
-PanePurchaseAccount::~PanePurchaseAccount()
+PaneSettingsPurchaseAccount::~PaneSettingsPurchaseAccount()
 {
     delete ui;
 }
 
-void PanePurchaseAccount::addRate()
+void PaneSettingsPurchaseAccount::addRate()
 {
     DialogAddPurchaseAccount dialog(this);
     if (dialog.exec() == QDialog::Accepted) {
@@ -52,7 +52,7 @@ void PanePurchaseAccount::addRate()
     }
 }
 
-void PanePurchaseAccount::removeRate()
+void PaneSettingsPurchaseAccount::removeRate()
 {
     const auto &selIndexes = ui->tableAccounts->selectionModel()->selectedIndexes();
     if (selIndexes.isEmpty()) {
@@ -65,17 +65,17 @@ void PanePurchaseAccount::removeRate()
                 , tr("Confirm Removal")
                 , tr("Are you sure you want to remove the selected account(s)?")
                 , QMessageBox::Yes | QMessageBox::No) == QMessageBox::Yes) {
-        
+
         // Remove rows. Handle multiple selection.
         QSet<int> rows;
         for (const QModelIndex &index : selIndexes) {
             rows.insert(index.row());
         }
-        
+
         // Sort in descending order to remove from end
         QList<int> sortedRows = rows.values();
         std::sort(sortedRows.begin(), sortedRows.end(), std::greater<int>());
-        
+
         auto *model = qobject_cast<BookAccountPurchaseTable*>(ui->tableAccounts->model());
         if (model) {
             for (int row : sortedRows) {
@@ -85,14 +85,14 @@ void PanePurchaseAccount::removeRate()
     }
 }
 
-void PanePurchaseAccount::_connectSlots()
+void PaneSettingsPurchaseAccount::_connectSlots()
 {
     connect(ui->buttonAdd,
             &QPushButton::clicked,
             this,
-            &PanePurchaseAccount::addRate);
+            &PaneSettingsPurchaseAccount::addRate);
     connect(ui->buttonRemove,
             &QPushButton::clicked,
             this,
-            &PanePurchaseAccount::removeRate);
+            &PaneSettingsPurchaseAccount::removeRate);
 }

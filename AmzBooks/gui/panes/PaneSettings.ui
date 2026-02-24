@@ -73,7 +73,7 @@
       <widget class="PaneSettingsCompany" name="pageCompanyInfos"/>
       <widget class="PaneSettingsVatRates" name="pageVatRates"/>
       <widget class="PaneSettingsSaleAccounts" name="pageSaleAccounts"/>
-      <widget class="PanePurchaseAccount" name="pagePurchaseAccounts"/>
+      <widget class="PaneSettingsPurchaseAccount" name="pagePurchaseAccounts"/>
       <widget class="PaneSettingsSelfVatAccounts" name="pageSelfVatAccounts"/>
       <widget class="PaneSettingsBankAccounts" name="pageBankAccounts"/>
       <widget class="PaneSettingsAmzBalanceAccounts" name="pageAmzBalanceAccounts"/>
@@ -104,9 +104,9 @@
    <container>1</container>
   </customwidget>
   <customwidget>
-   <class>PanePurchaseAccount</class>
+   <class>PaneSettingsPurchaseAccount</class>
    <extends>QWidget</extends>
-   <header>gui/panes/PanePurchaseAccount.h</header>
+   <header>gui/panes/PaneSettingsPurchaseAccount.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>
