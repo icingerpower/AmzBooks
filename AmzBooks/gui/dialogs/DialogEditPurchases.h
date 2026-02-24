@@ -42,8 +42,11 @@ private:
         QLineEdit  *editAmount        = nullptr;
         QComboBox  *comboCurrency     = nullptr;
         QLineEdit  *editVatAmount     = nullptr;
+        QLineEdit  *editVatRate       = nullptr;
         QComboBox  *comboVatCurrency  = nullptr;
         QComboBox  *comboVatCountry   = nullptr;
+        QComboBox  *comboCountryFrom  = nullptr;
+        QComboBox  *comboCountryTo    = nullptr;
         QCheckBox  *checkInventory    = nullptr;
         QCheckBox  *checkDdp          = nullptr;
     };
@@ -56,11 +59,14 @@ private:
     static constexpr int COL_AMOUNT       = 5;
     static constexpr int COL_CURRENCY     = 6;
     static constexpr int COL_VAT_AMOUNT   = 7;
-    static constexpr int COL_VAT_CURRENCY = 8;
-    static constexpr int COL_VAT_COUNTRY  = 9;
-    static constexpr int COL_INVENTORY    = 10;
-    static constexpr int COL_DDP          = 11;
-    static constexpr int COL_STATUS       = 12;
+    static constexpr int COL_VAT_RATE     = 8;
+    static constexpr int COL_VAT_CURRENCY = 9;
+    static constexpr int COL_VAT_COUNTRY  = 10;
+    static constexpr int COL_COUNTRY_FROM = 11;
+    static constexpr int COL_COUNTRY_TO   = 12;
+    static constexpr int COL_INVENTORY    = 13;
+    static constexpr int COL_DDP          = 14;
+    static constexpr int COL_STATUS       = 15;
 
     Ui::DialogEditPurchases *ui;
     const BookAccountPurchaseTable *m_purchaseTable;
@@ -72,6 +78,7 @@ private:
     void _populateTable();
     QComboBox *_makeCurrencyCombo(const QString &invoiceCurrency) const;
     QComboBox *_makeVatCountryCombo(const QString &vatCountry) const;
+    QComboBox *_makeCountryCodeCombo(const QString &selected) const;
     static QWidget *_makeCenteredCheckbox(QCheckBox *cb);
     bool _validateAll();
 };

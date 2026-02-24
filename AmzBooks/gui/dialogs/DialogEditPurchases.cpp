@@ -13,6 +13,24 @@
 
 #include "CountriesEu.h"
 #include "ExceptionWithTitleText.h"
+#include "books/BookAccountPurchaseTable.h"
+
+// Extract the numeric rate string (e.g. "20" or "5.5") from a VAT token
+// such as "FR-TVA20-13.6EUR" → "20", or "TVA-13.6EUR" → "".
+static QString extractVatRateFromToken(const QString &token)
+{
+    static QRegularExpression regexRate(QStringLiteral("[0-9.]+"));
+    const QStringList parts = token.split(QLatin1Char('-'));
+    // Token with country: parts[0]=country, parts[1]=TVAxxx, parts[2]=amount
+    // Token without country: parts[0]=TVAxxx, parts[1]=amount
+    const int ratePartIdx = (parts.size() >= 3) ? 1 : 0;
+    if (ratePartIdx < parts.size()) {
+        const QRegularExpressionMatch m = regexRate.match(parts[ratePartIdx]);
+        if (m.hasMatch())
+            return m.captured(0);
+    }
+    return {};
+}
 
 DialogEditPurchases::DialogEditPurchases(const BookAccountPurchaseTable *purchaseTable,
                                          const QStringList &filePaths,
@@ -41,11 +59,12 @@ DialogEditPurchases::~DialogEditPurchases()
 
 void DialogEditPurchases::_setupTable()
 {
-    ui->tableWidget->setColumnCount(13);
+    ui->tableWidget->setColumnCount(16);
     ui->tableWidget->setHorizontalHeaderLabels({
         tr("File"), tr("Date"), tr("Account"), tr("Label"),
         tr("Supplier"), tr("Amount"), tr("Currency"),
-        tr("VAT Amount"), tr("VAT Currency"), tr("VAT Country"),
+        tr("VAT Amount"), tr("VAT Rate %"), tr("VAT Currency"), tr("VAT Country"),
+        tr("Country From"), tr("Country To"),
         tr("Inv."), tr("DDP"), tr("Status")
     });
     ui->tableWidget->horizontalHeader()->setStretchLastSection(true);
@@ -115,6 +134,15 @@ void DialogEditPurchases::_populateTable()
         auto *editVatAmount = new QLineEdit(info.rawVatAmount);
         ui->tableWidget->setCellWidget(i, COL_VAT_AMOUNT, editVatAmount);
 
+        // VAT Rate (extracted from the first token, e.g. "20" from "FR-TVA20-13.6EUR")
+        const QString vatRate = info.vatTokens.isEmpty()
+                                ? QString()
+                                : extractVatRateFromToken(info.vatTokens.first());
+        auto *editVatRate = new QLineEdit(vatRate);
+        editVatRate->setPlaceholderText(tr("e.g. 20"));
+        editVatRate->setToolTip(tr("VAT rate in % (e.g. 20 or 5.5)"));
+        ui->tableWidget->setCellWidget(i, COL_VAT_RATE, editVatRate);
+
         // VAT Currency
         auto *comboVatCurrency = _makeCurrencyCombo(info.vatCurrency);
         ui->tableWidget->setCellWidget(i, COL_VAT_CURRENCY, comboVatCurrency);
@@ -122,6 +150,13 @@ void DialogEditPurchases::_populateTable()
         // VAT Country
         auto *comboVatCountry = _makeVatCountryCombo(info.vatCountry);
         ui->tableWidget->setCellWidget(i, COL_VAT_COUNTRY, comboVatCountry);
+
+        // Country From / Country To (route for self-VAT)
+        auto *comboCountryFrom = _makeCountryCodeCombo(info.countryCodeFrom);
+        ui->tableWidget->setCellWidget(i, COL_COUNTRY_FROM, comboCountryFrom);
+
+        auto *comboCountryTo = _makeCountryCodeCombo(info.countryCodeTo);
+        ui->tableWidget->setCellWidget(i, COL_COUNTRY_TO, comboCountryTo);
 
         // Inventory checkbox (centered)
         auto *checkInventory = new QCheckBox;
@@ -146,8 +181,10 @@ void DialogEditPurchases::_populateTable()
         ui->tableWidget->setItem(i, COL_STATUS, itemStatus);
 
         m_rows.append({info, dateEdit, editAccount, editLabel, editSupplier,
-                       editAmount, comboCurrency, editVatAmount, comboVatCurrency,
-                       comboVatCountry, checkInventory, checkDdp});
+                       editAmount, comboCurrency, editVatAmount, editVatRate,
+                       comboVatCurrency, comboVatCountry,
+                       comboCountryFrom, comboCountryTo,
+                       checkInventory, checkDdp});
     }
 
     ui->tableWidget->resizeColumnsToContents();
@@ -202,6 +239,21 @@ QComboBox *DialogEditPurchases::_makeVatCountryCombo(const QString &vatCountry) 
     return combo;
 }
 
+QComboBox *DialogEditPurchases::_makeCountryCodeCombo(const QString &selected) const
+{
+    auto *combo = new QComboBox;
+    combo->addItem(QString()); // empty = not set
+    QStringList countries = CountriesEu::getCountries();
+    // Ensure the current value is always selectable even if not in the standard list
+    if (!selected.isEmpty() && !countries.contains(selected))
+        countries.append(selected);
+    combo->addItems(countries);
+    const int idx = selected.isEmpty() ? 0 : combo->findText(selected);
+    if (idx >= 0)
+        combo->setCurrentIndex(idx);
+    return combo;
+}
+
 QWidget *DialogEditPurchases::_makeCenteredCheckbox(QCheckBox *cb)
 {
     auto *container = new QWidget;
@@ -236,6 +288,39 @@ bool DialogEditPurchases::_validateAll()
         }
         if (qAbs(row.editAmount->text().trimmed().toDouble()) == 0.0) {
             errors << tr("amount is zero");
+        }
+
+        // Validate VAT rate against the purchase account table if available
+        const QString vatRateStr    = row.editVatRate->text().trimmed();
+        const QString vatAmountStr  = row.editVatAmount->text().trimmed();
+        const QString vatCountryStr = row.comboVatCountry->currentText().trimmed();
+        if (!vatCountryStr.isEmpty() && !vatAmountStr.isEmpty() && m_purchaseTable) {
+            QString rateStr = vatRateStr;
+
+            // If rate is missing, try to derive it from amounts
+            if (rateStr.isEmpty()) {
+                const double totalAmount = row.editAmount->text().trimmed().toDouble();
+                const double vatAmount   = vatAmountStr.toDouble();
+                const double netAmount   = totalAmount - vatAmount;
+                if (qAbs(netAmount) > 1e-9)
+                    rateStr = QString::number((vatAmount / netAmount) * 100.0, 'g', 6);
+            }
+
+            if (rateStr.isEmpty()) {
+                errors << tr("VAT rate is required when VAT country is set");
+            } else {
+                const double rate = rateStr.toDouble() / 100.0;
+                try {
+                    m_purchaseTable->getAccountsDebit6(vatCountryStr, rate);
+                    // Rate is valid: prefill the field if it was computed
+                    if (vatRateStr.isEmpty())
+                        row.editVatRate->setText(rateStr);
+                } catch (const ExceptionWithTitleText &) {
+                    errors << tr("unknown VAT rate %1% for %2").arg(rateStr, vatCountryStr);
+                } catch (...) {
+                    errors << tr("unknown VAT rate %1% for %2").arg(rateStr, vatCountryStr);
+                }
+            }
         }
 
         auto *statusItem = ui->tableWidget->item(i, COL_STATUS);
@@ -315,12 +400,26 @@ QList<PurchaseInformation> DialogEditPurchases::getInfos() const
         info.vatTokens.clear();
         info.country_vatRate_vat.clear();
         if (!info.rawVatAmount.isEmpty()) {
+            const QString rateStr  = row.editVatRate->text().trimmed();
+            const QString vatLabel = rateStr.isEmpty()
+                                     ? QStringLiteral("TVA")
+                                     : QStringLiteral("TVA") + rateStr;
             if (!info.vatCountry.isEmpty()) {
-                info.vatTokens << QString("%1-TVA-%2%3").arg(info.vatCountry, info.rawVatAmount, info.vatCurrency);
+                info.vatTokens << QString("%1-%2-%3%4")
+                                      .arg(info.vatCountry, vatLabel,
+                                           info.rawVatAmount, info.vatCurrency);
+                if (!rateStr.isEmpty()) {
+                    const QString rateKey = QString::number(rateStr.toDouble(), 'f', 2);
+                    info.country_vatRate_vat[info.vatCountry][rateKey] +=
+                        info.rawVatAmount.toDouble();
+                }
             } else {
-                info.vatTokens << QString("TVA-%1%2").arg(info.rawVatAmount, info.vatCurrency);
+                info.vatTokens << QString("%1-%2%3")
+                                      .arg(vatLabel, info.rawVatAmount, info.vatCurrency);
             }
         }
+        info.countryCodeFrom = row.comboCountryFrom->currentText();
+        info.countryCodeTo   = row.comboCountryTo->currentText();
         info.isInventory    = row.checkInventory->isChecked();
         info.isDDP          = row.checkDdp->isChecked();
         // filePath is already in originalInfo

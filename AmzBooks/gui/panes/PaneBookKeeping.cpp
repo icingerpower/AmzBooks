@@ -724,26 +724,40 @@ void PaneBookKeeping::purchaseAddMany()
         auto purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
         QList<PurchaseInformation> invoicesToAdd = dialog.getInfos();
 
+        // Loop 1: validate — ask about missing countries without adding anything yet
+        bool aborted = false;
+        QSet<QString> confirmedSuppliers; // suppliers already confirmed once
+        for (const PurchaseInformation &info : std::as_const(invoicesToAdd)) {
+            if (info.countryCodeFrom.isEmpty() && info.countryCodeTo.isEmpty()) {
+                if (!confirmedSuppliers.contains(info.accountSupplier)
+                        && purchaseTable->manager().isSupplierWithCountries(info.accountSupplier)) {
+                    if (QMessageBox::question(
+                            this,
+                            tr("Missing Country"),
+                            tr("For '%1', country information is missing though the supplier usually has it. "
+                               "Are you sure you want to add it?")
+                                .arg(info.accountSupplier),
+                            QMessageBox::Yes | QMessageBox::No,
+                            QMessageBox::No) != QMessageBox::Yes) {
+                        aborted = true;
+                        break;
+                    }
+                    confirmedSuppliers.insert(info.accountSupplier);
+                }
+            }
+        }
+
+        if (aborted) {
+            QMessageBox::information(this, tr("Import Cancelled"),
+                                     tr("Import cancelled. No invoices were added."));
+            return;
+        }
+
+        // Loop 2: add all invoices (validation passed)
         int count = 0;
         int errCount = 0;
-
         for (PurchaseInformation info : invoicesToAdd) {
             try {
-                if (info.countryCodeFrom.isEmpty() && info.countryCodeTo.isEmpty()) {
-                    if (purchaseTable->manager().isSupplierWithCountries(info.accountSupplier)) {
-                        if (QMessageBox::question(
-                                this,
-                                tr("Missing Country"),
-                                tr("For '%1', country information is missing though the supplier usually has it. "
-                                   "Are you sure you want to add it?")
-                                    .arg(info.accountSupplier),
-                                QMessageBox::Yes | QMessageBox::No,
-                                QMessageBox::No) != QMessageBox::Yes) {
-                            continue;
-                        }
-                    }
-                }
-
                 purchaseTable->manager().add(info.filePath, info);
                 count++;
             } catch (...) {

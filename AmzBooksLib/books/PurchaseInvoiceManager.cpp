@@ -254,7 +254,9 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
         // Major world
         "AU", "BR", "CA", "CN", "IN", "JP", "KR", "MX", "US",
         // Others common in e-commerce
-        "AE", "HK", "MA", "SG", "TH", "TW", "VN", "ZA", "PH", "ID"
+        "AE", "HK", "MA", "SG", "TH", "TW", "VN", "ZA", "PH", "ID",
+        // Pseudo-country: European Union as a whole (e.g. Amazon EU consolidation)
+        "EU"
     };
     static QRegularExpression regexRoute("([A-Z]{2})([A-Z]{2})$");
     QRegularExpressionMatch matchRoute = regexRoute.match(info.accountSupplier);

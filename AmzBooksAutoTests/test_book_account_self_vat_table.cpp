@@ -266,6 +266,35 @@ private slots:
     }
 
     // -------------------------------------------------------------------------
+    // Routing logic — "EU" pseudo-country (e.g. Amazon EU consolidation → FR)
+    // -------------------------------------------------------------------------
+
+    void test_routing_FR_eu_pseudo_country()
+    {
+        QTemporaryDir tempDir;
+        BookAccountSelfVatTable table(QDir(tempDir.path()), "FR");
+
+        // Set recognisable custom values on the EU row so the assertion is
+        // unambiguous regardless of the default fill values.
+        table.setData(table.index(0, 1), "EU_DED_TEST", Qt::EditRole);
+        table.setData(table.index(0, 2), "EU_DUE_TEST", Qt::EditRole);
+
+        // "EU" as countryFrom must be treated as EU intracom → EU row
+        QCOMPARE(table.getAccountVatDeductible("EU", "FR"), QString("EU_DED_TEST"));
+        QCOMPARE(table.getAccountVatDue("EU",         "FR"), QString("EU_DUE_TEST"));
+
+        // Must behave identically to a concrete EU member state (DE)
+        QCOMPARE(table.getAccountVatDeductible("EU", "FR"),
+                 table.getAccountVatDeductible("DE", "FR"));
+        QCOMPARE(table.getAccountVatDue("EU", "FR"),
+                 table.getAccountVatDue("DE", "FR"));
+
+        // Wrong destination → empty (company is FR, not DE)
+        QVERIFY(table.getAccountVatDeductible("EU", "DE").isEmpty());
+        QVERIFY(table.getAccountVatDue("EU",         "DE").isEmpty());
+    }
+
+    // -------------------------------------------------------------------------
     // Routing logic — company = DE
     // -------------------------------------------------------------------------
 

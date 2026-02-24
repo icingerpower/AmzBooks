@@ -74,6 +74,13 @@ private slots:
     void test_factory_selfvat_custom_accounts();
     void test_factory_selfvat_refund();
     void test_factory_selfvat_invoice_us_fr_label_route();
+    void test_invoice_eu_fr_label_route();
+    void test_invoice_gb_fr_label_route_noneu();
+    void test_invoice_tr_fr_label_route_try_currency();
+    void test_invoice_ph_fr_label_route();
+    void test_invoice_mixed_currency_vat_eur_total_sek();
+    void test_invoice_mixed_currency_vat_sek_total_eur();
+    void test_invoice_same_currency_sek_rate_computed();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -1882,7 +1889,7 @@ void TestBookEntries::test_factory_selfvat_intracom_eu()
             foundExpense = true;
             QCOMPARE(line.currency_amount["EUR"], 100.0);
         }
-        if (line.account == "445663") {   // default EU deductible
+        if (line.account == "445662") {   // default EU deductible
             foundDeductible = true;
             QCOMPARE(line.currency_amount["EUR"], 20.0);
         }
@@ -1897,7 +1904,7 @@ void TestBookEntries::test_factory_selfvat_intracom_eu()
             foundSupplier = true;
             QCOMPARE(line.currency_amount["EUR"], 100.0);
         }
-        if (line.account == "445300") {   // default EU due
+        if (line.account == "445200") {   // default EU due
             foundDue = true;
             QCOMPARE(line.currency_amount["EUR"], 20.0);
         }
@@ -2225,12 +2232,12 @@ void TestBookEntries::test_factory_selfvat_refund()
     // Self-VAT due (normally credit) → debit for refund
     bool foundDeductibleOnCredit = false;
     for (const auto &line : entry->getCredits())
-        if (line.account == "445663") { foundDeductibleOnCredit = true; QCOMPARE(line.currency_amount["EUR"], 20.0); }
+        if (line.account == "445662") { foundDeductibleOnCredit = true; QCOMPARE(line.currency_amount["EUR"], 20.0); }
     QVERIFY(foundDeductibleOnCredit);
 
     bool foundDueOnDebit = false;
     for (const auto &line : entry->getDebits())
-        if (line.account == "445300") { foundDueOnDebit = true; QCOMPARE(line.currency_amount["EUR"], 20.0); }
+        if (line.account == "445200") { foundDueOnDebit = true; QCOMPARE(line.currency_amount["EUR"], 20.0); }
     QVERIFY(foundDueOnDebit);
 
     // Total must still be 120 (100 expense + 20 self-VAT) on each side
@@ -2310,6 +2317,420 @@ void TestBookEntries::test_factory_selfvat_invoice_us_fr_label_route()
     }
     QVERIFY(foundSupplier);
     QVERIFY(foundDue);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: real Amazon EU invoice — route "-EU-FR" embedded in label
+//       decode must extract countryCodeFrom="EU", encode must round-trip,
+//       factory must use the EU self-VAT row
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_invoice_eu_fr_label_route()
+{
+    const QString fileName =
+        "2026-01-31__622201__frais-vente-FR-AEU-2026-27277-EU-FR__FAMAZON__88.56GBP.pdf";
+
+    // ── Decode ────────────────────────────────────────────────────────────────
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date,            QDate(2026, 1, 31));
+    QCOMPARE(info.account,         QString("622201"));
+    QCOMPARE(info.label,           QString("frais-vente-FR-AEU-2026-27277-EU-FR"));
+    QCOMPARE(info.accountSupplier, QString("FAMAZON"));
+    // Route comes from label suffix "-EU-FR"
+    QCOMPARE(info.countryCodeFrom, QString("EU"));
+    QCOMPARE(info.countryCodeTo,   QString("FR"));
+    QCOMPARE(info.totalAmount,     88.56);
+    QCOMPARE(info.currency,        QString("GBP"));
+    QVERIFY(info.country_vatRate_vat.isEmpty()); // no VAT token in filename
+    QVERIFY(info.rawVatAmount.isEmpty());
+
+    // ── Encode round-trip ─────────────────────────────────────────────────────
+    QCOMPARE(PurchaseInvoiceManager::encode(info), fileName);
+
+    // ── Build factory with FR company ─────────────────────────────────────────
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-01-31", "GBP", "EUR", 1.20);
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+
+    // rawVatAmount is empty → factory falls back to totalAmountAbs * 20 %
+    // selfVatAmount = 88.56 * 0.20 = 17.712 GBP
+    // Debits : expense(88.56) + TVA déductible(17.712) = 2 lines
+    QCOMPARE(entry->getDebits().size(),  2);
+    // Credits: supplier(88.56) + TVA due(17.712) = 2 lines
+    QCOMPARE(entry->getCredits().size(), 2);
+
+    // "EU" as countryFrom → treated as EU intracom → EU self-VAT row
+    const QString euDeductible = sva.getAccountVatDeductible("EU", "FR");
+    const QString euDue        = sva.getAccountVatDue("EU",        "FR");
+    QVERIFY(!euDeductible.isEmpty());
+    QVERIFY(!euDue.isEmpty());
+
+    bool foundExpense    = false;
+    bool foundDeductible = false;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == "622201")       foundExpense    = true;
+        if (line.account == euDeductible)   foundDeductible = true;
+    }
+    QVERIFY(foundExpense);
+    QVERIFY(foundDeductible);
+
+    bool foundSupplier = false;
+    bool foundDue      = false;
+    for (const auto &line : entry->getCredits()) {
+        if (line.account == "FAMAZON") foundSupplier = true;
+        if (line.account == euDue)     foundDue      = true;
+    }
+    QVERIFY(foundSupplier);
+    QVERIFY(foundDue);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: Amazon GB→FR invoice — route "-GB-FR" embedded in label
+//       GB is post-Brexit non-EU → factory must use the non-EU self-VAT row
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_invoice_gb_fr_label_route_noneu()
+{
+    const QString fileName =
+        "2026-01-31__622201__frais-publicite-56780M7PA26-GB-FR__FAMAZON__61.05GBP.pdf";
+
+    // ── Decode ────────────────────────────────────────────────────────────────
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date,            QDate(2026, 1, 31));
+    QCOMPARE(info.account,         QString("622201"));
+    QCOMPARE(info.label,           QString("frais-publicite-56780M7PA26-GB-FR"));
+    QCOMPARE(info.accountSupplier, QString("FAMAZON"));
+    // Route comes from label suffix "-GB-FR"
+    QCOMPARE(info.countryCodeFrom, QString("GB"));
+    QCOMPARE(info.countryCodeTo,   QString("FR"));
+    QCOMPARE(info.totalAmount,     61.05);
+    QCOMPARE(info.currency,        QString("GBP"));
+    QVERIFY(info.country_vatRate_vat.isEmpty());
+    QVERIFY(info.rawVatAmount.isEmpty());
+
+    // ── Encode round-trip ─────────────────────────────────────────────────────
+    QCOMPARE(PurchaseInvoiceManager::encode(info), fileName);
+
+    // ── GB is non-EU (post-Brexit) in BookAccountSelfVatTable ─────────────────
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    BookAccountSelfVatTable sva(dir, "FR");
+    // GB → FR must resolve to the non-EU row, same as CN → FR
+    QCOMPARE(sva.getAccountVatDeductible("GB", "FR"),
+             sva.getAccountVatDeductible("CN", "FR"));
+    QCOMPARE(sva.getAccountVatDue("GB", "FR"),
+             sva.getAccountVatDue("CN", "FR"));
+    // And must differ from an EU intracom route
+    QVERIFY(sva.getAccountVatDeductible("GB", "FR") !=
+            sva.getAccountVatDeductible("DE", "FR"));
+
+    // ── Factory uses non-EU self-VAT accounts ─────────────────────────────────
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-01-31", "GBP", "EUR", 1.20);
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+
+    // rawVatAmount empty → factory defaults to totalAmountAbs * 20 %
+    QCOMPARE(entry->getDebits().size(),  2);
+    QCOMPARE(entry->getCredits().size(), 2);
+
+    const QString nonEuDeductible = sva.getAccountVatDeductible("GB", "FR");
+    const QString nonEuDue        = sva.getAccountVatDue("GB",        "FR");
+
+    bool foundExpense    = false;
+    bool foundDeductible = false;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == "622201")         foundExpense    = true;
+        if (line.account == nonEuDeductible)  foundDeductible = true;
+    }
+    QVERIFY(foundExpense);
+    QVERIFY(foundDeductible);
+
+    bool foundSupplier = false;
+    bool foundDue      = false;
+    for (const auto &line : entry->getCredits()) {
+        if (line.account == "FAMAZON")  foundSupplier = true;
+        if (line.account == nonEuDue)   foundDue      = true;
+    }
+    QVERIFY(foundSupplier);
+    QVERIFY(foundDue);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: Amazon TR→FR invoice with TRY currency
+//       TR (Turkey) is a supported non-EU country; TRY is a supported currency
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_invoice_tr_fr_label_route_try_currency()
+{
+    const QString fileName =
+        "2026-01-31__622201__frais-publicite-ADA2026000040109-TR-FR__FAMAZON__35.47TRY.pdf";
+
+    // ── Decode ────────────────────────────────────────────────────────────────
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date,            QDate(2026, 1, 31));
+    QCOMPARE(info.account,         QString("622201"));
+    QCOMPARE(info.label,           QString("frais-publicite-ADA2026000040109-TR-FR"));
+    QCOMPARE(info.accountSupplier, QString("FAMAZON"));
+    // TR and FR recognised from label suffix "-TR-FR"
+    QCOMPARE(info.countryCodeFrom, QString("TR"));
+    QCOMPARE(info.countryCodeTo,   QString("FR"));
+    QCOMPARE(info.totalAmount,     35.47);
+    // TRY (Turkish lira) must be parsed as the currency
+    QCOMPARE(info.currency,        QString("TRY"));
+    QVERIFY(info.country_vatRate_vat.isEmpty());
+    QVERIFY(info.rawVatAmount.isEmpty());
+
+    // ── Encode round-trip ─────────────────────────────────────────────────────
+    QCOMPARE(PurchaseInvoiceManager::encode(info), fileName);
+
+    // ── TR is non-EU in BookAccountSelfVatTable ───────────────────────────────
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    BookAccountSelfVatTable sva(QDir(tempDir.path()), "FR");
+
+    // TR → FR must resolve to the non-EU row (same as CN → FR)
+    QCOMPARE(sva.getAccountVatDeductible("TR", "FR"),
+             sva.getAccountVatDeductible("CN", "FR"));
+    QCOMPARE(sva.getAccountVatDue("TR", "FR"),
+             sva.getAccountVatDue("CN", "FR"));
+    // And must differ from an EU intracom route
+    QVERIFY(sva.getAccountVatDeductible("TR", "FR") !=
+            sva.getAccountVatDeductible("DE", "FR"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: Amazon PH→FR invoice
+//       PH (Philippines) is a supported non-EU country
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_invoice_ph_fr_label_route()
+{
+    const QString fileName =
+        "2026-01-31__622201__frais-publicite-ADA2026000040109-PH-FR__FAMAZON__35.47EUR.pdf";
+
+    // ── Decode ────────────────────────────────────────────────────────────────
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date,            QDate(2026, 1, 31));
+    QCOMPARE(info.account,         QString("622201"));
+    QCOMPARE(info.label,           QString("frais-publicite-ADA2026000040109-PH-FR"));
+    QCOMPARE(info.accountSupplier, QString("FAMAZON"));
+    // PH and FR recognised from label suffix "-PH-FR"
+    QCOMPARE(info.countryCodeFrom, QString("PH"));
+    QCOMPARE(info.countryCodeTo,   QString("FR"));
+    QCOMPARE(info.totalAmount,     35.47);
+    QCOMPARE(info.currency,        QString("EUR"));
+    QVERIFY(info.country_vatRate_vat.isEmpty());
+    QVERIFY(info.rawVatAmount.isEmpty());
+
+    // ── Encode round-trip ─────────────────────────────────────────────────────
+    QCOMPARE(PurchaseInvoiceManager::encode(info), fileName);
+
+    // ── PH is non-EU in BookAccountSelfVatTable ───────────────────────────────
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    BookAccountSelfVatTable sva(QDir(tempDir.path()), "FR");
+
+    // PH → FR must resolve to the non-EU row (same as CN → FR)
+    QCOMPARE(sva.getAccountVatDeductible("PH", "FR"),
+             sva.getAccountVatDeductible("CN", "FR"));
+    QCOMPARE(sva.getAccountVatDue("PH", "FR"),
+             sva.getAccountVatDue("CN", "FR"));
+    // And must differ from an EU intracom route
+    QVERIFY(sva.getAccountVatDeductible("PH", "FR") !=
+            sva.getAccountVatDeductible("DE", "FR"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: VAT in EUR, total in SEK (cross-currency VAT)
+//       Exchange rate: 27.67 SEK = 2.63 EUR → total 165.99 SEK ≈ 15.78 EUR
+//       VAT rate extracted from "TVA20" → key "0.2" (20%)
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_invoice_mixed_currency_vat_eur_total_sek()
+{
+    const QString fileName =
+        "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA20-2.63EUR__165.99SEK.pdf";
+
+    // ── Decode ────────────────────────────────────────────────────────────────
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date,            QDate(2026, 1, 31));
+    QCOMPARE(info.account,         QString("622201"));
+    QCOMPARE(info.label,           QString("frais-vente-FR-AEU-2026-86900"));
+    QCOMPARE(info.accountSupplier, QString("FAMZMK"));
+    QCOMPARE(info.totalAmount,     165.99);
+    QCOMPARE(info.currency,        QString("SEK"));
+    QCOMPARE(info.rawVatAmount,    QString("2.63"));
+    QCOMPARE(info.vatCurrency,     QString("EUR"));
+    QCOMPARE(info.vatCountry,      QString("FR"));
+    // Rate "TVA20" → stored as decimal 0.2, value 2.63 EUR
+    QVERIFY(info.country_vatRate_vat.contains("FR"));
+    QVERIFY(info.country_vatRate_vat["FR"].contains("0.2"));
+    QCOMPARE(info.country_vatRate_vat["FR"]["0.2"], 2.63);
+
+    // ── Encode round-trip ─────────────────────────────────────────────────────
+    QCOMPARE(PurchaseInvoiceManager::encode(info), fileName);
+
+    // ── Factory: balanced entry with SEK→EUR exchange rate ────────────────────
+    // 27.67 SEK = 2.63 EUR  →  1 SEK = 2.63/27.67 EUR
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-01-31", "SEK", "EUR", 2.63 / 27.67);
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+    QCOMPARE(entry->getDebits().size(),  2); // expense + VAT
+    QCOMPARE(entry->getCredits().size(), 1); // supplier
+
+    bool foundExpense = false, foundVat = false, foundSupplier = false;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == "622201")              foundExpense = true;
+        if (line.account.startsWith("44566"))      foundVat     = true;
+    }
+    for (const auto &line : entry->getCredits()) {
+        if (line.account == "FAMZMK")              foundSupplier = true;
+    }
+    QVERIFY(foundExpense);
+    QVERIFY(foundVat);
+    QVERIFY(foundSupplier);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: VAT in SEK, total in EUR (cross-currency, opposite direction)
+//       Same ratio: 27.67 SEK = 2.63 EUR → total 15.78 EUR, VAT 27.67 SEK
+//       Rate extracted from "TVA20" → key "0.2" (20%)
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_invoice_mixed_currency_vat_sek_total_eur()
+{
+    const QString fileName =
+        "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA20-27.67SEK__15.78EUR.pdf";
+
+    // ── Decode ────────────────────────────────────────────────────────────────
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date,            QDate(2026, 1, 31));
+    QCOMPARE(info.account,         QString("622201"));
+    QCOMPARE(info.label,           QString("frais-vente-FR-AEU-2026-86900"));
+    QCOMPARE(info.accountSupplier, QString("FAMZMK"));
+    QCOMPARE(info.totalAmount,     15.78);
+    QCOMPARE(info.currency,        QString("EUR"));
+    QCOMPARE(info.rawVatAmount,    QString("27.67"));
+    QCOMPARE(info.vatCurrency,     QString("SEK"));
+    QCOMPARE(info.vatCountry,      QString("FR"));
+    // Rate "TVA20" → key "0.2"
+    QVERIFY(info.country_vatRate_vat.contains("FR"));
+    QVERIFY(info.country_vatRate_vat["FR"].contains("0.2"));
+    QCOMPARE(info.country_vatRate_vat["FR"]["0.2"], 27.67);
+
+    // ── Encode round-trip ─────────────────────────────────────────────────────
+    QCOMPARE(PurchaseInvoiceManager::encode(info), fileName);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: VAT and total both in SEK, no rate in filename → rate computed ≈ 20%
+//       27.67 SEK VAT, 165.99 SEK total → net 138.32 SEK → 27.67/138.32 ≈ 20%
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_invoice_same_currency_sek_rate_computed()
+{
+    const QString fileName =
+        "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA-27.67SEK__165.99SEK.pdf";
+
+    // ── Decode: rate not in filename → computed from amounts ──────────────────
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date,            QDate(2026, 1, 31));
+    QCOMPARE(info.account,         QString("622201"));
+    QCOMPARE(info.label,           QString("frais-vente-FR-AEU-2026-86900"));
+    QCOMPARE(info.accountSupplier, QString("FAMZMK"));
+    QCOMPARE(info.totalAmount,     165.99);
+    QCOMPARE(info.currency,        QString("SEK"));
+    QCOMPARE(info.rawVatAmount,    QString("27.67"));
+    QCOMPARE(info.vatCurrency,     QString("SEK"));
+    QCOMPARE(info.vatCountry,      QString("FR"));
+    // Rate computed: 27.67 / (165.99 − 27.67) = 27.67 / 138.32 ≈ 20.0% → key "0.2"
+    QVERIFY(info.country_vatRate_vat.contains("FR"));
+    QVERIFY(info.country_vatRate_vat["FR"].contains("0.2"));
+    QCOMPARE(info.country_vatRate_vat["FR"]["0.2"], 27.67);
+
+    // ── Encode round-trip (token preserved as "FR-TVA-27.67SEK") ─────────────
+    QCOMPARE(PurchaseInvoiceManager::encode(info), fileName);
+
+    // ── Factory: balanced entry — both amounts in SEK, convert to EUR ─────────
+    // 27.67 SEK = 2.63 EUR  →  1 SEK = 2.63/27.67 EUR
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-01-31", "SEK", "EUR", 2.63 / 27.67);
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+    QCOMPARE(entry->getDebits().size(),  2); // expense + VAT
+    QCOMPARE(entry->getCredits().size(), 1); // supplier
+
+    // VAT amount in EUR: 27.67 SEK × (2.63/27.67) = 2.63 EUR exactly
+    const QString vatAccount = pa.getAccountsDebit6("FR", 0.2);
+    double vatEur = 0.0;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == vatAccount) {
+            vatEur = line.currency_amount.value("SEK") * (2.63 / 27.67);
+        }
+    }
+    QVERIFY(qAbs(vatEur - 2.63) < 0.01);
+
+    bool foundExpense = false, foundVat = false, foundSupplier = false;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == "622201")              foundExpense = true;
+        if (line.account == vatAccount)            foundVat     = true;
+    }
+    for (const auto &line : entry->getCredits()) {
+        if (line.account == "FAMZMK")              foundSupplier = true;
+    }
+    QVERIFY(foundExpense);
+    QVERIFY(foundVat);
+    QVERIFY(foundSupplier);
 }
 
 QTEST_MAIN(TestBookEntries)

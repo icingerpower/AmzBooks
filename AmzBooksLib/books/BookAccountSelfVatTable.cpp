@@ -33,7 +33,7 @@ QString BookAccountSelfVatTable::_resolveCategory(const QString &countryFrom,
     if (countryFrom == m_companyCountryCode)
         return {};
 
-    if (CountriesEu::isEuMember(countryFrom, QDate::currentDate()))
+    if (CountriesEu::isEuMember(countryFrom, QDate::currentDate()) || countryFrom == "EU")
         return QStringLiteral("EU");
 
     return QStringLiteral("NON_EU");
@@ -133,7 +133,7 @@ void BookAccountSelfVatTable::_fillIfEmpty()
     if (!m_rows.isEmpty())
         return;
 
-    m_rows.append({tr("EU"),     QStringLiteral("445663"), QStringLiteral("445300")});
+    m_rows.append({tr("EU"),     QStringLiteral("445662"), QStringLiteral("445200")});
     m_rows.append({tr("non-EU"), QStringLiteral("445663"), QStringLiteral("445300")});
     _save();
 }
@@ -153,7 +153,7 @@ void BookAccountSelfVatTable::_save()
     }
     QTextStream out(&file);
     out << CSV_HEADER_IDS.join(";") << "\n";
-    for (const QStringList &row : m_rows) {
+    for (const QStringList &row : std::as_const(m_rows)) {
         QStringList r = row;
         while (r.size() < CSV_HEADER_IDS.size())
             r << QString();
