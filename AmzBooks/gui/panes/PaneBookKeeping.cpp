@@ -8,6 +8,7 @@
 #include "books/BooksConnections.h"
 #include "banks/AbstractBankStatement.h"
 #include "books/PurchaseInvoiceTable.h"
+#include "books/PurchaseAmzPaymentsTable.h"
 #include "books/JournalTable.h"
 #include "books/JournalEntryFactory.h"
 #include "books/BookSaverFull.h"
@@ -17,7 +18,11 @@
 #include <QCoroTask>
 
 #include <QTableView>
+#include <QTableWidget>
 #include <QHeaderView>
+#include <QVBoxLayout>
+#include <QDialogButtonBox>
+#include <QLabel>
 
 #include "CurrencyRateManager.h"
 
@@ -34,12 +39,14 @@
 #include "ExceptionWithTitleText.h"
 #include "../dialogs/DialogAddSelfEntry.h"
 #include "../dialogs/DialogPurchaseInvoices.h"
+#include "../dialogs/DialogAmzPayments.h"
 #include "../dialogs/DialogEditPurchase.h"
 #include "../dialogs/DialogEditPurchases.h"
 #include "gui/dialogs/DialogEditServiceClients.h"
 #include "gui/dialogs/DialogAddSaleService.h"
 #include "books/ServiceSalesBooksTable.h"
 #include "books/ServiceClientManager.h"
+#include "books/VatResolver.h"
 #include "books/CompanyInfosTable.h"
 #include "books/BookAccountPurchaseTable.h"
 #include "orders/OrderManager.h"
@@ -74,6 +81,7 @@ void PaneBookKeeping::loadYearSelected()
 {
     setCursor(Qt::WaitCursor);
     _setSubButtonsEnabled(true);
+    _updateServiceButtonsEnabled();
     bool yearOk = false;
     int year = ui->comboBoxYear->currentText().toInt(&yearOk);
     Q_ASSERT(yearOk);
@@ -907,16 +915,19 @@ void PaneBookKeeping::serviceAddSale()
     }
 
     ServiceClientManager clientManager(WorkingDirectoryManager::instance()->workingDir());
-    
+    VatResolver vatResolver(WorkingDirectoryManager::instance()->workingDir());
+
     DialogAddSaleService dialog(&clientManager, this);
     if (dialog.exec() == QDialog::Accepted) {
         serviceTable->createSale(
             &clientManager,
             dialog.getSelectedClientRow(),
             dialog.getDate(),
-            dialog.getAmount(),
+            dialog.getUnitPrice() * dialog.getQuantity(),
             dialog.getCurrency(),
-            dialog.getInvoiceId()
+            dialog.getInvoiceId(),
+            dialog.getAccount(),
+            &vatResolver
         );
     }
 }
@@ -962,6 +973,7 @@ void PaneBookKeeping::serviceEditClients()
     DialogEditServiceClients dialog(&clientManager, this);
     dialog.exec();
     // Clients saved automatically by manager on change/destruct
+    _updateServiceButtonsEnabled();
 }
 
 void PaneBookKeeping::serviceCreateFromSelection()
@@ -1010,25 +1022,195 @@ void PaneBookKeeping::serviceCreateFromSelection()
     
     // Create the sale dialog with pre-filled data
     ServiceClientManager clientManager(WorkingDirectoryManager::instance()->workingDir());
+    VatResolver vatResolver(WorkingDirectoryManager::instance()->workingDir());
     DialogAddSaleService dialog(&clientManager, this);
-    
-    dialog.setAmount(qAbs(totalAmount)); 
-    // dialog.setCurrency(currency); // Currency determined by client
+
+    dialog.setUnitPrice(qAbs(totalAmount));
     dialog.setReference(labels.join(" + "));
     dialog.setDate(date);
-    
+
     if (dialog.exec() == QDialog::Accepted) {
         auto *serviceTable = static_cast<ServiceSalesBooksTable *>(ui->tableServices->model());
-        if(serviceTable) { 
+        if (serviceTable) {
             serviceTable->createSale(
                 &clientManager,
                 dialog.getSelectedClientRow(),
                 dialog.getDate(),
-                dialog.getAmount(),
+                dialog.getUnitPrice() * dialog.getQuantity(),
                 dialog.getCurrency(),
-                dialog.getInvoiceId()
+                dialog.getInvoiceId(),
+                dialog.getAccount(),
+                &vatResolver
             );
         }
+    }
+}
+
+void PaneBookKeeping::amzPaymentAdd()
+{
+    QSettings settings;
+    QString lastDir = settings.value("lastAmzPaymentDir", QDir::homePath()).toString();
+
+    QString fileName = QFileDialog::getOpenFileName(
+        this,
+        tr("Select Amazon Payment File"),
+        lastDir,
+        tr("Payment Files (*.pdf *.png *.jpg *.jpeg);;All Files (*)"));
+
+    if (fileName.isEmpty())
+        return;
+
+    settings.setValue("lastAmzPaymentDir", QFileInfo(fileName).absolutePath());
+
+    auto amzTable = getAmzPaymentsTable();
+
+    try {
+        AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(fileName);
+
+        if (!info.hasBalanceStart && !info.hasBalanceEnd) {
+            if (QMessageBox::warning(
+                    this,
+                    tr("Missing Balance Info"),
+                    tr("The file '%1' has no balance-begin or balance-end tokens.\n"
+                       "Both balances will be treated as 0.00.\n\n"
+                       "Do you want to continue?")
+                        .arg(QFileInfo(fileName).fileName()),
+                    QMessageBox::Yes | QMessageBox::No,
+                    QMessageBox::No) != QMessageBox::Yes) {
+                return;
+            }
+        }
+        amzTable->add(fileName, info);
+
+    } catch (const ExceptionWithTitleText &e) {
+        QMessageBox::warning(this, e.errorTitle(), e.errorText());
+    } catch (...) {
+        QMessageBox::warning(this, tr("Error"), tr("Unknown error adding payment."));
+    }
+}
+
+void PaneBookKeeping::amzPaymentAddMany()
+{
+    QSettings settings;
+    QString lastDir = settings.value("lastAmzPaymentDir", QDir::homePath()).toString();
+
+    QStringList fileNames = QFileDialog::getOpenFileNames(
+        this,
+        tr("Select Amazon Payment Files"),
+        lastDir,
+        tr("Payment Files (*.pdf *.png *.jpg *.jpeg);;All Files (*)"));
+
+    if (fileNames.isEmpty())
+        return;
+
+    settings.setValue("lastAmzPaymentDir", QFileInfo(fileNames.first()).absolutePath());
+
+    DialogAmzPayments dialog(fileNames, this);
+    if (dialog.exec() == QDialog::Accepted) {
+        auto amzTable = getAmzPaymentsTable();
+        QList<AmzPaymentInfo> paymentsToAdd = dialog.selectedPayments();
+
+        /*
+        // Collect entries where both balance tokens are absent and ask for confirmation
+        QList<AmzPaymentInfo> missingBalances;
+        for (const AmzPaymentInfo &info : std::as_const(paymentsToAdd)) {
+            if (!info.hasBalanceStart && !info.hasBalanceEnd)
+                missingBalances.append(info);
+        }
+
+        if (!missingBalances.isEmpty()) {
+            QDialog warnDialog(this);
+            warnDialog.setWindowTitle(tr("Missing Balance Info Warning"));
+            auto *layout = new QVBoxLayout(&warnDialog);
+
+            auto *label = new QLabel(
+                tr("The following payment(s) have no balance-begin or balance-end tokens.\n"
+                   "Both balances will be treated as 0.00 for each.\n\n"
+                   "Do you want to continue?"),
+                &warnDialog);
+            label->setWordWrap(true);
+            layout->addWidget(label);
+
+            auto *table = new QTableWidget(missingBalances.size(), 3, &warnDialog);
+            table->setHorizontalHeaderLabels({tr("File"), tr("Country"), tr("Date From")});
+            table->horizontalHeader()->setStretchLastSection(true);
+            table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+            table->setSelectionMode(QAbstractItemView::NoSelection);
+            table->setAlternatingRowColors(true);
+
+            for (int i = 0; i < missingBalances.size(); ++i) {
+                const AmzPaymentInfo &w = missingBalances[i];
+                table->setItem(i, 0, new QTableWidgetItem(QFileInfo(w.filePath).fileName()));
+                table->setItem(i, 1, new QTableWidgetItem(w.countryCode));
+                table->setItem(i, 2, new QTableWidgetItem(w.dateFrom.toString(Qt::ISODate)));
+            }
+            table->resizeColumnsToContents();
+            layout->addWidget(table);
+
+            auto *buttons = new QDialogButtonBox(
+                QDialogButtonBox::Yes | QDialogButtonBox::No, &warnDialog);
+            connect(buttons, &QDialogButtonBox::accepted, &warnDialog, &QDialog::accept);
+            connect(buttons, &QDialogButtonBox::rejected, &warnDialog, &QDialog::reject);
+            layout->addWidget(buttons);
+
+            if (warnDialog.exec() != QDialog::Accepted)
+                return;
+        }
+//*/
+
+        int count = 0;
+        int errCount = 0;
+        for (const AmzPaymentInfo &info : std::as_const(paymentsToAdd)) {
+            try {
+                amzTable->add(info.filePath, info);
+                count++;
+            } catch (...) {
+                errCount++;
+            }
+        }
+
+        QString msg = tr("Added %1 payment(s).").arg(count);
+        if (errCount > 0)
+            msg += tr("\n%1 error(s) occurred.").arg(errCount);
+        QMessageBox::information(this, tr("Import Result"), msg);
+    }
+}
+
+void PaneBookKeeping::amzPaymentRemove()
+{
+    auto amzTable = getAmzPaymentsTable();
+    QModelIndexList selection = ui->tableAmzPayments->selectionModel()->selectedRows();
+
+    if (selection.isEmpty()) {
+        QMessageBox::warning(this, tr("No Selection"), tr("Please select payment(s) to remove."));
+        return;
+    }
+
+    if (QMessageBox::question(
+            this,
+            tr("Confirm Removal"),
+            tr("Are you sure you want to remove %1 payment(s)? "
+               "This will delete the files from disk.")
+                .arg(selection.size()),
+            QMessageBox::Yes | QMessageBox::No,
+            QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
+
+    QStringList rowIds;
+    for (const QModelIndex &idx : std::as_const(selection))
+        rowIds << amzTable->getRowId(idx);
+
+    for (const QString &id : std::as_const(rowIds)) {
+        if (m_booksConnections->contains(amzTable->getId(), id)) {
+            for (const QModelIndex &idx : std::as_const(selection)) {
+                if (amzTable->getRowId(idx) == id) {
+                    m_booksConnections->disconnect(amzTable, idx);
+                    break;
+                }
+            }
+        }
+        amzTable->removePayment(id);
     }
 }
 
@@ -1082,6 +1264,12 @@ void PaneBookKeeping::_createBooksTables()
     ui->tableServices->setModel(serviceTable);
     ui->tableServices->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui->tableServices->setSelectionMode(QAbstractItemView::ExtendedSelection);
+
+    // Amazon Payments
+    auto amzPaymentsTable = new PurchaseAmzPaymentsTable(m_booksConnections, workingDir, ui->tableAmzPayments);
+    ui->tableAmzPayments->setModel(amzPaymentsTable);
+    ui->tableAmzPayments->setSelectionBehavior(QAbstractItemView::SelectRows);
+    ui->tableAmzPayments->setSelectionMode(QAbstractItemView::ExtendedSelection);
 }
 
 void PaneBookKeeping::_initYears()
@@ -1146,6 +1334,44 @@ void PaneBookKeeping::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneBookKeeping::bankRemove);
+
+    connect(ui->buttonServiceAdd,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::serviceAddSale);
+    connect(ui->buttonServiceRemove,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::serviceRemoveSale);
+    connect(ui->buttonServiceCreateSel,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::serviceCreateFromSelection);
+    connect(ui->buttonServiceEditCustomer,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::serviceEditClients);
+    connect(ui->buttonAmzPaymentAdd,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::amzPaymentAdd);
+    connect(ui->buttonAmzPaymentAddMany,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::amzPaymentAddMany);
+    connect(ui->buttonAmzPaymentRemove,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::amzPaymentRemove);
+}
+
+void PaneBookKeeping::_updateServiceButtonsEnabled()
+{
+    ServiceClientManager clientManager(WorkingDirectoryManager::instance()->workingDir());
+    bool hasClients = clientManager.rowCount() > 0;
+    ui->buttonServiceAdd->setEnabled(hasClients);
+    ui->buttonServiceRemove->setEnabled(hasClients);
+    ui->buttonServiceCreateSel->setEnabled(hasClients);
 }
 
 void PaneBookKeeping::_setSubButtonsEnabled(bool enabled)
@@ -1173,6 +1399,11 @@ EntrySelfTable *PaneBookKeeping::getSeflEntryTable() const
 PurchaseInvoiceTable *PaneBookKeeping::getPurchaseInvoiceTable() const
 {
     return static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
+}
+
+PurchaseAmzPaymentsTable *PaneBookKeeping::getAmzPaymentsTable() const
+{
+    return static_cast<PurchaseAmzPaymentsTable *>(ui->tableAmzPayments->model());
 }
 
 QList<AbstractBooksTable *> PaneBookKeeping::getAllBookTables() const

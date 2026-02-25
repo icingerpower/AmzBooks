@@ -13,6 +13,7 @@ class AbstractBooksTableBank;
 class AbstractBooksTable;
 class EntrySelfTable;
 class PurchaseInvoiceTable;
+class PurchaseAmzPaymentsTable;
 #include <QCoroTask>
 
 class PaneBookKeeping : public QWidget
@@ -30,8 +31,10 @@ private:
     void _initYears();
     void _connectSlots();
     void _setSubButtonsEnabled(bool enable);
+    void _updateServiceButtonsEnabled();
     EntrySelfTable *getSeflEntryTable() const;
     PurchaseInvoiceTable *getPurchaseInvoiceTable() const;
+    PurchaseAmzPaymentsTable *getAmzPaymentsTable() const;
     QList<AbstractBooksTable *> getAllBookTables() const;
     QList<AbstractBooksTableBank *> getAllBankTables() const;
     QList<AbstractBooksTable *> getAllNonBankTables() const;
@@ -58,6 +61,10 @@ public slots:
     void serviceRemoveSale();
     void serviceEditClients();
     void serviceCreateFromSelection();
+
+    void amzPaymentAdd();
+    void amzPaymentAddMany();
+    void amzPaymentRemove();
 
 private:
     BooksConnections *m_booksConnections;

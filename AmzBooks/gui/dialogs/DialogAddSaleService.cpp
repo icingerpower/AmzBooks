@@ -1,7 +1,8 @@
 #include "DialogAddSaleService.h"
 #include "ui_DialogAddSaleService.h"
 #include "books/ServiceClientManager.h"
-#include <QMessageBox>
+#include <QDialogButtonBox>
+#include <QPushButton>
 
 DialogAddSaleService::DialogAddSaleService(ServiceClientManager *clientManager, QWidget *parent) :
     QDialog(parent),
@@ -9,15 +10,17 @@ DialogAddSaleService::DialogAddSaleService(ServiceClientManager *clientManager, 
     m_clientManager(clientManager)
 {
     ui->setupUi(this);
-    
-    // Setup Client ComboBox
+
     ui->comboBoxClient->setModel(m_clientManager);
     ui->comboBoxClient->setModelColumn(ServiceClientManager::ColClientName);
-    
+
     ui->dateEdit->setDate(QDate::currentDate());
-    
+
+    // OK starts disabled — requires valid input
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
+
     _setupConnections();
-    _updateCurrency(); // Initial update
+    _updateCurrency();
 }
 
 DialogAddSaleService::~DialogAddSaleService()
@@ -29,22 +32,31 @@ void DialogAddSaleService::_setupConnections()
 {
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &DialogAddSaleService::accept);
     connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &DialogAddSaleService::reject);
-    
-    // Update currency label when client changes
-    connect(ui->comboBoxClient, QOverload<int>::of(&QComboBox::currentIndexChanged), 
+
+    connect(ui->comboBoxClient, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &DialogAddSaleService::_updateCurrency);
+
+    connect(ui->lineEditReference,    &QLineEdit::textChanged,
+            this, &DialogAddSaleService::_updateOkButton);
+    connect(ui->doubleSpinBoxUnitPrice, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &DialogAddSaleService::_updateOkButton);
+    connect(ui->spinBoxQuantity, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &DialogAddSaleService::_updateOkButton);
 }
 
 void DialogAddSaleService::_updateCurrency()
 {
     int row = ui->comboBoxClient->currentIndex();
-    if (row >= 0) {
-        QString currency = m_clientManager->getCurrency(row);
-        ui->labelCurrency->setText(currency);
-        
-        // Optionally update default amount if unmodified?
-        // Let's keep it simple for now. User sets amount.
-    }
+    if (row >= 0)
+        ui->labelCurrency->setText(m_clientManager->getCurrency(row));
+}
+
+void DialogAddSaleService::_updateOkButton()
+{
+    bool valid = ui->doubleSpinBoxUnitPrice->value() > 0.0
+              && ui->spinBoxQuantity->value() > 0
+              && !ui->lineEditReference->text().trimmed().isEmpty();
+    ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(valid);
 }
 
 void DialogAddSaleService::setDate(const QDate &date)
@@ -52,9 +64,9 @@ void DialogAddSaleService::setDate(const QDate &date)
     ui->dateEdit->setDate(date);
 }
 
-void DialogAddSaleService::setAmount(double amount)
+void DialogAddSaleService::setUnitPrice(double amount)
 {
-    ui->doubleSpinBoxAmount->setValue(amount);
+    ui->doubleSpinBoxUnitPrice->setValue(amount);
 }
 
 void DialogAddSaleService::setReference(const QString &ref)
@@ -77,9 +89,14 @@ QDate DialogAddSaleService::getDate() const
     return ui->dateEdit->date();
 }
 
-double DialogAddSaleService::getAmount() const
+double DialogAddSaleService::getUnitPrice() const
 {
-    return ui->doubleSpinBoxAmount->value();
+    return ui->doubleSpinBoxUnitPrice->value();
+}
+
+int DialogAddSaleService::getQuantity() const
+{
+    return ui->spinBoxQuantity->value();
 }
 
 QString DialogAddSaleService::getInvoiceId() const
@@ -89,10 +106,16 @@ QString DialogAddSaleService::getInvoiceId() const
 
 QString DialogAddSaleService::getCurrency() const
 {
-    // Return the currency associated with the selected client
     int row = ui->comboBoxClient->currentIndex();
-    if (row >= 0) {
+    if (row >= 0)
         return m_clientManager->getCurrency(row);
-    }
+    return QString();
+}
+
+QString DialogAddSaleService::getAccount() const
+{
+    int row = ui->comboBoxClient->currentIndex();
+    if (row >= 0)
+        return m_clientManager->getAccount(row);
     return QString();
 }

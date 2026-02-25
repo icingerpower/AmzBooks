@@ -33,6 +33,9 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogPurchaseInvoices.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogPurchaseInvoices.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogPurchaseInvoices.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAmzPayments.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAmzPayments.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAmzPayments.ui
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditCsvPurchases.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditCsvPurchases.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogEditCsvPurchases.ui

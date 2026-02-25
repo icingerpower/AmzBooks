@@ -1,6 +1,7 @@
 #include <QtTest>
 #include "books/JournalEntry.h"
 #include "books/PurchaseInvoiceManager.h"
+#include "books/PurchaseAmzPaymentsManager.h"
 #include "ExceptionWithTitleText.h"
 #include "books/JournalEntryFactory.h"
 #include "books/CompanyInfosTable.h"
@@ -82,6 +83,49 @@ private slots:
     void test_invoice_mixed_currency_vat_sek_total_eur();
     void test_invoice_same_currency_sek_rate_computed();
     void test_invoice_four_currency_variants_same_eur_amounts();
+
+    // ── Amazon Payment filename parsing ──────────────────────────────────────
+    // 20 situations that could cause incorrect handling:
+    //  1. Full filename with all optional fields present (USD)
+    //  2. Missing expenses, small balance drop → no exception
+    //  3. Missing expenses, large balance drop → ExceptionWithTitleText
+    //  4. Missing refunded-expenses → always OK
+    //  5. Both optional tokens absent, trivial amounts
+    //  6. Encode then decode roundtrip preserves all fields
+    //  7. GBP marketplace (different EUR rate)
+    //  8. Paid in different currency from balance (currency conversion)
+    //  9. EUR marketplace (de) – expenses in EUR, threshold = 200 EUR exact
+    // 10. Threshold edge: just below 200 EUR proxy → no exception
+    // 11. Threshold edge: just above 200 EUR proxy → exception
+    // 12. CAD marketplace – threshold ~294 CAD
+    // 13. JPY marketplace – threshold ~32 258 JPY
+    // 14. AUD marketplace – threshold ~333 AUD
+    // 15. MXN marketplace – threshold ~4 348 MXN
+    // 16. SEK marketplace – threshold ~2 299 SEK
+    // 17. PLN marketplace – threshold ~870 PLN
+    // 18. TRY marketplace – threshold ~7 407 TRY
+    // 19. Expenses present with amount < 200 EUR → always valid, no exception
+    // 20. Refunded-expenses before expenses in filename → parsed correctly
+    void test_amz_payment_decode_full_usd();
+    void test_amz_payment_decode_missing_expenses_small_no_exception();
+    void test_amz_payment_decode_missing_expenses_large_exception();
+    void test_amz_payment_decode_missing_refunded_ok();
+    void test_amz_payment_decode_both_optional_absent_small();
+    void test_amz_payment_encode_decode_roundtrip();
+    void test_amz_payment_currency_gbp();
+    void test_amz_payment_paid_different_currency();
+    void test_amz_payment_eur_marketplace_de();
+    void test_amz_payment_threshold_just_below_no_exception();
+    void test_amz_payment_threshold_just_above_exception();
+    void test_amz_payment_currency_cad();
+    void test_amz_payment_currency_jpy();
+    void test_amz_payment_currency_aud();
+    void test_amz_payment_currency_mxn();
+    void test_amz_payment_currency_sek();
+    void test_amz_payment_currency_pln();
+    void test_amz_payment_currency_try();
+    void test_amz_payment_expenses_small_present_no_exception();
+    void test_amz_payment_refunded_before_expenses_parsed_correctly();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -2814,6 +2858,550 @@ void TestBookEntries::test_invoice_four_currency_variants_same_eur_amounts()
         QVERIFY2(qAbs(expenseEur - 13.15) < 0.01,
                  qPrintable(fileName + QString(": expense EUR %1 ≠ 13.15").arg(expenseEur)));
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Amazon Payment filename parsing tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+// 1. Full filename with all optional fields present (USD/com marketplace)
+void TestBookEntries::test_amz_payment_decode_full_usd()
+{
+    // expenses present (2627.38 USD >> 200 EUR)
+    // refunded-expenses present
+    QString fname =
+        "payment_com_2026_01_07__to__2026_01_21"
+        "__balance-begin-1311.19USD"
+        "__balance-end-1135.55USD"
+        "__expenses-2627.38USD"
+        "__refunded-expenses-153.17USD"
+        "__177.90USD";
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(fname);
+
+    QCOMPARE(info.countryCode, QString("com"));
+    QCOMPARE(info.dateFrom,    QDate(2026, 1, 7));
+    QCOMPARE(info.dateTo,      QDate(2026, 1, 21));
+    QVERIFY(qAbs(info.balanceStart - 1311.19) < 0.001);
+    QCOMPARE(info.balanceStartCurrency, QString("USD"));
+    QVERIFY(qAbs(info.balanceEnd - 1135.55) < 0.001);
+    QCOMPARE(info.balanceEndCurrency, QString("USD"));
+    QVERIFY(info.hasExpenses);
+    QVERIFY(qAbs(info.expenses - 2627.38) < 0.001);
+    QCOMPARE(info.expensesCurrency, QString("USD"));
+    QVERIFY(info.hasRefundedExpenses);
+    QVERIFY(qAbs(info.refundedExpenses - 153.17) < 0.001);
+    QCOMPARE(info.refundedExpensesCurrency, QString("USD"));
+    QVERIFY(qAbs(info.paid - 177.90) < 0.001);
+    QCOMPARE(info.paidCurrency, QString("USD"));
+}
+
+// 2. Missing expenses, small balance drop → no exception
+void TestBookEntries::test_amz_payment_decode_missing_expenses_small_no_exception()
+{
+    // balanceStart=500, balanceEnd=490, paid=10 → proxy=max(0, 500-490-10)=0 USD → 0 EUR < 200
+    QString fname =
+        "payment_com_2026_02_01__to__2026_02_14"
+        "__balance-begin-500.00USD"
+        "__balance-end-490.00USD"
+        "__100.00USD";
+
+    bool threw = false;
+    AmzPaymentInfo info;
+    try {
+        info = PurchaseAmzPaymentsManager::decode(fname);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "No exception expected for small balance drop without expenses token");
+    QVERIFY(!info.hasExpenses);
+    QVERIFY(!info.hasRefundedExpenses);
+    QVERIFY(qAbs(info.paid - 100.0) < 0.001);
+}
+
+// 3. Missing expenses, large balance drop → ExceptionWithTitleText
+void TestBookEntries::test_amz_payment_decode_missing_expenses_large_exception()
+{
+    // balanceStart=1000, balanceEnd=500, paid=100 → proxy=max(0,1000-500-100)=400 USD
+    // 400 * 0.92 = 368 EUR > 200 → must throw
+    QString fname =
+        "payment_com_2026_02_01__to__2026_02_14"
+        "__balance-begin-1000.00USD"
+        "__balance-end-500.00USD"
+        "__100.00USD";
+
+    bool threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(threw, "Exception expected when expenses are absent but proxy > 200 EUR");
+}
+
+// 4. Missing refunded-expenses → always OK
+void TestBookEntries::test_amz_payment_decode_missing_refunded_ok()
+{
+    QString fname =
+        "payment_de_2026_03_01__to__2026_03_15"
+        "__balance-begin-800.00EUR"
+        "__balance-end-750.00EUR"
+        "__expenses-300.00EUR"
+        "__50.00EUR";
+
+    bool threw = false;
+    AmzPaymentInfo info;
+    try {
+        info = PurchaseAmzPaymentsManager::decode(fname);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "No exception expected when refunded-expenses is absent");
+    QVERIFY(info.hasExpenses);
+    QVERIFY(!info.hasRefundedExpenses);
+    QVERIFY(qAbs(info.expenses - 300.0) < 0.001);
+}
+
+// 5. Both optional tokens absent, trivial amounts → no exception
+void TestBookEntries::test_amz_payment_decode_both_optional_absent_small()
+{
+    // proxy = max(0, 200-195-5) = 0 EUR → OK
+    QString fname =
+        "payment_fr_2026_04_01__to__2026_04_30"
+        "__balance-begin-200.00EUR"
+        "__balance-end-195.00EUR"
+        "__5.00EUR";
+
+    bool threw = false;
+    AmzPaymentInfo info;
+    try {
+        info = PurchaseAmzPaymentsManager::decode(fname);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "No exception for trivial amounts with both optionals absent");
+    QVERIFY(!info.hasExpenses);
+    QVERIFY(!info.hasRefundedExpenses);
+}
+
+// 6. Encode then decode roundtrip
+void TestBookEntries::test_amz_payment_encode_decode_roundtrip()
+{
+    AmzPaymentInfo orig;
+    orig.countryCode              = "co_uk";
+    orig.dateFrom                 = QDate(2026, 5, 1);
+    orig.dateTo                   = QDate(2026, 5, 14);
+    orig.balanceStart             = 500.00;
+    orig.balanceStartCurrency     = "GBP";
+    orig.balanceEnd               = 450.00;
+    orig.balanceEndCurrency       = "GBP";
+    orig.hasExpenses              = true;
+    orig.expenses                 = 250.00;
+    orig.expensesCurrency         = "GBP";
+    orig.hasRefundedExpenses      = true;
+    orig.refundedExpenses         = 20.00;
+    orig.refundedExpensesCurrency = "GBP";
+    orig.paid                     = 220.00;
+    orig.paidCurrency             = "GBP";
+
+    QString encoded = PurchaseAmzPaymentsManager::encode(orig);
+    AmzPaymentInfo decoded = PurchaseAmzPaymentsManager::decode(encoded);
+
+    QCOMPARE(decoded.countryCode,  orig.countryCode);
+    QCOMPARE(decoded.dateFrom,     orig.dateFrom);
+    QCOMPARE(decoded.dateTo,       orig.dateTo);
+    QVERIFY(qAbs(decoded.balanceStart - orig.balanceStart) < 0.001);
+    QCOMPARE(decoded.balanceStartCurrency, orig.balanceStartCurrency);
+    QVERIFY(qAbs(decoded.balanceEnd - orig.balanceEnd) < 0.001);
+    QVERIFY(decoded.hasExpenses);
+    QVERIFY(qAbs(decoded.expenses - orig.expenses) < 0.001);
+    QCOMPARE(decoded.expensesCurrency, orig.expensesCurrency);
+    QVERIFY(decoded.hasRefundedExpenses);
+    QVERIFY(qAbs(decoded.refundedExpenses - orig.refundedExpenses) < 0.001);
+    QVERIFY(qAbs(decoded.paid - orig.paid) < 0.001);
+    QCOMPARE(decoded.paidCurrency, orig.paidCurrency);
+}
+
+// 7. GBP marketplace (different EUR rate 1.16)
+void TestBookEntries::test_amz_payment_currency_gbp()
+{
+    QString fname =
+        "payment_co_uk_2026_06_01__to__2026_06_14"
+        "__balance-begin-800.00GBP"
+        "__balance-end-600.00GBP"
+        "__expenses-350.00GBP"
+        "__refunded-expenses-30.00GBP"
+        "__180.00GBP";
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(fname);
+    QCOMPARE(info.countryCode, QString("co_uk"));
+    QCOMPARE(info.balanceStartCurrency, QString("GBP"));
+    QVERIFY(info.hasExpenses);
+    QVERIFY(qAbs(info.expenses - 350.0) < 0.001);
+    // Also verify toEur works for GBP
+    QVERIFY(qAbs(PurchaseAmzPaymentsManager::toEur(100.0, "GBP") - 116.0) < 0.001);
+}
+
+// 8. Paid in different currency (EUR paid while balance is USD)
+void TestBookEntries::test_amz_payment_paid_different_currency()
+{
+    QString fname =
+        "payment_com_2026_07_01__to__2026_07_14"
+        "__balance-begin-1000.00USD"
+        "__balance-end-900.00USD"
+        "__expenses-400.00USD"
+        "__refunded-expenses-50.00USD"
+        "__183.80EUR";
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(fname);
+    QCOMPARE(info.paidCurrency, QString("EUR"));
+    QVERIFY(qAbs(info.paid - 183.80) < 0.001);
+    QCOMPARE(info.balanceStartCurrency, QString("USD"));
+    QCOMPARE(info.expensesCurrency,     QString("USD"));
+}
+
+// 9. EUR marketplace (de) – expenses in EUR
+void TestBookEntries::test_amz_payment_eur_marketplace_de()
+{
+    QString fname =
+        "payment_de_2026_08_01__to__2026_08_14"
+        "__balance-begin-1000.00EUR"
+        "__balance-end-800.00EUR"
+        "__expenses-500.00EUR"
+        "__300.00EUR";
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(fname);
+    QCOMPARE(info.countryCode, QString("de"));
+    QCOMPARE(info.expensesCurrency, QString("EUR"));
+    QVERIFY(qAbs(PurchaseAmzPaymentsManager::toEur(500.0, "EUR") - 500.0) < 0.001);
+}
+
+// 10. Just below 200 EUR proxy (USD) → no exception
+// proxy = max(0, 300-200-100) = 0 USD → 0 EUR < 200 → OK
+void TestBookEntries::test_amz_payment_threshold_just_below_no_exception()
+{
+    // proxy = max(0, 500 - 300 - 199) = 1 USD → 0.92 EUR < 200 → OK
+    QString fname =
+        "payment_com_2026_09_01__to__2026_09_14"
+        "__balance-begin-500.00USD"
+        "__balance-end-300.00USD"
+        "__199.00USD";
+
+    bool threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "proxy = 1 USD = 0.92 EUR < 200 EUR, should not throw");
+}
+
+// 11. Just above 200 EUR proxy (USD) → exception
+// proxy = max(0, 700 - 300 - 100) = 300 USD → 276 EUR > 200 → exception
+void TestBookEntries::test_amz_payment_threshold_just_above_exception()
+{
+    QString fname =
+        "payment_com_2026_09_15__to__2026_09_28"
+        "__balance-begin-700.00USD"
+        "__balance-end-300.00USD"
+        "__100.00USD";
+
+    bool threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(threw, "proxy = 300 USD = 276 EUR > 200 EUR, must throw");
+}
+
+// 12. CAD marketplace – threshold ~294 CAD
+// proxy = 300 CAD → 204 EUR > 200 → exception
+void TestBookEntries::test_amz_payment_currency_cad()
+{
+    // Missing expenses, proxy = max(0, 800-400-100) = 300 CAD → 204 EUR > 200 → throw
+    QString fname_throw =
+        "payment_ca_2026_10_01__to__2026_10_14"
+        "__balance-begin-800.00CAD"
+        "__balance-end-400.00CAD"
+        "__100.00CAD";
+
+    bool threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_throw);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(threw, "CAD: proxy 300 CAD = 204 EUR > 200, must throw");
+
+    // proxy = 200 CAD → 136 EUR < 200 → OK
+    QString fname_ok =
+        "payment_ca_2026_10_01__to__2026_10_14"
+        "__balance-begin-500.00CAD"
+        "__balance-end-300.00CAD"
+        "__0.00CAD";
+
+    threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_ok);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "CAD: proxy 200 CAD = 136 EUR < 200, should not throw");
+}
+
+// 13. JPY marketplace – threshold ~32 258 JPY
+void TestBookEntries::test_amz_payment_currency_jpy()
+{
+    // proxy = 35000 JPY → 217 EUR > 200 → throw
+    QString fname_throw =
+        "payment_co_jp_2026_10_01__to__2026_10_14"
+        "__balance-begin-100000.00JPY"
+        "__balance-end-60000.00JPY"
+        "__5000.00JPY";
+
+    bool threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_throw);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(threw, "JPY: proxy 35000 JPY = 217 EUR > 200, must throw");
+
+    // proxy = 30000 JPY → 186 EUR < 200 → OK
+    QString fname_ok =
+        "payment_co_jp_2026_10_01__to__2026_10_14"
+        "__balance-begin-100000.00JPY"
+        "__balance-end-65000.00JPY"
+        "__5000.00JPY";
+
+    threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_ok);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "JPY: proxy 30000 JPY = 186 EUR < 200, should not throw");
+}
+
+// 14. AUD marketplace – threshold ~333 AUD
+void TestBookEntries::test_amz_payment_currency_aud()
+{
+    // proxy = 400 AUD → 240 EUR > 200 → throw
+    QString fname_throw =
+        "payment_com_au_2026_11_01__to__2026_11_14"
+        "__balance-begin-1000.00AUD"
+        "__balance-end-500.00AUD"
+        "__100.00AUD";
+
+    bool threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_throw);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(threw, "AUD: proxy 400 AUD = 240 EUR > 200, must throw");
+
+    // proxy = 300 AUD → 180 EUR < 200 → OK
+    QString fname_ok =
+        "payment_com_au_2026_11_01__to__2026_11_14"
+        "__balance-begin-800.00AUD"
+        "__balance-end-500.00AUD"
+        "__0.00AUD";
+
+    threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_ok);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "AUD: proxy 300 AUD = 180 EUR < 200, should not throw");
+}
+
+// 15. MXN marketplace – threshold ~4 348 MXN
+void TestBookEntries::test_amz_payment_currency_mxn()
+{
+    // proxy = 5000 MXN → 230 EUR > 200 → throw
+    QString fname_throw =
+        "payment_com_mx_2026_11_15__to__2026_11_28"
+        "__balance-begin-15000.00MXN"
+        "__balance-end-9000.00MXN"
+        "__1000.00MXN";
+
+    bool threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_throw);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(threw, "MXN: proxy 5000 MXN = 230 EUR > 200, must throw");
+
+    // proxy = 4000 MXN → 184 EUR < 200 → OK
+    QString fname_ok =
+        "payment_com_mx_2026_11_15__to__2026_11_28"
+        "__balance-begin-14000.00MXN"
+        "__balance-end-9000.00MXN"
+        "__1000.00MXN";
+
+    threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_ok);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "MXN: proxy 4000 MXN = 184 EUR < 200, should not throw");
+}
+
+// 16. SEK marketplace – threshold ~2 299 SEK
+void TestBookEntries::test_amz_payment_currency_sek()
+{
+    // proxy = 2500 SEK → 217.5 EUR > 200 → throw
+    QString fname_throw =
+        "payment_se_2026_12_01__to__2026_12_14"
+        "__balance-begin-8000.00SEK"
+        "__balance-end-5000.00SEK"
+        "__500.00SEK";
+
+    bool threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_throw);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(threw, "SEK: proxy 2500 SEK = 217.5 EUR > 200, must throw");
+
+    // proxy = 2000 SEK → 174 EUR < 200 → OK
+    QString fname_ok =
+        "payment_se_2026_12_01__to__2026_12_14"
+        "__balance-begin-7500.00SEK"
+        "__balance-end-5000.00SEK"
+        "__500.00SEK";
+
+    threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_ok);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "SEK: proxy 2000 SEK = 174 EUR < 200, should not throw");
+}
+
+// 17. PLN marketplace – threshold ~870 PLN
+void TestBookEntries::test_amz_payment_currency_pln()
+{
+    // proxy = 1000 PLN → 230 EUR > 200 → throw
+    QString fname_throw =
+        "payment_pl_2026_12_15__to__2026_12_28"
+        "__balance-begin-3000.00PLN"
+        "__balance-end-1800.00PLN"
+        "__200.00PLN";
+
+    bool threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_throw);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(threw, "PLN: proxy 1000 PLN = 230 EUR > 200, must throw");
+
+    // proxy = 800 PLN → 184 EUR < 200 → OK
+    QString fname_ok =
+        "payment_pl_2026_12_15__to__2026_12_28"
+        "__balance-begin-3000.00PLN"
+        "__balance-end-2000.00PLN"
+        "__200.00PLN";
+
+    threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_ok);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "PLN: proxy 800 PLN = 184 EUR < 200, should not throw");
+}
+
+// 18. TRY marketplace – threshold ~7 407 TRY
+void TestBookEntries::test_amz_payment_currency_try()
+{
+    // proxy = 8000 TRY → 216 EUR > 200 → throw
+    QString fname_throw =
+        "payment_com_tr_2026_01_01__to__2026_01_14"
+        "__balance-begin-25000.00TRY"
+        "__balance-end-15000.00TRY"
+        "__2000.00TRY";
+
+    bool threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_throw);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(threw, "TRY: proxy 8000 TRY = 216 EUR > 200, must throw");
+
+    // proxy = 7000 TRY → 189 EUR < 200 → OK
+    QString fname_ok =
+        "payment_com_tr_2026_01_01__to__2026_01_14"
+        "__balance-begin-25000.00TRY"
+        "__balance-end-16000.00TRY"
+        "__2000.00TRY";
+
+    threw = false;
+    try {
+        PurchaseAmzPaymentsManager::decode(fname_ok);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "TRY: proxy 7000 TRY = 189 EUR < 200, should not throw");
+}
+
+// 19. Expenses present with amount < 200 EUR → always valid, no exception
+void TestBookEntries::test_amz_payment_expenses_small_present_no_exception()
+{
+    QString fname =
+        "payment_fr_2026_02_01__to__2026_02_14"
+        "__balance-begin-500.00EUR"
+        "__balance-end-480.00EUR"
+        "__expenses-50.00EUR"
+        "__30.00EUR";
+
+    bool threw = false;
+    AmzPaymentInfo info;
+    try {
+        info = PurchaseAmzPaymentsManager::decode(fname);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY2(!threw, "Small expenses present in filename is always valid");
+    QVERIFY(info.hasExpenses);
+    QVERIFY(qAbs(info.expenses - 50.0) < 0.001);
+}
+
+// 20. refunded-expenses appears after expenses in filename → normal; test that
+//     the order expenses / refunded-expenses is parsed correctly either way
+void TestBookEntries::test_amz_payment_refunded_before_expenses_parsed_correctly()
+{
+    // Put refunded-expenses BEFORE expenses in the filename
+    QString fname =
+        "payment_de_2026_03_01__to__2026_03_14"
+        "__balance-begin-1000.00EUR"
+        "__balance-end-700.00EUR"
+        "__refunded-expenses-40.00EUR"
+        "__expenses-280.00EUR"
+        "__60.00EUR";
+
+    bool threw = false;
+    AmzPaymentInfo info;
+    try {
+        info = PurchaseAmzPaymentsManager::decode(fname);
+    } catch (const ExceptionWithTitleText &e) {
+        threw = true;
+        Q_UNUSED(e);
+    }
+    QVERIFY2(!threw, "Parser should handle refunded-expenses before expenses");
+    QVERIFY(info.hasExpenses);
+    QVERIFY(qAbs(info.expenses - 280.0) < 0.001);
+    QVERIFY(info.hasRefundedExpenses);
+    QVERIFY(qAbs(info.refundedExpenses - 40.0) < 0.001);
 }
 
 QTEST_MAIN(TestBookEntries)

@@ -23,6 +23,9 @@ set(PROJECT_SOURCES
         gui/dialogs/DialogEditServiceClients.h
     gui/dialogs/DialogEditServiceClients.cpp
     gui/dialogs/DialogEditServiceClients.ui
+    gui/dialogs/DialogAddServiceClient.h
+    gui/dialogs/DialogAddServiceClient.cpp
+    gui/dialogs/DialogAddServiceClient.ui
     gui/dialogs/DialogAddSaleService.h
     gui/dialogs/DialogAddSaleService.cpp
     gui/dialogs/DialogAddSaleService.ui

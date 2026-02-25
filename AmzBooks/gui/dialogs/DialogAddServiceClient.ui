@@ -1,0 +1,403 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>DialogAddServiceClient</class>
+ <widget class="QDialog" name="DialogAddServiceClient">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>420</width>
+    <height>540</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Add Service Client</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayout">
+   <item>
+    <layout class="QFormLayout" name="formLayout">
+     <item row="0" column="0">
+      <widget class="QLabel" name="labelClientName">
+       <property name="text">
+        <string>Client Name:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="0" column="1">
+      <widget class="QLineEdit" name="editClientName"/>
+     </item>
+     <item row="1" column="0">
+      <widget class="QLabel" name="labelServiceLabel">
+       <property name="text">
+        <string>Service Label:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="1" column="1">
+      <widget class="QLineEdit" name="editServiceLabel"/>
+     </item>
+     <item row="2" column="0">
+      <widget class="QLabel" name="labelCountry">
+       <property name="text">
+        <string>Country:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="2" column="1">
+      <widget class="QComboBox" name="comboBoxCountry">
+       <item>
+        <property name="text">
+         <string>US</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>CA</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>CN</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>FR</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>DE</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>AT</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>BE</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>BG</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>CY</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>CZ</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>DK</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>EE</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>ES</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>FI</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>GR</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>HR</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>HU</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>IE</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>IT</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>LT</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>LU</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>LV</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>MT</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>NL</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>PL</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>PT</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>RO</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>SE</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>SI</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>SK</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item row="3" column="0">
+      <widget class="QLabel" name="labelVatNumber">
+       <property name="text">
+        <string>VAT Number:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="3" column="1">
+      <widget class="QLineEdit" name="editVatNumber"/>
+     </item>
+     <item row="4" column="0">
+      <widget class="QLabel" name="labelCurrency">
+       <property name="text">
+        <string>Currency:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="4" column="1">
+      <widget class="QLineEdit" name="editCurrency">
+       <property name="text">
+        <string>EUR</string>
+       </property>
+       <property name="maxLength">
+        <number>3</number>
+       </property>
+      </widget>
+     </item>
+     <item row="5" column="0">
+      <widget class="QLabel" name="labelPaymentType">
+       <property name="text">
+        <string>Payment Type:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="5" column="1">
+      <widget class="QComboBox" name="comboBoxPaymentType">
+       <item>
+        <property name="text">
+         <string>Instant</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>After X Days</string>
+        </property>
+       </item>
+       <item>
+        <property name="text">
+         <string>End of Next Month</string>
+        </property>
+       </item>
+      </widget>
+     </item>
+     <item row="6" column="0">
+      <widget class="QLabel" name="labelPaymentDays">
+       <property name="text">
+        <string>Payment Days:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="6" column="1">
+      <widget class="QSpinBox" name="spinBoxPaymentDays">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="maximum">
+        <number>365</number>
+       </property>
+      </widget>
+     </item>
+     <item row="7" column="0">
+      <widget class="QLabel" name="labelStreet1">
+       <property name="text">
+        <string>Street 1:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="7" column="1">
+      <widget class="QLineEdit" name="editStreet1"/>
+     </item>
+     <item row="8" column="0">
+      <widget class="QLabel" name="labelStreet2">
+       <property name="text">
+        <string>Street 2:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="8" column="1">
+      <widget class="QLineEdit" name="editStreet2"/>
+     </item>
+     <item row="9" column="0">
+      <widget class="QLabel" name="labelPostalCode">
+       <property name="text">
+        <string>Postal Code:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="9" column="1">
+      <widget class="QLineEdit" name="editPostalCode"/>
+     </item>
+     <item row="10" column="0">
+      <widget class="QLabel" name="labelCity">
+       <property name="text">
+        <string>City:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="10" column="1">
+      <widget class="QLineEdit" name="editCity"/>
+     </item>
+     <item row="11" column="0">
+      <widget class="QLabel" name="labelAccountSale7">
+       <property name="text">
+        <string>Account Sale 7:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="11" column="1">
+      <widget class="QLineEdit" name="editAccountSale7"/>
+     </item>
+     <item row="12" column="0">
+      <widget class="QLabel" name="labelAccountVat">
+       <property name="text">
+        <string>Account VAT:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="12" column="1">
+      <widget class="QLineEdit" name="editAccountVat"/>
+     </item>
+     <item row="13" column="0">
+      <widget class="QLabel" name="labelAccount">
+       <property name="text">
+        <string>Account:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="13" column="1">
+      <widget class="QLineEdit" name="editAccount"/>
+     </item>
+     <item row="14" column="0">
+      <widget class="QLabel" name="labelVatOnPayment">
+       <property name="text">
+        <string>VAT on Payment:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="14" column="1">
+      <widget class="QCheckBox" name="checkBoxVatOnPayment">
+       <property name="text">
+        <string/>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <widget class="QDialogButtonBox" name="buttonBox">
+     <property name="orientation">
+      <enum>Qt::Horizontal</enum>
+     </property>
+     <property name="standardButtons">
+      <set>QDialogButtonBox::Cancel|QDialogButtonBox::Ok</set>
+     </property>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>accepted()</signal>
+   <receiver>DialogAddServiceClient</receiver>
+   <slot>accept()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>248</x>
+     <y>254</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>157</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+  <connection>
+   <sender>buttonBox</sender>
+   <signal>rejected()</signal>
+   <receiver>DialogAddServiceClient</receiver>
+   <slot>reject()</slot>
+   <hints>
+    <hint type="sourcelabel">
+     <x>316</x>
+     <y>260</y>
+    </hint>
+    <hint type="destinationlabel">
+     <x>286</x>
+     <y>274</y>
+    </hint>
+   </hints>
+  </connection>
+ </connections>
+</ui>

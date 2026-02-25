@@ -28,14 +28,13 @@ private slots:
         QCOMPARE(manager.rowCount(), 0);
 
         // Add Client
-        manager.addClient("Acme Corp", "Consulting", "US", "12345", "USD", 1000.0);
+        manager.addClient("Acme Corp", "Consulting", "US", "12345", "USD");
         QCOMPARE(manager.rowCount(), 1);
         QCOMPARE(manager.getClientName(0), "Acme Corp");
         QCOMPARE(manager.getServiceLabel(0), "Consulting");
         QCOMPARE(manager.getCountry(0), "US");
         QCOMPARE(manager.getVatNumber(0), "12345");
         QCOMPARE(manager.getCurrency(0), "USD");
-        QCOMPARE(manager.getDefaultAmount(0), 1000.0);
 
         // Persistence
         ServiceClientManager manager2(tempDir.path());
@@ -59,7 +58,7 @@ private slots:
          orderManager.deleteDatabase(); // Ensure clean
          
          ServiceClientManager clientManager(tempDir.path());
-         clientManager.addClient("ClientA", "Service A", "FR", "FR123", "EUR", 500.0);
+         clientManager.addClient("ClientA", "Service A", "FR", "FR123", "EUR");
          
          ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
          
@@ -67,7 +66,7 @@ private slots:
          QString expectedOrderId = "Service-20230115-ClientA";
          
          // 1. Create Sale
-         table.createSale(&clientManager, 0, date, 500.0, "EUR", "INV-123");
+         table.createSale(&clientManager, 0, date, 500.0, "EUR", "INV-123", "");
          
          QCOMPARE(table.rowCount(), 1);
          QCOMPARE(orderManager.containsOrder(expectedOrderId), true);
@@ -82,7 +81,7 @@ private slots:
          // 2. Duplicate Check
          bool exceptionCaught = false;
          try {
-             table.createSale(&clientManager, 0, date, 500.0, "EUR", "INV-124");
+             table.createSale(&clientManager, 0, date, 500.0, "EUR", "INV-124", "");
          } catch (const ExceptionWithTitleText &e) {
              exceptionCaught = true;
          }
@@ -162,18 +161,18 @@ void TestServiceSales::test_ServiceClientManager_paymentTypes()
     ServiceClientManager manager(tempDir.path());
     
     // VERIFY 5: Add client with Instant payment (default)
-    manager.addClient("Client1", "ServiceA", "FR", "FR111", "EUR", 100.0);
+    manager.addClient("Client1", "ServiceA", "FR", "FR111", "EUR");
     QCOMPARE(manager.getPaymentType(0), PaymentType::Instant);
     QCOMPARE(manager.getPaymentDays(0), 0);
     
     // VERIFY 6: Add client with AfterXDays (30 days)
-    manager.addClient("Client2", "ServiceB", "DE", "DE222", "EUR", 200.0, 
+    manager.addClient("Client2", "ServiceB", "DE", "DE222", "EUR",
                       PaymentType::AfterXDays, 30);
     QCOMPARE(manager.getPaymentType(1), PaymentType::AfterXDays);
     QCOMPARE(manager.getPaymentDays(1), 30);
     
     // VERIFY 7: Add client with EndOfNextMonth
-    manager.addClient("Client3", "ServiceC", "US", "US333", "USD", 300.0,
+    manager.addClient("Client3", "ServiceC", "US", "US333", "USD",
                       PaymentType::EndOfNextMonth, 0);
     QCOMPARE(manager.getPaymentType(2), PaymentType::EndOfNextMonth);
     
@@ -225,14 +224,14 @@ void TestServiceSales::test_createSale_instantPayment()
     
     ServiceClientManager clientManager(tempDir.path());
     // Client with Instant payment (default)
-    clientManager.addClient("InstantClient", "Consulting", "FR", "FR001", "EUR", 500.0);
+    clientManager.addClient("InstantClient", "Consulting", "FR", "FR001", "EUR");
     
     ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
     
     QDate date(2025, 3, 15);
     QString expectedOrderId = QString("Service-%1-InstantClient").arg(date.toString("yyyyMMdd"));
     
-    table.createSale(&clientManager, 0, date, 500.0, "EUR", "INV-INSTANT");
+    table.createSale(&clientManager, 0, date, 500.0, "EUR", "INV-INSTANT", "");
     
     // VERIFY 13: Sale created successfully
     QCOMPARE(table.rowCount(), 1);
@@ -251,7 +250,7 @@ void TestServiceSales::test_createSale_afterXDays()
     
     ServiceClientManager clientManager(tempDir.path());
     // Client with 30 days payment
-    clientManager.addClient("Net30Client", "Development", "DE", "DE001", "EUR", 1000.0,
+    clientManager.addClient("Net30Client", "Development", "DE", "DE001", "EUR",
                             PaymentType::AfterXDays, 30);
     
     ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
@@ -259,7 +258,7 @@ void TestServiceSales::test_createSale_afterXDays()
     QDate date(2025, 3, 1);
     QString expectedOrderId = QString("Service-%1-Net30Client").arg(date.toString("yyyyMMdd"));
     
-    table.createSale(&clientManager, 0, date, 1000.0, "EUR", "INV-NET30");
+    table.createSale(&clientManager, 0, date, 1000.0, "EUR", "INV-NET30", "");
     
     // VERIFY 15: Sale created successfully
     QCOMPARE(table.rowCount(), 1);
@@ -283,7 +282,7 @@ void TestServiceSales::test_createSale_endOfNextMonth()
     
     ServiceClientManager clientManager(tempDir.path());
     // Client with EndOfNextMonth payment
-    clientManager.addClient("EOMClient", "Support", "US", "US001", "EUR", 750.0,
+    clientManager.addClient("EOMClient", "Support", "US", "US001", "EUR",
                             PaymentType::EndOfNextMonth, 0);
     
     ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
@@ -291,7 +290,7 @@ void TestServiceSales::test_createSale_endOfNextMonth()
     QDate date(2025, 3, 15); // Mid March
     QString expectedOrderId = QString("Service-%1-EOMClient").arg(date.toString("yyyyMMdd"));
     
-    table.createSale(&clientManager, 0, date, 750.0, "EUR", "INV-EOM");
+    table.createSale(&clientManager, 0, date, 750.0, "EUR", "INV-EOM", "");
     
     // VERIFY 17: Sale created successfully
     QCOMPARE(table.rowCount(), 1);
@@ -313,7 +312,7 @@ void TestServiceSales::test_paymentDate_edgeCases()
     ServiceClientManager manager(tempDir.path());
     
     // Client with AfterXDays = 0 (should be same as instant)
-    manager.addClient("ZeroDays", "Service", "FR", "FR000", "EUR", 100.0,
+    manager.addClient("ZeroDays", "Service", "FR", "FR000", "EUR",
                       PaymentType::AfterXDays, 0);
     
     // VERIFY 19: AfterXDays with 0 days = instant (same date)
@@ -323,7 +322,7 @@ void TestServiceSales::test_paymentDate_edgeCases()
     }
     
     // Client with EndOfNextMonth - order at end of December
-    manager.addClient("DecClient", "Service", "FR", "FR001", "EUR", 100.0,
+    manager.addClient("DecClient", "Service", "FR", "FR001", "EUR",
                       PaymentType::EndOfNextMonth, 0);
     
     // VERIFY 20: EndOfNextMonth from December -> end of January next year
@@ -345,12 +344,12 @@ void TestServiceSales::test_persistence()
          orderManager.deleteDatabase();
          
          ServiceClientManager clientManager(tempDir.path());
-         clientManager.addClient("ClientB", "Service B", "DE", "DE123", "EUR", 1000.0);
+         clientManager.addClient("ClientB", "Service B", "DE", "DE123", "EUR");
          
          ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
          
          // Add Service Sale
-         table.createSale(&clientManager, 0, QDate(2023, 5, 20), 1000.0, "EUR", "INV-999");
+         table.createSale(&clientManager, 0, QDate(2023, 5, 20), 1000.0, "EUR", "INV-999", "");
          
          // Add Random Order (Amazon)
          ActivitySource sourceAmazon(ActivitySourceType::Report, "Amazon", "Report1");

@@ -20,23 +20,28 @@ public:
 
     // Setters for pre-filling
     void setDate(const QDate &date);
-    void setAmount(double amount);
+    void setUnitPrice(double amount);
     void setReference(const QString &ref);
 
     // Getters
     QString getSelectedClientName() const;
     QDate getDate() const;
-    double getAmount() const;
+    double getUnitPrice() const;
+    int getQuantity() const;
     QString getInvoiceId() const;
-    QString getCurrency() const; // From Client
+    QString getCurrency() const;
+    QString getAccount() const;
     int getSelectedClientRow() const;
+
+private slots:
+    void _updateCurrency();
+    void _updateOkButton();
 
 private:
     Ui::DialogAddSaleService *ui;
     ServiceClientManager *m_clientManager;
-    
+
     void _setupConnections();
-    void _updateCurrency();
 };
 
 #endif // DIALOGADDSALESERVICE_H

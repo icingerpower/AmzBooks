@@ -29,9 +29,16 @@ public:
         ColCountry,
         ColVatNumber,
         ColCurrency,
-        ColDefaultAmount,
         ColPaymentType,
         ColPaymentDays,
+        ColStreet1,
+        ColStreet2,
+        ColPostalCode,
+        ColCity,
+        ColAccountSale7,
+        ColAccountVat,
+        ColAccount,
+        ColVatOnPayment,
         ColCount
     };
 
@@ -44,11 +51,19 @@ public:
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
 
     // Modification
-    void addClient(const QString &clientName, const QString &serviceLabel, 
-                   const QString &country, const QString &vatNumber, 
-                   const QString &currency, double defaultAmount,
+    void addClient(const QString &clientName, const QString &serviceLabel,
+                   const QString &country, const QString &vatNumber,
+                   const QString &currency,
                    PaymentType paymentType = PaymentType::Instant,
-                   int paymentDays = 0);
+                   int paymentDays = 0,
+                   const QString &street1 = QString(),
+                   const QString &street2 = QString(),
+                   const QString &postalCode = QString(),
+                   const QString &city = QString(),
+                   const QString &accountSale7 = QString(),
+                   const QString &accountVat = QString(),
+                   const QString &account = QString(),
+                   bool vatOnPayment = false);
     void removeClient(int row);
 
     // Accessors for ServiceSalesBooksTable
@@ -57,9 +72,16 @@ public:
     QString getCountry(int row) const;
     QString getVatNumber(int row) const;
     QString getCurrency(int row) const;
-    double getDefaultAmount(int row) const;
     PaymentType getPaymentType(int row) const;
     int getPaymentDays(int row) const;
+    QString getStreet1(int row) const;
+    QString getStreet2(int row) const;
+    QString getPostalCode(int row) const;
+    QString getCity(int row) const;
+    QString getAccountSale7(int row) const;
+    QString getAccountVat(int row) const;
+    QString getAccount(int row) const;
+    bool getVatOnPayment(int row) const;
     
     /// Calculate payment date based on client's payment type and order date
     QDate calculatePaymentDate(int row, const QDate &orderDate) const;

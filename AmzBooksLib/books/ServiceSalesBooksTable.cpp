@@ -1,5 +1,6 @@
 #include "ServiceSalesBooksTable.h"
 #include "ServiceClientManager.h"
+#include "VatResolver.h"
 #include "orders/OrderManager.h"
 #include "orders/Shipment.h"
 #include "orders/InvoicingInfo.h"
@@ -22,36 +23,39 @@ ServiceSalesBooksTable::ServiceSalesBooksTable(
     init();
 }
 
-void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManager, int clientRow, 
-                                        const QDate &date, double amount, const QString &currency, const QString &invoiceId)
+void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManager, int clientRow,
+                                        const QDate &date, double netAmount, const QString &currency,
+                                        const QString &invoiceId, const QString &account,
+                                        const VatResolver *vatResolver)
 {
     if (!clientManager) return;
 
     QString clientName = clientManager->getClientName(clientRow);
     QString serviceLabel = clientManager->getServiceLabel(clientRow);
     QString country = clientManager->getCountry(clientRow);
-    
+
     // Calculate payment date based on client's payment type
     QDate paymentDate = clientManager->calculatePaymentDate(clientRow, date);
 
-    // 1. Generate Order ID
-    // Format: "Service-{Date}-{ClientName}"
+    // 1. Generate Order ID — "Service-{Date}-{ClientName}"
     QString orderId = QString("Service-%1-%2").arg(date.toString("yyyyMMdd"), clientName);
-    
-    // Check existence
+
     if (m_orderManager->containsOrder(orderId)) {
         ExceptionWithTitleText exception(tr("Order Exists"), tr("The order ID %1 already exists.").arg(orderId));
         exception.raise();
     }
 
-    // 2. Create Shipment / Activity
-    // We need a unique Activity ID.
-    QString activityId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    
-    // Determine VAT
-    // I will assume 0.0 VAT for now, as services often are Reverse Charge or Exempt.
+    // 2. Compute VAT from the net amount using VatResolver
     double vatAmount = 0.0;
-    Amount amountObj(amount, vatAmount); // Net = Amount, Tax = 0
+    if (vatResolver && vatResolver->hasRate(date, country, SaleType::Service)) {
+        double vatRate = vatResolver->getRate(date, country, SaleType::Service);
+        vatAmount = netAmount * vatRate;
+    }
+    double grossAmount = netAmount + vatAmount;
+
+    // 3. Create Activity
+    QString activityId = QUuid::createUuid().toString(QUuid::WithoutBraces);
+    Amount amountObj(netAmount, vatAmount);
     
     auto res = Activity::create(
         orderId,                    // Event ID
@@ -89,7 +93,7 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     activities.append(*res.value);
     Shipment shipment(activities);
     
-    // 3. Record in OrderManager
+    // 4. Record in OrderManager
     ActivitySource source;
     // Use API type as fallback for external/manual creation
     source.type = ActivitySourceType::API; 
@@ -111,19 +115,18 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         qWarning() << "Failed to create InvoicingInfo for service sale:" << orderId << err;
     }
     
-    // 5. Add to AbstractBooksTable
-    // add(rowId, bookId, date, amountFullOrig, currencyAmount, label, account1, account2, vatOrig, vatCountry, vatCurrency)
+    // 5. Add to AbstractBooksTable (gross amount = net + vat)
     add(orderId
         , invoiceId
         , date
-        , amount
+        , grossAmount
         , currency
-        , serviceLabel,
-        "", // Account 1 
-        "", // Account 2
-        vatAmount, 
-        country, // Vat Country
-        currency
+        , serviceLabel
+        , account  // Account 1
+        , ""       // Account 2
+        , vatAmount
+        , country  // VAT Country
+        , currency
     );
 }
 

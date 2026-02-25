@@ -85,6 +85,12 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/InvoiceGenerator.cpp
     ${CMAKE_CURRENT_LIST_DIR}/SkuRegradedTable.h
     ${CMAKE_CURRENT_LIST_DIR}/SkuRegradedTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PurchaseAmzPaymentsManager.h
+    ${CMAKE_CURRENT_LIST_DIR}/PurchaseAmzPaymentsManager.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PurchaseAmzPaymentsTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/PurchaseAmzPaymentsTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/AmzPaymentSettings.h
+    ${CMAKE_CURRENT_LIST_DIR}/AmzPaymentSettings.cpp
 )
 
 

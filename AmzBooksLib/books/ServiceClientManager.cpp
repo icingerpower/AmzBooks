@@ -9,9 +9,16 @@ const QStringList ServiceClientManager::COL_NAMES = {
     QObject::tr("Country"),
     QObject::tr("VAT Number"),
     QObject::tr("Currency"),
-    QObject::tr("Default Amount"),
     QObject::tr("Payment Type"),
-    QObject::tr("Payment Days")
+    QObject::tr("Payment Days"),
+    QObject::tr("Street 1"),
+    QObject::tr("Street 2"),
+    QObject::tr("Postal Code"),
+    QObject::tr("City"),
+    QObject::tr("Account Sale 7"),
+    QObject::tr("Account VAT"),
+    QObject::tr("Account"),
+    QObject::tr("VAT on Payment")
 };
 
 ServiceClientManager::ServiceClientManager(const QDir &workingDir, QObject *parent)
@@ -41,14 +48,24 @@ QVariant ServiceClientManager::data(const QModelIndex &index, int role) const
     if (!index.isValid())
         return QVariant();
 
-    if (role == Qt::DisplayRole || role == Qt::EditRole) {
-        int row = index.row();
-        int col = index.column();
-        if (row >= 0 && row < m_clients.size() && col >= 0 && col < m_clients[row].size()) {
-            // Convert to double for Amount column if DisplayRole? 
-            // Usually CSV stores as string.
-            return m_clients[row][col];
+    int row = index.row();
+    int col = index.column();
+
+    if ((role == Qt::DisplayRole || role == Qt::EditRole)
+            && row >= 0 && row < m_clients.size()
+            && col >= 0 && col < m_clients[row].size()) {
+
+        if (role == Qt::DisplayRole && col == ColPaymentType) {
+            static const QStringList labels = {
+                tr("Instant"), tr("After X Days"), tr("End of Next Month")
+            };
+            bool ok;
+            int idx = m_clients[row][col].toInt(&ok);
+            if (ok && idx >= 0 && idx < labels.size())
+                return labels[idx];
         }
+
+        return m_clients[row][col];
     }
     return QVariant();
 }
@@ -90,17 +107,23 @@ bool ServiceClientManager::setData(const QModelIndex &index, const QVariant &val
     return false;
 }
 
-void ServiceClientManager::addClient(const QString &clientName, const QString &serviceLabel, 
-                                     const QString &country, const QString &vatNumber, 
-                                     const QString &currency, double defaultAmount,
-                                     PaymentType paymentType, int paymentDays)
+void ServiceClientManager::addClient(const QString &clientName, const QString &serviceLabel,
+                                     const QString &country, const QString &vatNumber,
+                                     const QString &currency,
+                                     PaymentType paymentType, int paymentDays,
+                                     const QString &street1, const QString &street2,
+                                     const QString &postalCode, const QString &city,
+                                     const QString &accountSale7, const QString &accountVat,
+                                     const QString &account, bool vatOnPayment)
 {
     beginInsertRows(QModelIndex(), m_clients.size(), m_clients.size());
     QStringList row;
-    row << clientName << serviceLabel << country << vatNumber << currency 
-        << QString::number(defaultAmount)
+    row << clientName << serviceLabel << country << vatNumber << currency
         << QString::number(static_cast<int>(paymentType))
-        << QString::number(paymentDays);
+        << QString::number(paymentDays)
+        << street1 << street2 << postalCode << city
+        << accountSale7 << accountVat << account
+        << (vatOnPayment ? QStringLiteral("1") : QStringLiteral("0"));
     m_clients.append(row);
     endInsertRows();
     _save();
@@ -141,12 +164,6 @@ QString ServiceClientManager::getCurrency(int row) const
     if (row >= 0 && row < m_clients.size()) return m_clients[row][ColCurrency];
     return QString();
 }
-double ServiceClientManager::getDefaultAmount(int row) const
-{
-    if (row >= 0 && row < m_clients.size()) return m_clients[row][ColDefaultAmount].toDouble();
-    return 0.0;
-}
-
 PaymentType ServiceClientManager::getPaymentType(int row) const
 {
     if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColPaymentType) {
@@ -161,6 +178,62 @@ int ServiceClientManager::getPaymentDays(int row) const
         return m_clients[row][ColPaymentDays].toInt();
     }
     return 0;
+}
+
+QString ServiceClientManager::getStreet1(int row) const
+{
+    if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColStreet1)
+        return m_clients[row][ColStreet1];
+    return QString();
+}
+
+QString ServiceClientManager::getStreet2(int row) const
+{
+    if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColStreet2)
+        return m_clients[row][ColStreet2];
+    return QString();
+}
+
+QString ServiceClientManager::getPostalCode(int row) const
+{
+    if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColPostalCode)
+        return m_clients[row][ColPostalCode];
+    return QString();
+}
+
+QString ServiceClientManager::getCity(int row) const
+{
+    if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColCity)
+        return m_clients[row][ColCity];
+    return QString();
+}
+
+QString ServiceClientManager::getAccountSale7(int row) const
+{
+    if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColAccountSale7)
+        return m_clients[row][ColAccountSale7];
+    return QString();
+}
+
+QString ServiceClientManager::getAccountVat(int row) const
+{
+    if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColAccountVat)
+        return m_clients[row][ColAccountVat];
+    return QString();
+}
+
+QString ServiceClientManager::getAccount(int row) const
+{
+    if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColAccount)
+        return m_clients[row][ColAccount];
+    return QString();
+}
+
+bool ServiceClientManager::getVatOnPayment(int row) const
+{
+    if (row >= 0 && row < m_clients.size() && m_clients[row].size() > ColVatOnPayment)
+        return m_clients[row][ColVatOnPayment] == QStringLiteral("1");
+    return false;
 }
 
 QDate ServiceClientManager::calculatePaymentDate(int row, const QDate &orderDate) const

@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>400</width>
-    <height>250</height>
+    <height>280</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -51,16 +51,16 @@
       <widget class="QLineEdit" name="lineEditReference"/>
      </item>
      <item row="3" column="0">
-      <widget class="QLabel" name="labelAmount">
+      <widget class="QLabel" name="labelUnitPrice">
        <property name="text">
-        <string>Amount:</string>
+        <string>Unit Price:</string>
        </property>
       </widget>
      </item>
      <item row="3" column="1">
-      <layout class="QHBoxLayout" name="horizontalLayoutAmount">
+      <layout class="QHBoxLayout" name="horizontalLayoutUnitPrice">
        <item>
-        <widget class="QDoubleSpinBox" name="doubleSpinBoxAmount">
+        <widget class="QDoubleSpinBox" name="doubleSpinBoxUnitPrice">
          <property name="maximum">
           <double>9999999.990000000223517</double>
          </property>
@@ -74,6 +74,26 @@
         </widget>
        </item>
       </layout>
+     </item>
+     <item row="4" column="0">
+      <widget class="QLabel" name="labelQuantity">
+       <property name="text">
+        <string>Quantity:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="4" column="1">
+      <widget class="QSpinBox" name="spinBoxQuantity">
+       <property name="minimum">
+        <number>1</number>
+       </property>
+       <property name="maximum">
+        <number>9999</number>
+       </property>
+       <property name="value">
+        <number>1</number>
+       </property>
+      </widget>
      </item>
     </layout>
    </item>

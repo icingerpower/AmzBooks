@@ -6,6 +6,7 @@
 
 class ServiceClientManager;
 class OrderManager;
+class VatResolver;
 
 class ServiceSalesBooksTable : public AbstractBooksTable
 {
@@ -22,8 +23,10 @@ public:
     QString getId() const override { return "ServiceSales"; }
 
     // Custom Methods
-    void createSale(const ServiceClientManager *clientManager, int clientRow, 
-                    const QDate &date, double amount, const QString &currency, const QString &invoiceId);
+    void createSale(const ServiceClientManager *clientManager, int clientRow,
+                    const QDate &date, double netAmount, const QString &currency,
+                    const QString &invoiceId, const QString &account,
+                    const VatResolver *vatResolver = nullptr);
     void load(int year) override;
 
     bool remove(const QString &rowId) override;
