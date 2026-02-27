@@ -216,7 +216,7 @@ void PaneOrderFiles::importFile()
                    
                    // Merge maps
                    aggregatedResult.orderInfos->orderId_refundClue.insert(result.orderInfos->orderId_refundClue);
-                   aggregatedResult.orderInfos->orderId_store.insert(result.orderInfos->orderId_store);
+                   aggregatedResult.orderInfos->orderId_infos.insert(result.orderInfos->orderId_infos);
 
                    // Merge inventory moves (txnIds are unique so inner insert is safe)
                    for (auto it1 = result.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits.constBegin();
@@ -318,9 +318,9 @@ void PaneOrderFiles::importFile()
                     manager.recordShipmentsFromSource(&source, entries);
                 }
 
-                // Process orderId→store mapping (marketplace site name)
-                if (!aggregatedResult.orderInfos->orderId_store.isEmpty()) {
-                    manager.recordOrders(aggregatedResult.orderInfos->orderId_store);
+                // Process orderId→store/grouping/customerAccount mapping
+                if (!aggregatedResult.orderInfos->orderId_infos.isEmpty()) {
+                    manager.recordOrders(aggregatedResult.orderInfos->orderId_infos);
                 }
 
                 // Process Addresses

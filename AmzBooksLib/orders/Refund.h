@@ -6,7 +6,7 @@
 class Refund : public Shipment
 {
 public:
-    Refund(QList<Activity> activities);
+    explicit Refund(QList<Activity> activities, QString customerAccount = QString(), bool isGrouped = true);
 };
 
 #endif // REFUND_H

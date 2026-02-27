@@ -13,6 +13,7 @@ public:
 
     QString getAccountDebit() const;
     QString getAccountCredit() const;
+    QString getAmazonAccount() const;
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -26,6 +27,7 @@ private:
     static const QString FILE_NAME;
     static const QString ID_DEBIT;
     static const QString ID_CREDIT;
+    static const QString ID_AMAZON_ACCOUNT;
 
     QString m_filePath;
     // Each row: [id, param, value]  — id and param are never shown directly by the model

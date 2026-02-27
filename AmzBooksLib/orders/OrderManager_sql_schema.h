@@ -10,7 +10,9 @@ const QString CREATE_TABLE_ORDERS = R"(
         id TEXT PRIMARY KEY,
         address_json TEXT,
         store TEXT,
-        inserted_at TEXT
+        inserted_at TEXT,
+        is_ungrouped INTEGER NOT NULL DEFAULT 0,
+        customer_account TEXT DEFAULT ''
     )
 )";
 

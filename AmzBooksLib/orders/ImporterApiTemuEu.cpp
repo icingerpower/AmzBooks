@@ -81,7 +81,7 @@ bool ImporterApiTemuEu::recomputeTaxes() const
 
 QCoro::Task<void> ImporterApiTemuEu::fetchShopOrders(const ShopConfig& shop, const QDateTime& dateFrom, QSharedPointer<OrderInfos> targetInfos)
 {
-    // Temu EU Open API — query all order pages since dateFrom and populate orderId_store.
+    // Temu EU Open API — query all order pages since dateFrom and populate orderId_infos.
     //
     // Sign algorithm (Temu Open Platform):
     //   1. Collect all non-sign request parameters as key=value pairs
@@ -151,7 +151,7 @@ QCoro::Task<void> ImporterApiTemuEu::fetchShopOrders(const ShopConfig& shop, con
             const QString     marketplace = order["marketplace"].toString();
 
             if (!orderId.isEmpty() && !marketplace.isEmpty())
-                targetInfos->orderId_store[orderId] = "temu." + marketplace.toLower();
+                targetInfos->orderId_infos[orderId] = OrderManager::OrderInfo{"temu." + marketplace.toLower(), isGroupedOrders(), ""};
         }
 
         // Continue paging until the API signals end-of-results or returns an empty page

@@ -30,6 +30,7 @@ public:
             , const QString &specialProducttype = QString{}
             , const QString &vatTerritory = QString{}) const;
     void addRate(const QDate &date, const QString &country, SaleType type, double rate, const QString &specialCode = QString());
+    void reload();
     void recordRate(const QDate &dateFrom
                     , const QDate &dateTo
                     , SaleType saleType

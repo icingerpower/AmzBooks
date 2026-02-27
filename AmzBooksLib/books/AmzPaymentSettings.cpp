@@ -6,6 +6,7 @@
 const QString AmzPaymentSettings::FILE_NAME = QStringLiteral("amazon_payment_settings.csv");
 const QString AmzPaymentSettings::ID_DEBIT   = QStringLiteral("debit_account");
 const QString AmzPaymentSettings::ID_CREDIT  = QStringLiteral("credit_account");
+const QString AmzPaymentSettings::ID_AMAZON_ACCOUNT = QStringLiteral("amazon_account");
 
 AmzPaymentSettings::AmzPaymentSettings(const QDir &workingDir, QObject *parent)
     : QAbstractTableModel(parent)
@@ -26,6 +27,12 @@ QString AmzPaymentSettings::getAccountDebit() const
 QString AmzPaymentSettings::getAccountCredit() const
 {
     int idx = _rowIndexById(ID_CREDIT);
+    return idx >= 0 ? m_rows[idx][2] : QString();
+}
+
+QString AmzPaymentSettings::getAmazonAccount() const
+{
+    int idx = _rowIndexById(ID_AMAZON_ACCOUNT);
     return idx >= 0 ? m_rows[idx][2] : QString();
 }
 
@@ -107,6 +114,7 @@ QString AmzPaymentSettings::_paramForId(const QString &id) const
 {
     if (id == ID_DEBIT)  return tr("Debit account");
     if (id == ID_CREDIT) return tr("Credit account");
+    if (id == ID_AMAZON_ACCOUNT) return tr("Amazon Purchase Account");
     return id; // fallback for unknown future rows
 }
 
@@ -122,6 +130,11 @@ void AmzPaymentSettings::_ensureDefaults()
     if (_rowIndexById(ID_CREDIT) < 0) {
         int debitIdx = _rowIndexById(ID_DEBIT);
         m_rows.insert(debitIdx + 1, {ID_CREDIT, _paramForId(ID_CREDIT), QString()});
+        changed = true;
+    }
+    if (_rowIndexById(ID_AMAZON_ACCOUNT) < 0) {
+        int creditIdx = _rowIndexById(ID_CREDIT);
+        m_rows.insert(creditIdx + 1, {ID_AMAZON_ACCOUNT, _paramForId(ID_AMAZON_ACCOUNT), QStringLiteral("FAMZMK")});
         changed = true;
     }
 

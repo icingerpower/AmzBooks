@@ -106,6 +106,11 @@ bool ImporterApiAmazon::fixRefundDate() const
     return false;
 }
 
+bool ImporterApiAmazon::isGroupedOrders() const
+{
+    return true;
+}
+
 QCoro::Task<QString> ImporterApiAmazon::getAccessToken()
 {
     if (!m_tokenCache.accessToken.isEmpty() && m_tokenCache.expiration > QDateTime::currentDateTime().addSecs(300)) {

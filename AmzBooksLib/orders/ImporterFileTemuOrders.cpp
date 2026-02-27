@@ -55,6 +55,11 @@ bool ImporterFileTemuOrders::fixRefundDate() const
     return true;
 }
 
+bool ImporterFileTemuOrders::isGroupedOrders() const
+{
+    return true;
+}
+
 double ImporterFileTemuOrders::parseEuropeanPrice(const QString &priceStr)
 {
     // Handle European price format: "9,99€" or "0,00€"
@@ -291,7 +296,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuOrders::_loadRep
 
         QList<Activity> acts;
         acts.append(*actResult.value);
-        Shipment shipment(acts);
+        Shipment shipment(acts, "", isGroupedOrders());
         ret.orderInfos->shipments.append(shipment);
     }
 

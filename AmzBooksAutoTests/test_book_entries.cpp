@@ -18,6 +18,7 @@
 #include <QCoroFuture>
 #include "books/BankQontoTable.h"
 #include "books/BooksConnections.h"
+#include "books/AmzPaymentSettings.h"
 
 // Helper to synchronously wait for QCoro::Task
 template <typename T>
@@ -126,6 +127,44 @@ private slots:
     void test_amz_payment_currency_try();
     void test_amz_payment_expenses_small_present_no_exception();
     void test_amz_payment_refunded_before_expenses_parsed_correctly();
+
+    // ── Amazon Payment createEntry factory tests (30 tests) ──────────────────
+    // Group 1: EUR company, EUR payment — no conversion
+    void test_factory_amz_entry_eur_all_fields();           // 1
+    void test_factory_amz_entry_eur_no_balance();           // 2
+    void test_factory_amz_entry_eur_expenses_refund();      // 3
+    void test_factory_amz_entry_eur_expenses_only();        // 4
+    void test_factory_amz_entry_eur_minimal();              // 5
+    // Group 2: USD payment → EUR conversion
+    void test_factory_amz_entry_usd_all_fields();           // 6
+    void test_factory_amz_entry_usd_no_balance();           // 7
+    void test_factory_amz_entry_usd_balance_only();         // 8
+    void test_factory_amz_entry_usd_paid_eur();             // 9
+    void test_factory_amz_entry_usd_conversion_in_title();  // 10
+    // Group 3: other marketplace currencies
+    void test_factory_amz_entry_gbp_all_fields();           // 11
+    void test_factory_amz_entry_cad_payment();              // 12
+    void test_factory_amz_entry_jpy_payment();              // 13
+    void test_factory_amz_entry_aud_payment();              // 14
+    void test_factory_amz_entry_sek_payment();              // 15
+    // Group 4: account routing verification
+    void test_factory_amz_entry_debit_account_in_balance(); // 16
+    void test_factory_amz_entry_amazon_account_for_paid();  // 17
+    void test_factory_amz_entry_custom_accounts();          // 18
+    void test_factory_amz_entry_no_settings_null();         // 19
+    void test_factory_amz_entry_default_amazon_account();   // 20
+    // Group 5: line count and sums
+    void test_factory_amz_entry_line_count_all_fields();    // 21
+    void test_factory_amz_entry_line_count_no_optionals();  // 22
+    void test_factory_amz_entry_line_count_no_balance();    // 23
+    void test_factory_amz_entry_debit_sum_all_fields();     // 24
+    void test_factory_amz_entry_credit_sum_all_fields();    // 25
+    // Group 6: title / label format
+    void test_factory_amz_entry_title_paiement_amazon();    // 26
+    void test_factory_amz_entry_title_contains_paid_amount(); // 27
+    void test_factory_amz_entry_title_contains_currency();  // 28
+    void test_factory_amz_entry_title_all_lines_same();     // 29
+    void test_factory_amz_entry_date_uses_date_to();        // 30
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -1106,13 +1145,13 @@ void TestBookEntries::test_factory_shipment_no_conversion()
     QList<Activity> activities;
     activities.append(activityResult.value.value());
     
-    auto shipment = QSharedPointer<Shipment>::create(activities);
+    auto shipment = QSharedPointer<Shipment>::create(activities, "", true);
     
     QMultiMap<QDateTime, QSharedPointer<Shipment>> shipments;
     shipments.insert(QDateTime::currentDateTime(), shipment);
     
-    auto entry = syncWait(factory.createEntry(&source, shipments));
-    
+    auto entry = syncWait(factory.createEntryGrouped(&source, shipments));
+
     QVERIFY(!entry.isNull());
     
     // Should have revenue (credit), VAT (credit), and customer (debit)
@@ -1189,13 +1228,13 @@ void TestBookEntries::test_factory_shipment_with_conversion()
     QList<Activity> activities;
     activities.append(activityResult.value.value());
     
-    auto shipment = QSharedPointer<Shipment>::create(activities);
+    auto shipment = QSharedPointer<Shipment>::create(activities, "", true);
     
     QMultiMap<QDateTime, QSharedPointer<Shipment>> shipments;
     shipments.insert(QDateTime::currentDateTime(), shipment);
     
-    auto entry = syncWait(factory.createEntry(&source, shipments));
-    
+    auto entry = syncWait(factory.createEntryGrouped(&source, shipments));
+
     QVERIFY(!entry.isNull());
     
     // Should have conversion info in titles
@@ -1287,12 +1326,12 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
         Amount{100.0, 0.0}, TaxSource::MarketplaceProvided, "FR", TaxScheme::Exempt, TaxJurisdictionLevel::Country, SaleType::Products
     ).value.value());
 
-    auto shipment = QSharedPointer<Shipment>::create(activities);
+    auto shipment = QSharedPointer<Shipment>::create(activities, "", true);
     QMultiMap<QDateTime, QSharedPointer<Shipment>> shipments;
     shipments.insert(today, shipment);
     
     // Execute
-    auto entry = syncWait(factory.createEntry(&source, shipments));
+    auto entry = syncWait(factory.createEntryGrouped(&source, shipments));
     QVERIFY(!entry.isNull());
     
     // Validate
@@ -1416,7 +1455,7 @@ void TestBookEntries::test_factory_single_shipment()
     
     // 2. Test empty activities returns nullptr
     QList<Activity> emptyActivities;
-    auto emptyShipment = QSharedPointer<Shipment>::create(emptyActivities);
+    auto emptyShipment = QSharedPointer<Shipment>::create(emptyActivities, "", true);
     auto emptyResult = syncWait(factory.createEntry(emptyShipment, nullptr));
     QVERIFY(emptyResult.isNull());
     
@@ -1432,7 +1471,7 @@ void TestBookEntries::test_factory_single_shipment()
     
     QList<Activity> activities;
     activities.append(activityResult.value.value());
-    auto shipment = QSharedPointer<Shipment>::create(activities);
+    auto shipment = QSharedPointer<Shipment>::create(activities, "", true);
     
     // 4. Verify shipment ID is available
     QVERIFY(!shipment->getId().isEmpty());
@@ -2992,8 +3031,10 @@ void TestBookEntries::test_amz_payment_encode_decode_roundtrip()
     orig.dateFrom                 = QDate(2026, 5, 1);
     orig.dateTo                   = QDate(2026, 5, 14);
     orig.balanceStart             = 500.00;
+    orig.hasBalanceStart          = true;
     orig.balanceStartCurrency     = "GBP";
     orig.balanceEnd               = 450.00;
+    orig.hasBalanceEnd            = true;
     orig.balanceEndCurrency       = "GBP";
     orig.hasExpenses              = true;
     orig.expenses                 = 250.00;
@@ -3402,6 +3443,886 @@ void TestBookEntries::test_amz_payment_refunded_before_expenses_parsed_correctly
     QVERIFY(qAbs(info.expenses - 280.0) < 0.001);
     QVERIFY(info.hasRefundedExpenses);
     QVERIFY(qAbs(info.refundedExpenses - 40.0) < 0.001);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helper shared by the createEntry(AmzPaymentInfo) tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+static void setupAmzSettings(const QDir &dir,
+                              const QString &debitAccount  = "467150",
+                              const QString &amazonAccount = "FAMZMK")
+{
+    QFile f(dir.filePath("amazon_payment_settings.csv"));
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream out(&f);
+    out << "ID;Param;Value\n";
+    out << "debit_account;Debit account;"  << debitAccount  << "\n";
+    out << "credit_account;Credit account;\n";
+    out << "amazon_account;Amazon Purchase Account;" << amazonAccount << "\n";
+}
+
+// ── Group 1: EUR company, EUR payment ────────────────────────────────────────
+
+// 1. Full EUR filename: balance + expenses + refund + paid — all EUR
+void TestBookEntries::test_factory_amz_entry_eur_all_fields()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    // payment_de_2026_03_01__to__2026_03_15__balance-begin-800.00EUR
+    //   __balance-end-750.00EUR__expenses-300.00EUR__refunded-expenses-20.00EUR__50.00EUR
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_de_2026_03_01__to__2026_03_15"
+        "__balance-begin-800.00EUR"
+        "__balance-end-750.00EUR"
+        "__expenses-300.00EUR"
+        "__refunded-expenses-20.00EUR"
+        "__50.00EUR");
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir);
+    AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDate(), QDate(2026, 3, 15));
+    // Debit lines: balanceStart(800) + expenses(300) + paid(50) = 1150
+    QCOMPARE(entry->getDebitSum(),  1150.0);
+    // Credit lines: balanceEnd(750) + refundedExpenses(20) = 770
+    QCOMPARE(entry->getCreditSum(), 770.0);
+}
+
+// 2. No balance tokens — only expenses + paid
+void TestBookEntries::test_factory_amz_entry_eur_no_balance()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_fr_2026_04_01__to__2026_04_30"
+        "__expenses-200.00EUR"
+        "__100.00EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QVERIFY(!info.hasBalanceStart);
+    QVERIFY(!info.hasBalanceEnd);
+    // Debit: expenses(200) + paid(100) = 300 ; Credit: 0
+    QCOMPARE(entry->getDebitSum(),  300.0);
+    QCOMPARE(entry->getCreditSum(),   0.0);
+}
+
+// 3. Balance + expenses + refund
+void TestBookEntries::test_factory_amz_entry_eur_expenses_refund()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_de_2026_05_01__to__2026_05_14"
+        "__balance-begin-1000.00EUR"
+        "__balance-end-900.00EUR"
+        "__expenses-400.00EUR"
+        "__refunded-expenses-50.00EUR"
+        "__150.00EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebitSum(),  1550.0); // 1000+400+150
+    QCOMPARE(entry->getCreditSum(),  950.0); // 900+50
+}
+
+// 4. Balance + expenses only (no refund)
+void TestBookEntries::test_factory_amz_entry_eur_expenses_only()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_de_2026_06_01__to__2026_06_14"
+        "__balance-begin-500.00EUR"
+        "__balance-end-400.00EUR"
+        "__expenses-250.00EUR"
+        "__150.00EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QVERIFY(!info.hasRefundedExpenses);
+    // Debit: 500+250+150=900; Credit: 400
+    QCOMPARE(entry->getDebitSum(),  900.0);
+    QCOMPARE(entry->getCreditSum(), 400.0);
+}
+
+// 5. Minimal filename — only paid, no balance, no expenses
+void TestBookEntries::test_factory_amz_entry_eur_minimal()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_fr_2026_07_01__to__2026_07_14"
+        "__75.00EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    // Only 1 debit line (paid), no credit lines
+    QCOMPARE(entry->getDebits().size(),  1);
+    QCOMPARE(entry->getCredits().size(), 0);
+    QCOMPARE(entry->getDebitSum(), 75.0);
+}
+
+// ── Group 2: USD payment (conversion EUR company) ────────────────────────────
+
+// 6. Full USD filename
+void TestBookEntries::test_factory_amz_entry_usd_all_fields()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_com_2026_01_07__to__2026_01_21"
+        "__balance-begin-1311.19USD"
+        "__balance-end-1135.55USD"
+        "__expenses-2627.38USD"
+        "__refunded-expenses-153.17USD"
+        "__177.90USD");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-01-21", "USD", "EUR", 0.92);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDate(), QDate(2026, 1, 21));
+    // Debit (EUR): (1311.19+2627.38+177.90)*0.92
+    double expDebit = (1311.19 + 2627.38 + 177.90) * 0.92;
+    QVERIFY(qAbs(entry->getDebitSum()  - expDebit) < 0.02);
+    double expCredit = (1135.55 + 153.17) * 0.92;
+    QVERIFY(qAbs(entry->getCreditSum() - expCredit) < 0.02);
+}
+
+// 7. USD — no balance
+void TestBookEntries::test_factory_amz_entry_usd_no_balance()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_com_2026_02_01__to__2026_02_14"
+        "__expenses-500.00USD"
+        "__200.00USD");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-02-14", "USD", "EUR", 0.92);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QVERIFY(!info.hasBalanceStart);
+    QVERIFY(qAbs(entry->getDebitSum() - 700.0 * 0.92) < 0.02); // (500+200)*0.92
+    QCOMPARE(entry->getCreditSum(), 0.0);
+}
+
+// 8. USD — balance only, no expenses, no refund
+void TestBookEntries::test_factory_amz_entry_usd_balance_only()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info;
+    info.countryCode           = "com";
+    info.dateFrom              = QDate(2026, 3, 1);
+    info.dateTo                = QDate(2026, 3, 14);
+    info.balanceStart          = 800.0;
+    info.balanceStartCurrency  = "USD";
+    info.hasBalanceStart       = true;
+    info.balanceEnd            = 600.0;
+    info.balanceEndCurrency    = "USD";
+    info.hasBalanceEnd         = true;
+    info.paid                  = 200.0;
+    info.paidCurrency          = "USD";
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-03-14", "USD", "EUR", 0.92);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    // Debit: (800+200)*0.92=920; Credit: 600*0.92=552
+    QVERIFY(qAbs(entry->getDebitSum()  - 1000.0 * 0.92) < 0.02);
+    QVERIFY(qAbs(entry->getCreditSum() -  600.0 * 0.92) < 0.02);
+    // 3 lines total: 2 debit (balStart + paid), 1 credit (balEnd)
+    QCOMPARE(entry->getDebits().size(),  2);
+    QCOMPARE(entry->getCredits().size(), 1);
+}
+
+// 9. Balance in USD, paid in EUR (mixed currencies)
+void TestBookEntries::test_factory_amz_entry_usd_paid_eur()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_com_2026_07_01__to__2026_07_14"
+        "__balance-begin-1000.00USD"
+        "__balance-end-900.00USD"
+        "__expenses-400.00USD"
+        "__refunded-expenses-50.00USD"
+        "__183.80EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-07-14", "USD", "EUR", 0.92);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(info.paidCurrency, QString("EUR"));
+    QCOMPARE(info.balanceStartCurrency, QString("USD"));
+    // Paid line uses EUR directly (rate=1)
+    bool foundPaidEur = false;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == "FAMZMK") {
+            foundPaidEur = true;
+            QVERIFY(qAbs(line.currency_amount.value("EUR") - 183.80) < 0.01);
+        }
+    }
+    QVERIFY(foundPaidEur);
+}
+
+// 10. USD: verify conversion info appears in title of converted lines
+void TestBookEntries::test_factory_amz_entry_usd_conversion_in_title()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info;
+    info.countryCode          = "com";
+    info.dateFrom             = QDate(2026, 4, 1);
+    info.dateTo               = QDate(2026, 4, 14);
+    info.paid                 = 392.02;
+    info.paidCurrency         = "USD";
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-04-14", "USD", "EUR", 0.92);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    // Each USD debit line should have "(Conv: ..." appended by JournalEntry
+    for (const auto &line : entry->getDebits())
+        QVERIFY(line.title.contains("(Conv:"));
+}
+
+// ── Group 3: other marketplace currencies ────────────────────────────────────
+
+// 11. GBP — co_uk marketplace
+void TestBookEntries::test_factory_amz_entry_gbp_all_fields()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_co_uk_2026_06_01__to__2026_06_14"
+        "__balance-begin-800.00GBP"
+        "__balance-end-600.00GBP"
+        "__expenses-350.00GBP"
+        "__refunded-expenses-30.00GBP"
+        "__180.00GBP");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-06-14", "GBP", "EUR", 1.16);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(info.countryCode, QString("co_uk"));
+    QVERIFY(qAbs(entry->getDebitSum()  - (800.0+350.0+180.0)*1.16) < 0.02);
+    QVERIFY(qAbs(entry->getCreditSum() - (600.0+30.0)*1.16) < 0.02);
+}
+
+// 12. CAD — ca marketplace
+void TestBookEntries::test_factory_amz_entry_cad_payment()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_ca_2026_10_01__to__2026_10_14"
+        "__balance-begin-500.00CAD"
+        "__balance-end-300.00CAD"
+        "__expenses-150.00CAD"
+        "__100.00CAD");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-10-14", "CAD", "EUR", 0.68);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(info.paidCurrency, QString("CAD"));
+    QVERIFY(qAbs(entry->getDebitSum() - (500.0+150.0+100.0)*0.68) < 0.02);
+}
+
+// 13. JPY — co_jp marketplace
+void TestBookEntries::test_factory_amz_entry_jpy_payment()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_co_jp_2026_10_01__to__2026_10_14"
+        "__balance-begin-100000.00JPY"
+        "__balance-end-65000.00JPY"
+        "__expenses-28000.00JPY"
+        "__7000.00JPY");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-10-14", "JPY", "EUR", 0.0062);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(info.paidCurrency, QString("JPY"));
+    QVERIFY(entry->getDebitSum() > 0.0);
+    QVERIFY(entry->getCreditSum() > 0.0);
+}
+
+// 14. AUD — com_au marketplace
+void TestBookEntries::test_factory_amz_entry_aud_payment()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_com_au_2026_11_01__to__2026_11_14"
+        "__balance-begin-800.00AUD"
+        "__balance-end-500.00AUD"
+        "__expenses-200.00AUD"
+        "__100.00AUD");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-11-14", "AUD", "EUR", 0.60);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(info.countryCode, QString("com_au"));
+    QVERIFY(qAbs(entry->getDebitSum() - (800.0+200.0+100.0)*0.60) < 0.02);
+}
+
+// 15. SEK — se marketplace
+void TestBookEntries::test_factory_amz_entry_sek_payment()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_se_2026_12_01__to__2026_12_14"
+        "__balance-begin-5000.00SEK"
+        "__balance-end-3000.00SEK"
+        "__expenses-1500.00SEK"
+        "__500.00SEK");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-12-14", "SEK", "EUR", 0.087);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(info.paidCurrency, QString("SEK"));
+    QVERIFY(qAbs(entry->getDebitSum() - (5000.0+1500.0+500.0)*0.087) < 0.02);
+}
+
+// ── Group 4: account routing verification ────────────────────────────────────
+
+// 16. Verify getAccountDebit() is the account for balance lines
+void TestBookEntries::test_factory_amz_entry_debit_account_in_balance()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir, "467150", "FAMZMK");
+
+    AmzPaymentInfo info;
+    info.countryCode          = "de";
+    info.dateTo               = QDate(2026, 3, 15);
+    info.balanceStart         = 500.0; info.balanceStartCurrency = "EUR"; info.hasBalanceStart = true;
+    info.balanceEnd           = 400.0; info.balanceEndCurrency   = "EUR"; info.hasBalanceEnd   = true;
+    info.paid                 = 100.0; info.paidCurrency          = "EUR";
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+
+    // The balance start line must be in debit with account 467150
+    bool foundBalStart = false;
+    for (const auto &line : entry->getDebits())
+        if (line.account == "467150" && qAbs(line.currency_amount.value("EUR") - 500.0) < 0.01)
+            foundBalStart = true;
+    QVERIFY(foundBalStart);
+
+    // The balance end line must be in credit with account 467150
+    bool foundBalEnd = false;
+    for (const auto &line : entry->getCredits())
+        if (line.account == "467150" && qAbs(line.currency_amount.value("EUR") - 400.0) < 0.01)
+            foundBalEnd = true;
+    QVERIFY(foundBalEnd);
+}
+
+// 17. Verify getAmazonAccount() is the account for the paid line
+void TestBookEntries::test_factory_amz_entry_amazon_account_for_paid()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir, "467150", "FAMZMK");
+
+    AmzPaymentInfo info;
+    info.countryCode  = "com"; info.dateTo = QDate(2026, 1, 14);
+    info.paid = 392.02;        info.paidCurrency = "EUR";
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+
+    bool foundPaid = false;
+    for (const auto &line : entry->getDebits())
+        if (line.account == "FAMZMK" && qAbs(line.currency_amount.value("EUR") - 392.02) < 0.01)
+            foundPaid = true;
+    QVERIFY(foundPaid);
+}
+
+// 18. Custom account names from settings
+void TestBookEntries::test_factory_amz_entry_custom_accounts()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir, "MYDEBIT", "MYAMZACC");
+
+    AmzPaymentInfo info;
+    info.countryCode  = "de"; info.dateTo = QDate(2026, 2, 14);
+    info.balanceStart = 200.0; info.balanceStartCurrency = "EUR"; info.hasBalanceStart = true;
+    info.balanceEnd   = 150.0; info.balanceEndCurrency   = "EUR"; info.hasBalanceEnd   = true;
+    info.paid = 50.0;          info.paidCurrency          = "EUR";
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+
+    bool foundMyDebit = false, foundMyAmz = false;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == "MYDEBIT") foundMyDebit = true;
+        if (line.account == "MYAMZACC") foundMyAmz  = true;
+    }
+    QVERIFY(foundMyDebit);
+    QVERIFY(foundMyAmz);
+}
+
+// 19. No settings pointer → factory returns nullptr
+void TestBookEntries::test_factory_amz_entry_no_settings_null()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+
+    AmzPaymentInfo info;
+    info.countryCode = "com"; info.dateTo = QDate(2026, 1, 14);
+    info.paid = 100.0;        info.paidCurrency = "EUR";
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir);
+    // No AmzPaymentSettings passed
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(entry.isNull());
+}
+
+// 20. Default amazon account is "FAMZMK"
+void TestBookEntries::test_factory_amz_entry_default_amazon_account()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    // Write settings with empty debit account, amazon account not specified → defaults to FAMZMK
+    {
+        QFile f(dir.filePath("amazon_payment_settings.csv"));
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&f);
+        out << "ID;Param;Value\n";
+        out << "debit_account;Debit account;467000\n";
+        // amazon_account intentionally omitted → _ensureDefaults adds FAMZMK
+    }
+
+    AmzPaymentSettings amzSet(dir);
+    QCOMPARE(amzSet.getAmazonAccount(), QString("FAMZMK"));
+
+    AmzPaymentInfo info;
+    info.countryCode = "de"; info.dateTo = QDate(2026, 5, 14);
+    info.paid = 60.0;        info.paidCurrency = "EUR";
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    bool foundFamzmk = false;
+    for (const auto &line : entry->getDebits())
+        if (line.account == "FAMZMK") foundFamzmk = true;
+    QVERIFY(foundFamzmk);
+}
+
+// ── Group 5: line counts and sums ────────────────────────────────────────────
+
+// 21. All fields: 3 debit lines (balStart + expenses + paid), 2 credit lines (balEnd + refund)
+void TestBookEntries::test_factory_amz_entry_line_count_all_fields()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_de_2026_08_01__to__2026_08_14"
+        "__balance-begin-1000.00EUR"
+        "__balance-end-800.00EUR"
+        "__expenses-500.00EUR"
+        "__refunded-expenses-100.00EUR"
+        "__300.00EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebits().size(),  3); // balStart + expenses + paid
+    QCOMPARE(entry->getCredits().size(), 2); // balEnd   + refundedExpenses
+}
+
+// 22. No optional fields: only 1 debit line (paid), 0 credit lines
+void TestBookEntries::test_factory_amz_entry_line_count_no_optionals()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_fr_2026_09_01__to__2026_09_14"
+        "__120.00EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebits().size(),  1);
+    QCOMPARE(entry->getCredits().size(), 0);
+}
+
+// 23. No balance, with expenses and refund: 2 debit, 1 credit
+void TestBookEntries::test_factory_amz_entry_line_count_no_balance()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_de_2026_10_01__to__2026_10_14"
+        "__expenses-200.00EUR"
+        "__refunded-expenses-30.00EUR"
+        "__80.00EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDebits().size(),  2); // expenses + paid
+    QCOMPARE(entry->getCredits().size(), 1); // refundedExpenses
+}
+
+// 24. Verify debit sum with all EUR fields
+void TestBookEntries::test_factory_amz_entry_debit_sum_all_fields()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_de_2026_11_01__to__2026_11_14"
+        "__balance-begin-600.00EUR"
+        "__balance-end-550.00EUR"
+        "__expenses-250.00EUR"
+        "__refunded-expenses-40.00EUR"
+        "__60.00EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    // Debit: balStart(600) + expenses(250) + paid(60) = 910
+    QCOMPARE(entry->getDebitSum(), 910.0);
+}
+
+// 25. Verify credit sum with all EUR fields
+void TestBookEntries::test_factory_amz_entry_credit_sum_all_fields()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_de_2026_11_15__to__2026_11_28"
+        "__balance-begin-700.00EUR"
+        "__balance-end-650.00EUR"
+        "__expenses-300.00EUR"
+        "__refunded-expenses-80.00EUR"
+        "__70.00EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    // Credit: balEnd(650) + refunded(80) = 730
+    QCOMPARE(entry->getCreditSum(), 730.0);
+}
+
+// ── Group 6: title / label format ────────────────────────────────────────────
+
+// 26. Title starts with "Paiement amazon."
+void TestBookEntries::test_factory_amz_entry_title_paiement_amazon()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info;
+    info.countryCode = "de"; info.dateTo = QDate(2026, 6, 14);
+    info.paid = 100.0;       info.paidCurrency = "EUR";
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    for (const auto &line : entry->getDebits())
+        QVERIFY(line.title.startsWith("Paiement amazon."));
+}
+
+// 27. Title contains the paid amount
+void TestBookEntries::test_factory_amz_entry_title_contains_paid_amount()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info;
+    info.countryCode = "com"; info.dateTo = QDate(2026, 7, 14);
+    info.paid = 177.90;      info.paidCurrency = "USD";
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-07-14", "USD", "EUR", 0.92);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    for (const auto &line : entry->getDebits())
+        QVERIFY(line.title.contains("177.90"));
+}
+
+// 28. Title contains the paid currency code
+void TestBookEntries::test_factory_amz_entry_title_contains_currency()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info;
+    info.countryCode = "co_uk"; info.dateTo = QDate(2026, 8, 14);
+    info.paid = 180.0;          info.paidCurrency = "GBP";
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-08-14", "GBP", "EUR", 1.16);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    for (const auto &line : entry->getDebits())
+        QVERIFY(line.title.contains("GBP"));
+}
+
+// 29. All lines share the same base title (before JournalEntry appends "(Conv:)")
+void TestBookEntries::test_factory_amz_entry_title_all_lines_same()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_de_2026_12_01__to__2026_12_14"
+        "__balance-begin-300.00EUR"
+        "__balance-end-250.00EUR"
+        "__expenses-100.00EUR"
+        "__refunded-expenses-10.00EUR"
+        "__60.00EUR");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+
+    // For EUR all-EUR entry, no Conv suffix → all titles must be identical
+    QStringList titles;
+    for (const auto &line : entry->getDebits()  + entry->getCredits())
+        titles << line.title;
+    QVERIFY(!titles.isEmpty());
+    for (const auto &t : titles)
+        QCOMPARE(t, titles.first());
+}
+
+// 30. Entry date equals dateTo of the payment info
+void TestBookEntries::test_factory_amz_entry_date_uses_date_to()
+{
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir);
+
+    AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(
+        "payment_com_2026_01_07__to__2026_01_21"
+        "__177.90USD");
+
+    CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-01-21", "USD", "EUR", 0.92);
+    BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+
+    auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+    QCOMPARE(entry->getDate(), QDate(2026, 1, 21)); // dateTo
+    QCOMPARE(info.dateFrom,    QDate(2026, 1, 7));
+    QCOMPARE(info.dateTo,      QDate(2026, 1, 21));
 }
 
 QTEST_MAIN(TestBookEntries)

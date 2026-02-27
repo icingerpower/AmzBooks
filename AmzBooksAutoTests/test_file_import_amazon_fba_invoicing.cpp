@@ -901,12 +901,12 @@ void TestFileImportAmazonFbaInvoicing::test_orderIdConnection()
     QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
     QVERIFY(result.orderInfos);
     
-    // Verify orderId_store
-    QCOMPARE(result.orderInfos->orderId_store.size(), 2);
-    QVERIFY(result.orderInfos->orderId_store.contains("111-0000001-0000001"));
-    QVERIFY(result.orderInfos->orderId_store.contains("111-0000001-0000002"));
-    QCOMPARE(result.orderInfos->orderId_store.value("111-0000001-0000001"), QString("Amazon.fr"));
-    QCOMPARE(result.orderInfos->orderId_store.value("111-0000001-0000002"), QString("Amazon.de"));
+    // Verify orderId_infos
+    QCOMPARE(result.orderInfos->orderId_infos.size(), 2);
+    QVERIFY(result.orderInfos->orderId_infos.contains("111-0000001-0000001"));
+    QVERIFY(result.orderInfos->orderId_infos.contains("111-0000001-0000002"));
+    QCOMPARE(result.orderInfos->orderId_infos.value("111-0000001-0000001").store, QString("Amazon.fr"));
+    QCOMPARE(result.orderInfos->orderId_infos.value("111-0000001-0000002").store, QString("Amazon.de"));
 }
 
 QTEST_GUILESS_MAIN(TestFileImportAmazonFbaInvoicing)

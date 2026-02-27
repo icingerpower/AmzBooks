@@ -708,8 +708,10 @@ void TestAmazonPaymentReports::test_verify_encode_format()
     info.dateTo               = QDate(2026, 1, 21);
     info.balanceStart         = 1311.19;
     info.balanceStartCurrency = "USD";
+    info.hasBalanceStart      = true;
     info.balanceEnd           = 1135.55;
     info.balanceEndCurrency   = "USD";
+    info.hasBalanceEnd        = true;
     info.hasExpenses          = true;
     info.expenses             = 2627.38;
     info.expensesCurrency     = "USD";
@@ -749,8 +751,10 @@ void TestAmazonPaymentReports::test_verify_encode_decode_several_currencies()
         orig.dateTo               = QDate(2026, 3, 14);
         orig.balanceStart         = c.bs;
         orig.balanceStartCurrency = c.cur;
+        orig.hasBalanceStart      = true;
         orig.balanceEnd           = c.be;
         orig.balanceEndCurrency   = c.cur;
+        orig.hasBalanceEnd        = true;
         orig.hasExpenses          = true;
         orig.expenses             = c.exp;
         orig.expensesCurrency     = c.cur;
@@ -817,8 +821,8 @@ void TestAmazonPaymentReports::test_verify_invalid_filenames_throw()
     QVERIFY(tryDecode("payment_com_2026_01_07__to__2026_01_21"
                       "__begin-100.00USD__balance-end-100.00USD__0.00USD"));
 
-    // Too few parts overall
-    QVERIFY(tryDecode("payment_com_2026_01_07__to__2026_01_21__0.00USD"));
+    // Too few parts overall (needs at least 4 parts, so give it 3 parts here to throw)
+    QVERIFY(tryDecode("payment_com_2026_01_07__to__2026_01_21"));
 
     // Bad date-from (30th of Feb)
     QVERIFY(tryDecode("payment_com_2026_02_30__to__2026_02_28"

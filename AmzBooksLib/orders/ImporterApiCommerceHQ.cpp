@@ -30,6 +30,11 @@ QString ImporterApiCommerceHQ::getId() const
     return "CommerceHQ";
 }
 
+bool ImporterApiCommerceHQ::isGroupedOrders() const
+{
+    return false;
+}
+
 QMap<QString, AbstractImporter::ParamInfo> ImporterApiCommerceHQ::getRequiredParams() const
 {
     QMap<QString, ParamInfo> params;

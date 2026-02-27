@@ -1,16 +1,15 @@
 #include "ServiceSalesBooksTable.h"
 #include "ServiceClientManager.h"
 #include "VatResolver.h"
+#include "TaxResolver.h"
 #include "orders/OrderManager.h"
 #include "orders/Shipment.h"
 #include "orders/InvoicingInfo.h"
 #include "books/Activity.h"
 #include "ExceptionWithTitleText.h"
-#include <QDebug>
 #include <QUuid>
 #include "orders/Result.h"
 
-const QString ServiceSalesBooksTable::CHANNEL_SALE{QObject::tr("Sale service")};
 
 ServiceSalesBooksTable::ServiceSalesBooksTable(
         const BooksConnections *bookConnections
@@ -23,22 +22,30 @@ ServiceSalesBooksTable::ServiceSalesBooksTable(
     init();
 }
 
-void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManager, int clientRow,
-                                        const QDate &date, double netAmount, const QString &currency,
-                                        const QString &invoiceId, const QString &account,
-                                        const VatResolver *vatResolver)
+void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManager
+                                        , int clientRow
+                                        , const QDate &date
+                                        , double taxedAmount
+                                        , const QString &currency
+                                        , const QString &orderId
+                                        , const QString &serviceTitle
+                                        , int quantity
+                                        , const QString &account
+                                        , const VatResolver &vatResolver
+                                        , const TaxResolver &taxResolver
+                                        , const std::function<bool()> &onMissingVatRate)
 {
     if (!clientManager) return;
 
-    QString clientName = clientManager->getClientName(clientRow);
-    QString serviceLabel = clientManager->getServiceLabel(clientRow);
-    QString country = clientManager->getCountry(clientRow);
+    const QString &clientName = clientManager->getClientName(clientRow);
+    const QString &serviceLabel = clientManager->getServiceLabel(clientRow);
+    const QString &country = clientManager->getCountry(clientRow);
 
     // Calculate payment date based on client's payment type
-    QDate paymentDate = clientManager->calculatePaymentDate(clientRow, date);
+    const QDate &paymentDate = clientManager->calculatePaymentDate(clientRow, date);
 
     // 1. Generate Order ID — "Service-{Date}-{ClientName}"
-    QString orderId = QString("Service-%1-%2").arg(date.toString("yyyyMMdd"), clientName);
+    //QString orderId = QString("Service-%1-%2").arg(date.toString("yyyyMMdd"), clientName).replace(" ", "-");
 
     if (m_orderManager->containsOrder(orderId)) {
         ExceptionWithTitleText exception(tr("Order Exists"), tr("The order ID %1 already exists.").arg(orderId));
@@ -47,16 +54,41 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
 
     // 2. Compute VAT from the net amount using VatResolver
     double vatAmount = 0.0;
-    if (vatResolver && vatResolver->hasRate(date, country, SaleType::Service)) {
-        double vatRate = vatResolver->getRate(date, country, SaleType::Service);
+    if (!vatResolver.hasRate(date, country, SaleType::Service)) {
+        bool resolved = onMissingVatRate && onMissingVatRate();
+        if (!resolved || !vatResolver.hasRate(date, country, SaleType::Service)) {
+            ExceptionWithTitleText e(tr("Missing VAT rate"),
+                tr("No VAT rate found for country %1 on %2.")
+                    .arg(country, date.toString("yyyy-MM-dd")));
+            e.raise();
+        }
+    }
+    double netAmount = taxedAmount;
+    double vatRate = 0.;
+    if (vatResolver.hasRate(date, country, SaleType::Service)) {
+        vatRate = vatResolver.getRate(date, country, SaleType::Service);
+        netAmount = taxedAmount / (1 + vatRate);
         vatAmount = netAmount * vatRate;
     }
-    double grossAmount = netAmount + vatAmount;
 
-    // 3. Create Activity
-    QString activityId = QUuid::createUuid().toString(QUuid::WithoutBraces);
-    Amount amountObj(netAmount, vatAmount);
-    
+    // 3. Resolve tax context
+    static const QString countryFrom = "FR";
+    auto taxCtx = taxResolver.getTaxContext(
+        date.startOfDay(),
+        countryFrom,
+        country,
+        SaleType::Service,
+        true // B2B
+    );
+    const QString &declaringCountry     = taxCtx.taxDeclaringCountryCode;
+    const TaxScheme taxScheme           = taxCtx.taxScheme;
+    const TaxJurisdictionLevel taxJurisdictionLevel = taxCtx.taxJurisdictionLevel;
+    const QString &vatPaidTo            = taxCtx.countryCodeVatPaidTo;
+
+    // 4. Create Activity
+    const QString &activityId = orderId;
+    Amount amountObj(taxedAmount, vatAmount);
+
     auto res = Activity::create(
         orderId,                    // Event ID
         activityId,                 // Activity ID
@@ -64,18 +96,18 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         date.startOfDay(),          // Date
         date.startOfDay(),          // dateTimeTax (Assuming same as date for now)
         currency,                   // Currency
-        "FR",                       // Country From (Placeholder)
+        countryFrom,                // Country From
         country,                    // Country To
         false,                      // isCompany (manual service entry, defaulting to B2C)
-        "",                         // Vat Paid To
+        vatPaidTo,                  // Vat Paid To
         amountObj,
-        TaxSource::ManualOverride,// Manual entry
-        "",                         // Declaring Country
-        TaxScheme::Unknown,         // Scheme
-        TaxJurisdictionLevel::Unknown,
+        TaxSource::SelfComputed,  // Manual entry
+        declaringCountry,           // Declaring Country
+        taxScheme,                  // Scheme
+        taxJurisdictionLevel,       // Jurisdiction Level
         SaleType::Service,          // SaleType::Service
         "", "",
-        invoiceId                   // Invoice ID
+        QString{}                   // Invoice ID
     );
 
     if (!res.value) {
@@ -88,38 +120,50 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         ExceptionWithTitleText exception(tr("Error creating activity"), tr("Error creating activity: %1").arg(errorMessages.join(", ")));
         exception.raise();
     }
-    
+
+    // Activity::create() always initialises m_AmountTaxesComputed to 0.
+    // For ManualOverride/SelfComputed sources getAmountTaxes() uses that field,
+    // so set it explicitly to the VAT amount computed above.
+    res.value->setTaxes(vatAmount);
+
     QList<Activity> activities;
     activities.append(*res.value);
-    Shipment shipment(activities);
-    
-    // 4. Record in OrderManager
+    const QString clientAccount = clientManager->getAccount(clientRow);
+    Shipment shipment(activities, clientAccount, false); // Service sales are not grouped
+
+    // 5. Record in OrderManager
     ActivitySource source;
     // Use API type as fallback for external/manual creation
-    source.type = ActivitySourceType::API; 
+    source.type = ActivitySourceType::API;
     source.channel = CHANNEL_SALE;
     source.subchannel = "";
     source.reportOrMethode = ActivitySource::METHOD_USER_ENTRY;
-    
+
     m_orderManager->recordShipmentFromSource(orderId, &source, &shipment, date, false);
-    
-    // 4. Create and record InvoicingInfo with payment date
+    m_orderManager->recordOrders({{orderId, OrderManager::OrderInfo{QString(), false, clientAccount}}});
+
+    // 6. Create and record InvoicingInfo with payment date
     // Use paymentDate only if it differs from orderDate (non-instant payment)
     std::optional<QDate> optPaymentDate = (paymentDate != date) ? std::optional<QDate>(paymentDate) : std::nullopt;
     
-    auto resInfo = InvoicingInfo::create(&shipment, {}, invoiceId, std::nullopt, optPaymentDate);
-    if (resInfo.ok()) {
-        m_orderManager->recordInvoicingInfo(activityId, &resInfo.value.value());
-    } else {
-        QString err = resInfo.errors.isEmpty() ? "Unknown" : resInfo.errors.first().message;
-        qWarning() << "Failed to create InvoicingInfo for service sale:" << orderId << err;
+    double unitTaxedAmount = taxedAmount / quantity;
+    auto lineItemRes = LineItem::create(QString{}, serviceTitle, unitTaxedAmount, vatRate, quantity);
+    if (!lineItemRes.ok()) {
+        QString err = lineItemRes.errors.isEmpty() ? "Unknown" : lineItemRes.errors.first().message;
+        ExceptionWithTitleText(tr("Invalid Line Item"), err).raise();
     }
+    auto resInfo = InvoicingInfo::create(&shipment, {lineItemRes.value.value()}, QString{}, std::nullopt, optPaymentDate);
+    if (!resInfo.ok()) {
+        QString err = resInfo.errors.isEmpty() ? "Unknown" : resInfo.errors.first().message;
+        ExceptionWithTitleText(tr("Invalid Invoicing Info"), err).raise();
+    }
+    m_orderManager->recordInvoicingInfo(activityId, &resInfo.value.value());
     
-    // 5. Add to AbstractBooksTable (gross amount = net + vat)
+    // 7. Add to AbstractBooksTable (gross amount = net + vat)
     add(orderId
-        , invoiceId
+        , orderId
         , date
-        , grossAmount
+        , taxedAmount
         , currency
         , serviceLabel
         , account  // Account 1
@@ -168,10 +212,10 @@ void ServiceSalesBooksTable::load(int year)
         
         const Activity &act = activities.first();
 
-        add(act.getEventId(), 
-            act.getInvoiceId(), 
-            act.getDateTime().date(), 
-            act.getAmountTaxed() + act.getAmountTaxes(), // Total Amount
+        add(act.getEventId(),
+            act.getInvoiceId(),
+            act.getDateTime().date(),
+            act.getAmountTaxed(), // Total Amount (TTC = gross)
             act.getCurrency(), 
             act.getSubActivityId(), // Label stored in subActivityId
             "", "", 

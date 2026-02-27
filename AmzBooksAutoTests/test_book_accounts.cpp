@@ -15,6 +15,7 @@
 #include "books/BookAccountBankTable.h"
 #include "banks/AbstractBankStatement.h"
 #include "books/BookAccountAmzBalanceTable.h"
+#include "books/AmzPaymentSettings.h"
 #include "ExceptionWithTitleText.h"
 
 // Helper to synchronously wait for QCoro::Task
@@ -55,6 +56,44 @@ class TestBookAccounts : public QObject
     }
 
 private slots:
+    void test_AmzPaymentSettings() {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        QDir dir(tempDir.path());
+
+        // 1. Init & Defaults
+        {
+            AmzPaymentSettings table(dir);
+            QCOMPARE(table.rowCount(), 3); // DEBIT, CREDIT, AMAZON_ACCOUNT defaults
+            
+            QCOMPARE(table.getAccountDebit(), QString(""));
+            QCOMPARE(table.getAccountCredit(), QString(""));
+            QCOMPARE(table.getAmazonAccount(), QString("FAMZMK"));
+        }
+
+        // 2. Modify values & Save
+        {
+            AmzPaymentSettings table(dir);
+            QVERIFY(table.setData(table.index(0, 1), "411AMZ", Qt::EditRole)); // Debit
+            QVERIFY(table.setData(table.index(1, 1), "512AMZ", Qt::EditRole)); // Credit
+            QVERIFY(table.setData(table.index(2, 1), "FAMZ_NEW", Qt::EditRole)); // Amazon Account
+            
+            QCOMPARE(table.getAccountDebit(), QString("411AMZ"));
+            QCOMPARE(table.getAccountCredit(), QString("512AMZ"));
+            QCOMPARE(table.getAmazonAccount(), QString("FAMZ_NEW"));
+        }
+
+        // 3. Reload & verify persistence
+        {
+            AmzPaymentSettings table(dir);
+            QCOMPARE(table.rowCount(), 3);
+            
+            QCOMPARE(table.getAccountDebit(), QString("411AMZ"));
+            QCOMPARE(table.getAccountCredit(), QString("512AMZ"));
+            QCOMPARE(table.getAmazonAccount(), QString("FAMZ_NEW"));
+        }
+    }
+
     void test_persistence() {
         QTemporaryDir tempDir;
         QVERIFY(tempDir.isValid());

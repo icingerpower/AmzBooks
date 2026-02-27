@@ -15,7 +15,7 @@ class VatResolver;
 class Shipment
 {
 public:
-    explicit Shipment(QList<Activity> activities);
+    explicit Shipment(QList<Activity> activities, QString customerAccount, bool isGrouped); // No default value
     virtual ~Shipment() = default;
     double getTotalTaxed() const;
     void computeTax(const TaxResolver *taxResolver
@@ -32,9 +32,17 @@ public:
     bool isWrongIfConflict() const { return m_isWrongIfConflict; }
     void setIsWrongIfConflict(bool val) { m_isWrongIfConflict = val; }
 
+    bool isGrouped() const;
+    void setIsGrouped(bool val) { m_isGrouped = val; }
+
+    const QString &customerAccount() const noexcept { return m_customerAccount; }
+    void setCustomerAccount(const QString &val) { m_customerAccount = val; }
+
 protected:
     QList<Activity> m_activities;
     bool m_isWrongIfConflict = false;
+    bool m_isGrouped = true;
+    QString m_customerAccount;
 };
 
 #endif // SHIPMENT_H

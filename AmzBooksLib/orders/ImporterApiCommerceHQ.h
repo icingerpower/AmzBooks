@@ -20,6 +20,7 @@ public:
     QString getLabel() const override;
     QString getId() const override;
     QMap<QString, ParamInfo> getRequiredParams() const override;
+    bool isGroupedOrders() const override;
 
 protected:
     QString getEndpoint() const;

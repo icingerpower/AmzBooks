@@ -44,12 +44,15 @@
 #include "../dialogs/DialogEditPurchases.h"
 #include "gui/dialogs/DialogEditServiceClients.h"
 #include "gui/dialogs/DialogAddSaleService.h"
+#include "gui/dialogs/DialogVatParams.h"
 #include "books/ServiceSalesBooksTable.h"
 #include "books/ServiceClientManager.h"
 #include "books/VatResolver.h"
+#include "books/TaxResolver.h"
 #include "books/CompanyInfosTable.h"
 #include "books/BookAccountPurchaseTable.h"
 #include "orders/OrderManager.h"
+#include "orders/Shipment.h"
 
 // For confirmation message box
 #include <QMessageBox>
@@ -179,9 +182,12 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     // --------------------------
 
     qDebug() << "[PaneBookKeeping] Loading sales data...";
-    // 4.1 Sales Data
-    auto acceptCallback = [](const ActivitySource*, const Shipment*) { return true; };
-    auto sourceMap = m_orderManager->getActivitySource_ShipmentAndRefunds(from, to, acceptCallback);
+    // 4.1 Sales Data — grouped orders (aggregated by source/month/VAT context)
+    auto acceptCallbackGrouped = [](const ActivitySource*, const Shipment* shipment) { return shipment->isGrouped(); };
+    auto sourceMapGrouped = m_orderManager->getActivitySource_ShipmentAndRefunds(from, to, acceptCallbackGrouped);
+    // 4.1b Sales Data — ungrouped orders (one entry set per shipment/refund)
+    auto acceptCallbackUngrouped = [](const ActivitySource*, const Shipment* shipment) { return !shipment->isGrouped(); };
+    auto sourceMapUngrouped = m_orderManager->getActivitySource_ShipmentAndRefunds(from, to, acceptCallbackUngrouped);
     
     qDebug() << "[PaneBookKeeping] Loading purchases data...";
     auto *purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
@@ -207,10 +213,13 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     }
 
     // Calculate Total Steps
+    int ungroupedShipmentCount = 0;
+    for (auto it = sourceMapUngrouped.begin(); it != sourceMapUngrouped.end(); ++it)
+        ungroupedShipmentCount += it.value().size();
+
     int totalSteps = 0;
-    // Sales: 1 step per source group? Or per shipment? 
-    // createEntry takes a list of shipments. So 1 step per source.
-    totalSteps += sourceMap.size(); 
+    totalSteps += sourceMapGrouped.size();
+    totalSteps += ungroupedShipmentCount;
     totalSteps += invoices.size();
     totalSteps += bankRowsToProcess;
 
@@ -225,20 +234,39 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     // -------------------
 
     try {
-        // 5.1 Sales
-        for (auto it = sourceMap.begin(); it != sourceMap.end(); ++it) {
+        // 5.1 Sales — grouped orders
+        for (auto it = sourceMapGrouped.begin(); it != sourceMapGrouped.end(); ++it) {
             if (progress.wasCanceled()) {
-                qDebug() << "[PaneBookKeeping] Progress was canceled (Sales)";
+                qDebug() << "[PaneBookKeeping] Progress was canceled (Sales grouped)";
                 co_return;
             }
             progress.setValue(currentStep++);
 
             ActivitySource source = it.key();
             const auto &shipments = it.value();
-            
-            QSharedPointer<JournalEntry> entry = co_await factory.createEntry(&source, shipments, callbackAddIfMissing);
+
+            QSharedPointer<JournalEntry> entry = co_await factory.createEntryGrouped(&source, shipments, callbackAddIfMissing);
             QString journalId = journalTable.getJournal(&source);
             addEntry(entry, journalId);
+        }
+
+        // 5.1b Sales — ungrouped orders: one entry per shipment, customer account from OrderInfo
+        for (auto it = sourceMapUngrouped.begin(); it != sourceMapUngrouped.end(); ++it) {
+            ActivitySource source = it.key();
+            const QString journalId = journalTable.getJournal(&source);
+
+            for (auto jt = it.value().begin(); jt != it.value().end(); ++jt) {
+                if (progress.wasCanceled()) {
+                    qDebug() << "[PaneBookKeeping] Progress was canceled (Sales ungrouped)";
+                    co_return;
+                }
+                progress.setValue(currentStep++);
+
+                QSharedPointer<Shipment> shipment = jt.value();
+                // customerAccount is stored in the Shipment, loaded via the orders JOIN
+                QSharedPointer<JournalEntry> entry = co_await factory.createEntry(shipment, shipment->customerAccount(), callbackAddIfMissing);
+                addEntry(entry, journalId);
+            }
         }
 
         qDebug() << "[PaneBookKeeping] Sales completed. Starting purchases...";
@@ -295,6 +323,15 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     }
     
     progress.setValue(totalSteps);
+
+    // Warn if any journal ended up with no entries
+    if (journal_date_entries.contains(QString{})) {
+        QMessageBox::warning(this, tr("Empty Journals"),
+            tr("No bookkeeping entries were generated for year %1. "
+               "Make sure to have the journal in settings.")
+                .arg(year));
+        co_return;
+    }
 
     qDebug() << "[PaneBookKeeping] Generating complete. Saving...";
     // 6. Save
@@ -916,6 +953,20 @@ void PaneBookKeeping::serviceAddSale()
 
     ServiceClientManager clientManager(WorkingDirectoryManager::instance()->workingDir());
     VatResolver vatResolver(WorkingDirectoryManager::instance()->workingDir());
+    TaxResolver taxResolver(WorkingDirectoryManager::instance()->workingDir());
+
+    auto onMissingVatRate = [&vatResolver, this]() -> bool {
+        DialogVatParams dlg(
+            tr("Missing VAT Rate"),
+            tr("No VAT rate was found for this service sale. Please configure it in the VAT settings."),
+            this
+        );
+        if (dlg.exec() == QDialog::Accepted) {
+            vatResolver.reload();
+            return true;
+        }
+        return false;
+    };
 
     DialogAddSaleService dialog(&clientManager, this);
     if (dialog.exec() == QDialog::Accepted) {
@@ -926,8 +977,12 @@ void PaneBookKeeping::serviceAddSale()
             dialog.getUnitPrice() * dialog.getQuantity(),
             dialog.getCurrency(),
             dialog.getInvoiceId(),
+            dialog.getServiceTitle(),
+            dialog.getQuantity(),
             dialog.getAccount(),
-            &vatResolver
+            vatResolver,
+            taxResolver,
+            onMissingVatRate
         );
     }
 }
@@ -1023,6 +1078,21 @@ void PaneBookKeeping::serviceCreateFromSelection()
     // Create the sale dialog with pre-filled data
     ServiceClientManager clientManager(WorkingDirectoryManager::instance()->workingDir());
     VatResolver vatResolver(WorkingDirectoryManager::instance()->workingDir());
+    TaxResolver taxResolver(WorkingDirectoryManager::instance()->workingDir());
+
+    auto onMissingVatRate = [&vatResolver, this]() -> bool {
+        DialogVatParams dlg(
+            tr("Missing VAT Rate"),
+            tr("No VAT rate was found for this service sale. Please configure it in the VAT settings."),
+            this
+        );
+        if (dlg.exec() == QDialog::Accepted) {
+            vatResolver.reload();
+            return true;
+        }
+        return false;
+    };
+
     DialogAddSaleService dialog(&clientManager, this);
 
     dialog.setUnitPrice(qAbs(totalAmount));
@@ -1039,8 +1109,12 @@ void PaneBookKeeping::serviceCreateFromSelection()
                 dialog.getUnitPrice() * dialog.getQuantity(),
                 dialog.getCurrency(),
                 dialog.getInvoiceId(),
+                dialog.getServiceTitle(),
+                dialog.getQuantity(),
                 dialog.getAccount(),
-                &vatResolver
+                vatResolver,
+                taxResolver,
+                onMissingVatRate
             );
         }
     }

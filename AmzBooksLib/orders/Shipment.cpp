@@ -4,8 +4,10 @@
 #include "Shipment.h"
 #include <QJsonArray>
 
-Shipment::Shipment(QList<Activity> activities)
+Shipment::Shipment(QList<Activity> activities, QString customerAccount, bool isGrouped)
     : m_activities(std::move(activities))
+    , m_customerAccount(std::move(customerAccount))
+    , m_isGrouped(isGrouped)
 {
 }
 
@@ -59,6 +61,11 @@ QJsonObject Shipment::toJson() const
     return obj;
 }
 
+bool Shipment::isGrouped() const
+{
+    return m_isGrouped;
+}
+
 Shipment Shipment::fromJson(const QJsonObject &json)
 {
     QList<Activity> list;
@@ -71,7 +78,7 @@ Shipment Shipment::fromJson(const QJsonObject &json)
         // Migration / Backward compatibility for old format in DB or source
         list.append(Activity::fromJson(json["activity"].toObject()));
     }
-    Shipment s(list);
+    Shipment s(list, "", true); // customerAccount/isGrouped are set from the DB JOIN after creation
     if (json.contains("isWrongIfConflict")) {
         s.setIsWrongIfConflict(json["isWrongIfConflict"].toBool());
     }

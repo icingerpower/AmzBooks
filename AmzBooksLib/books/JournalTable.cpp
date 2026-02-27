@@ -7,13 +7,13 @@
 #include "orders/AbstractImporterApi.h"
 #include "orders/AbstractImporterFile.h"
 #include "banks/AbstractBankStatement.h"
+#include "books/ServiceSalesBooksTable.h"
 
 const QString JournalTable::ID_PURCHASES{"purchase"};
 const QString JournalTable::ID_AMZ_PAYMENTS{"amz_payments"};
-const QString JournalTable::ID_SERVICE_SALES{"service_sales"};
 const QHash<QString, JournalItem> JournalTable::DEFAULT_JOURNALS{
     {JournalTable::ID_PURCHASES, JournalItem{QObject::tr("Purchase"), QObject::tr("AC"), JournalTable::ID_PURCHASES }}
-    , {JournalTable::ID_SERVICE_SALES, JournalItem{QObject::tr("Service sales"), QObject::tr("VTSERVICE"), JournalTable::ID_SERVICE_SALES }}
+    , {ServiceSalesBooksTable::CHANNEL_SALE, JournalItem{QObject::tr("Sale of service"), QObject::tr("VTSERVICE"), ServiceSalesBooksTable::CHANNEL_SALE}}
     , {JournalTable::ID_AMZ_PAYMENTS, JournalItem{QObject::tr("Amazon Payments"), QObject::tr("AC"), JournalTable::ID_AMZ_PAYMENTS }}
 };
 
@@ -46,8 +46,8 @@ QVariant JournalTable::data(const QModelIndex &index, int role) const
     const auto &item = m_data.at(index.row());
     
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
-        if (index.column() == 0) return item.code; // Col 0 is Code
-        if (index.column() == 1) return item.name; // Col 1 is Name
+        if (index.column() == 0) return item.name; // Col 0 is Name
+        if (index.column() == 1) return item.code; // Col 1 is Code
     }
     return QVariant();
 }
@@ -55,8 +55,8 @@ QVariant JournalTable::data(const QModelIndex &index, int role) const
 QVariant JournalTable::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (role == Qt::DisplayRole && orientation == Qt::Horizontal) {
-        if (section == 0) return tr("Journal"); // Code
-        if (section == 1) return tr("Name");    // Name
+        if (section == 0) return tr("Name"); // Code
+        if (section == 1) return tr("Journal");    // Name
     }
     return QVariant();
 }
@@ -67,10 +67,10 @@ bool JournalTable::setData(const QModelIndex &index, const QVariant &value, int 
         int row = index.row();
         if (row >= 0 && row < m_data.size()) {
             bool changed = false;
-            // Allow editing ONLY Column 1 (Name)
+            // Allow editing ONLY Column 1 (Code)
             if (index.column() == 1) {
-                if (m_data[row].name != value.toString()) {
-                    m_data[row].name = value.toString();
+                if (m_data[row].code != value.toString()) {
+                    m_data[row].code = value.toString();
                     changed = true;
                 }
             }
@@ -148,7 +148,7 @@ JournalItem JournalTable::getJournalPurchaseInvoice() const
 JournalItem JournalTable::getJournalServiceSale() const
 {
     for (const auto &item : m_data) {
-        if (item.id == ID_SERVICE_SALES) {
+        if (item.id == ServiceSalesBooksTable::CHANNEL_SALE) {
             return item;
         }
     }

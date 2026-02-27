@@ -38,6 +38,8 @@ void DialogAddSaleService::_setupConnections()
 
     connect(ui->lineEditReference,    &QLineEdit::textChanged,
             this, &DialogAddSaleService::_updateOkButton);
+    connect(ui->lineEditServiceTitle, &QLineEdit::textChanged,
+            this, &DialogAddSaleService::_updateOkButton);
     connect(ui->doubleSpinBoxUnitPrice, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &DialogAddSaleService::_updateOkButton);
     connect(ui->spinBoxQuantity, QOverload<int>::of(&QSpinBox::valueChanged),
@@ -55,7 +57,8 @@ void DialogAddSaleService::_updateOkButton()
 {
     bool valid = ui->doubleSpinBoxUnitPrice->value() > 0.0
               && ui->spinBoxQuantity->value() > 0
-              && !ui->lineEditReference->text().trimmed().isEmpty();
+              && !ui->lineEditReference->text().trimmed().isEmpty()
+              && !ui->lineEditServiceTitle->text().trimmed().isEmpty();
     ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(valid);
 }
 
@@ -102,6 +105,11 @@ int DialogAddSaleService::getQuantity() const
 QString DialogAddSaleService::getInvoiceId() const
 {
     return ui->lineEditReference->text();
+}
+
+QString DialogAddSaleService::getServiceTitle() const
+{
+    return ui->lineEditServiceTitle->text();
 }
 
 QString DialogAddSaleService::getCurrency() const

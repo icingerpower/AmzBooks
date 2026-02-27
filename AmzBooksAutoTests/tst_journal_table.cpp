@@ -33,7 +33,7 @@ void TestJournalTable::test_init_and_persistence()
         bool foundPurchase = false;
         for (int i = 0; i < table.rowCount(); ++i) {
             QModelIndex idx = table.index(i, 0);
-            if (table.data(idx).toString() == "AC" && table.data(table.index(i, 1)).toString() == "Purchase") {
+            if (table.data(idx).toString() == "Purchase" && table.data(table.index(i, 1)).toString() == "AC") {
                 foundPurchase = true;
                 break;
             }
@@ -51,13 +51,13 @@ void TestJournalTable::test_init_and_persistence()
             QModelIndex idxCode = table.index(i, 0);
             QModelIndex idxName = table.index(i, 1);
             
-            // Col 0 = Code ("AC"), Col 1 = Name ("Purchase")
-            if (table.data(idxCode).toString() == "AC" && table.data(idxName).toString() == "Purchase") {
-                // Name (Col 1) SHOULD be editable
+            // Col 0 = Name ("Purchase"), Col 1 = Code ("AC")
+            if (table.data(idxCode).toString() == "Purchase" && table.data(idxName).toString() == "AC") {
+                // Code (Col 1) SHOULD be editable
                 QVERIFY(table.flags(idxName) & Qt::ItemIsEditable);
                 QVERIFY(table.setData(idxName, "Purchase Invoices", Qt::EditRole));
-                
-                // Code (Col 0) should NOT be editable
+
+                // Name (Col 0) should NOT be editable
                 QVERIFY(!(table.flags(idxCode) & Qt::ItemIsEditable));
                 
                 // Check update
@@ -76,10 +76,10 @@ void TestJournalTable::test_init_and_persistence()
         JournalTable table(dir);
         QCOMPARE(table.rowCount(), initialRowCount);
         
-        // Verify the modified name persisted
+        // Verify the modified code persisted
         bool foundModified = false;
         for (int i = 0; i < table.rowCount(); ++i) {
-            if (table.data(table.index(i, 1)).toString() == "Purchase Invoices" && table.data(table.index(i, 0)).toString() == "AC") {
+            if (table.data(table.index(i, 0)).toString() == "Purchase" && table.data(table.index(i, 1)).toString() == "Purchase Invoices") {
                 foundModified = true;
                 break;
             }
@@ -103,8 +103,8 @@ void TestJournalTable::test_auto_population()
         QModelIndex idxCode = table.index(i, 0);
         QModelIndex idxName = table.index(i, 1);
         
-        if (table.data(idxCode).toString() == "AC" &&
-            table.data(idxName).toString() == "Purchase") {
+        if (table.data(idxCode).toString() == "Purchase" &&
+            table.data(idxName).toString() == "AC") {
             foundPurchase = true;
             break;
         }
@@ -219,7 +219,7 @@ void TestJournalTable::test_csv_overrides_defaults()
         
         bool foundCustomName = false;
         for (int i = 0; i < table.rowCount(); ++i) {
-            if (table.data(table.index(i, 1)).toString() == "Custom Purchase Name" && table.data(table.index(i, 0)).toString() == "AC") {
+            if (table.data(table.index(i, 0)).toString() == "Custom Purchase Name" && table.data(table.index(i, 1)).toString() == "AC") {
                 foundCustomName = true;
                 break;
             }
@@ -242,9 +242,9 @@ void TestJournalTable::test_getters()
 
     // getJournalServiceSale
     item = table.getJournalServiceSale();
-    QCOMPARE(item.name, QString("Service sales"));
+    QCOMPARE(item.name, QString("Sale of service"));
     QCOMPARE(item.code, QString("VTSERVICE"));
-    QCOMPARE(item.id, QString("service_sales"));
+    QCOMPARE(item.id, QString("Sale service"));
 
     // getJournalAmzPayment
     item = table.getJournalAmzPayment();

@@ -98,7 +98,6 @@ const QStringList CountriesEu::DEFAULT_AMAZON_SITES = {
     "amazon.pl",
     "amazon.se",
     "amazon.tr",
-    "amazon.uk",
     "amazon.co.uk",
     "amazon.co.jp"
 };

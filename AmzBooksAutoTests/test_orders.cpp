@@ -203,7 +203,7 @@ void TestOrders::test_shipments()
 
     // Shipment with matching taxes (20.0 total vs 10+10)
     // Shipment no longer holds items.
-    Shipment shipment({activity});
+    Shipment shipment({activity}, "", true);
 
     QCOMPARE(shipment.getActivities().first().getEventId(), "evt-ship-001");
     
@@ -228,7 +228,7 @@ void TestOrders::test_shipments()
     QVERIFY(resultDelta.ok());
     Activity activityDelta = *resultDelta.value;
 
-    Shipment shipmentDelta({activityDelta});
+    Shipment shipmentDelta({activityDelta}, "", true);
     
     // Create InvoicingInfo to trigger tax adjustment, passing items explicitly
     auto resInvInfoDelta = InvoicingInfo::create(&shipmentDelta, items);
@@ -251,7 +251,7 @@ void TestOrders::test_shipments()
     QVERIFY(resultLargeDelta.ok());
     Activity activityLargeDelta = *resultLargeDelta.value;
 
-    Shipment shipmentLargeDelta({activityLargeDelta});
+    Shipment shipmentLargeDelta({activityLargeDelta}, "", true);
     auto resInvInfoLargeDelta = InvoicingInfo::create(&shipmentLargeDelta, items);
     QVERIFY(resInvInfoLargeDelta.ok());
     InvoicingInfo invInfoLargeDelta = *resInvInfoLargeDelta.value;
@@ -280,7 +280,7 @@ void TestOrders::test_refunds()
     QVERIFY(resItem.ok());
     items << *resItem.value;
 
-    Refund refund({activity}); // Refund no longer takes items
+    Refund refund({activity}, "", true); // Refund no longer takes items
 
     QCOMPARE(refund.getActivities().first().getEventId(), "evt-refund-001");
     // Verify InvoicingInfo with Refund
@@ -319,7 +319,7 @@ void TestOrders::test_orders()
 
 
     // Shipment no longer takes items
-    Shipment shipment({actShip});
+    Shipment shipment({actShip}, "", true);
 
     order.addShipment(&shipment);
 

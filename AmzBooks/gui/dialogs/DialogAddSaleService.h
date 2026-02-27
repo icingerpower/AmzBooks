@@ -29,6 +29,7 @@ public:
     double getUnitPrice() const;
     int getQuantity() const;
     QString getInvoiceId() const;
+    QString getServiceTitle() const;
     QString getCurrency() const;
     QString getAccount() const;
     int getSelectedClientRow() const;

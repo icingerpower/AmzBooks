@@ -64,6 +64,7 @@ VatCountries BooksAccountsSalesTable::resolveVatCountries(
                                         "The tax scheme " + taxSchemeToString(taxScheme) + " is not supported for account resolution.");
         exception.raise();
     }
+    return {TaxScheme::Unknown, "", "", ""};
 }
 
 QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccounts(

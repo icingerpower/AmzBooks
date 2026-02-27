@@ -47,6 +47,11 @@ bool ImporterFileAmazonVatEu::fixRefundDate() const
     return false;
 }
 
+bool ImporterFileAmazonVatEu::isGroupedOrders() const
+{
+    return true;
+}
+
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadReport(
     const QString &filePath,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
@@ -176,7 +181,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         
         QString marketplace = line.value(indMarketplace);
         if (!marketplace.isEmpty()) {
-             result.orderInfos->orderId_store[eventId] = marketplace;
+             result.orderInfos->orderId_infos[eventId] = OrderManager::OrderInfo{marketplace, isGroupedOrders(), ""};
         }
 
         QString dateStr = line.value(indDate);
@@ -316,7 +321,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         // If InvoicingInfo is required (likely yes for "Importer"), we populate it with basic info.
         
         if (ts.type == "SALE") {
-            Shipment shipment(ts.activities);
+            Shipment shipment(ts.activities, "", isGroupedOrders());
             result.orderInfos->shipments.append(shipment);
             
             // Basic InvoicingInfo
@@ -330,7 +335,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
             }
 
         } else if (ts.type == "REFUND") {
-            Refund refund(ts.activities);
+            Refund refund(ts.activities, "", isGroupedOrders());
             result.orderInfos->refunds.append(refund);
             
              // Refunds also have InvoicingInfo? yes.

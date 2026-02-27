@@ -27,6 +27,7 @@ public:
     bool recomputeTaxes() const override;
     bool isWrongIfConflict() const override;
     bool fixRefundDate() const override;
+    bool isGroupedOrders() const override;
 
 protected:
     struct ShopConfig {

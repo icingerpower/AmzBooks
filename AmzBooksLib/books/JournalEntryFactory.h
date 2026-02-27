@@ -4,10 +4,12 @@
 #include <QSharedPointer>
 #include <QMultiMap>
 #include <QDateTime>
-#include "JournalEntry.h"
-#include "PurchaseInvoiceManager.h"
 #include <QCoroTask>
 #include <functional>
+
+#include "JournalEntry.h"
+#include "PurchaseAmzPaymentsManager.h"
+#include "PurchaseInvoiceManager.h"
 
 class CurrencyRateManager;
 class CompanyInfosTable;
@@ -19,6 +21,7 @@ class ActivitySource;
 class Shipment;
 class AbstractBooksTableBank;
 class BooksConnections;
+class AmzPaymentSettings;
 
 class JournalEntryFactory
 {
@@ -28,24 +31,27 @@ public:
                         const BooksAccountsSalesTable *saleBookAccounts,
                         const BookAccountPurchaseTable *purchaseBookAccounts,
                         const JournalTable *journalTable,
-                        const BookAccountSelfVatTable *selfVatBookAccounts = nullptr);
+                        const BookAccountSelfVatTable *selfVatBookAccounts = nullptr,
+                        const AmzPaymentSettings *amzPaymentSettings = nullptr);
 
     // Create journal entry for purchase invoice
     // Negative amount is a refund
-    QSharedPointer<JournalEntry> createEntry(PurchaseInformation purchaseInformation);
+    QSharedPointer<JournalEntry> createEntry(const PurchaseInformation &purchaseInformation) const;
+    QSharedPointer<JournalEntry> createEntry(const AmzPaymentInfo &paymentInfo) const;
 
     // Create journal entry for shipment/sales activities
     // Each entry needs a French label very well detailed for a French accountant
     // Create journal entry for shipment/sales activities
     // Each entry needs a French label very well detailed for a French accountant
-    QCoro::Task<QSharedPointer<JournalEntry>> createEntry(
+    QCoro::Task<QSharedPointer<JournalEntry>> createEntryGrouped(
             ActivitySource *source,
             const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
             std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr);
 
-    QCoro::Task<QSharedPointer<JournalEntry>> createEntry( // Create entry for one sale only with one shipment
-            QSharedPointer<Shipment> shipmentOrRefund,
-            std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr);
+    QCoro::Task<QSharedPointer<JournalEntry>> createEntry(// Create entry for one sale only with one shipment
+        QSharedPointer<Shipment> shipmentOrRefund
+        , const QString &customerAccount,
+        std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr);
 
     QSharedPointer<JournalEntry> createEntry(// Create entry for one sale only with one shipment
             const AbstractBooksTableBank *bankTable,
@@ -59,6 +65,7 @@ private:
     const BookAccountPurchaseTable *m_purchaseBookAccounts;
     const JournalTable *m_journalTable;
     const BookAccountSelfVatTable *m_selfVatBookAccounts;
+    const AmzPaymentSettings *m_amzPaymentSettings;
 };
 
 #endif // JOURNALENTRYFACTORY_H

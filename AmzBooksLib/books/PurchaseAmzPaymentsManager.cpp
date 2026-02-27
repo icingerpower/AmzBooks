@@ -91,10 +91,10 @@ AmzPaymentInfo PurchaseAmzPaymentsManager::decode(const QString &filePath)
     // [2] YYYY_MM_DD
     // [3..size-2] optional tokens (balance-begin, balance-end mandatory, expenses, refunded-expenses)
     // [last] PAID_CUR
-    if (parts.size() < 5) {
+    if (parts.size() < 4) {
         ExceptionWithTitleText ex(
             QObject::tr("Invalid Amazon Payment Filename"),
-            QObject::tr("'%1' has too few parts (need ≥ 5, got %2).")
+            QObject::tr("'%1' has too few parts (need ≥ 4, got %2).")
                 .arg(filePath).arg(parts.size()));
         ex.raise();
     }

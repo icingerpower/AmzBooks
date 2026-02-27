@@ -58,6 +58,11 @@ bool ImporterFileTemuVatEu::fixRefundDate() const
     return true;
 }
 
+bool ImporterFileTemuVatEu::isGroupedOrders() const
+{
+    return true;
+}
+
 double ImporterFileTemuVatEu::parseEuropeanAmount(const QString &amountStr)
 {
     QString s = amountStr.trimmed();
@@ -206,7 +211,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
         if (idxMarketplace >= 0) {
             const QString marketplace = line.value(idxMarketplace).trimmed();
             if (!marketplace.isEmpty())
-                result.orderInfos->orderId_store[orderId] = "temu." + marketplace.toLower();
+                result.orderInfos->orderId_infos[orderId] = OrderManager::OrderInfo{"temu." + marketplace.toLower(), isGroupedOrders(), ""};
         }
 
         // --- Date ----------------------------------------------------------------
@@ -304,7 +309,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
 
         if (to.type == "sales")
         {
-            Shipment shipment(to.activities);
+            Shipment shipment(to.activities, "", isGroupedOrders());
             result.orderInfos->shipments.append(shipment);
 
             auto infoRes = InvoicingInfo::create(
@@ -328,7 +333,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
         }
         else if (to.type == "return")
         {
-            Refund refund(to.activities);
+            Refund refund(to.activities, "", isGroupedOrders());
             result.orderInfos->refunds.append(refund);
 
             auto infoRes = InvoicingInfo::create(

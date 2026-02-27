@@ -2,6 +2,7 @@
 
 #include <QDir>
 #include <QFile>
+#include <QSet>
 #include <QTextStream>
 #include <QDebug>
 #include <QStandardPaths>
@@ -221,6 +222,25 @@ void VatResolver::_fillIfEmpty()
     recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "AR", "", "", 0.0);
     recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "GF", "", "", 0.0);
     recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "NO", "", "", 0.0);
+
+    // Copy standard Products rates (empty specialProductType) to SaleType::Service.
+    // In most countries the standard VAT rate is identical for goods and services;
+    // reduced/special rates (specialProductType != "") are product-specific and NOT copied.
+    // Add country codes to this set for any country whose standard service rate
+    // differs from its standard product rate.
+    static const QSet<QString> serviceRateExceptions{};
+
+    const int productsCount = m_listOfStringList.size();
+    for (int i = 0; i < productsCount; ++i) {
+        const QStringList &row = m_listOfStringList[i];
+        if (row.size() < 7) continue;
+        if (row[3] != QString::number(static_cast<int>(SaleType::Products))) continue;
+        if (!row[4].isEmpty()) continue; // skip specialProductType entries
+        if (serviceRateExceptions.contains(row[0])) continue;
+        QDate dateFrom = QDate::fromString(row[1], "yyyy-MM-dd");
+        QDate dateTo   = QDate::fromString(row[2], "yyyy-MM-dd");
+        recordRate(dateFrom, dateTo, SaleType::Service, row[0], "", row[5], row[6].toDouble());
+    }
 }
 
 void VatResolver::_load()
@@ -338,6 +358,16 @@ double VatResolver::getRate(const QDate &date, const QString &countryCode, SaleT
     }
     --it;
     return it.value();
+}
+
+void VatResolver::reload()
+{
+    if (!m_usePersistence || m_filePath.isEmpty()) return;
+    beginResetModel();
+    m_listOfStringList.clear();
+    m_countryCode_saleType_specialProductType_vatTerritory_dateFrom_vatRateCached.clear();
+    _load();
+    endResetModel();
 }
 
 void VatResolver::remove(const QModelIndex &index)

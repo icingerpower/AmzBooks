@@ -5,6 +5,7 @@
 #include "BookAccountPurchaseTable.h"
 #include "BookAccountSelfVatTable.h"
 #include "JournalTable.h"
+#include "AmzPaymentSettings.h"
 #include "orders/ActivitySource.h"
 #include "orders/Shipment.h"
 #include "books/Activity.h"
@@ -18,17 +19,21 @@ JournalEntryFactory::JournalEntryFactory(
     const BooksAccountsSalesTable *saleBookAccounts,
     const BookAccountPurchaseTable *purchaseBookAccounts,
     const JournalTable *journalTable,
-    const BookAccountSelfVatTable *selfVatBookAccounts)
+    const BookAccountSelfVatTable *selfVatBookAccounts,
+    const AmzPaymentSettings *amzPaymentSettings)
     : m_currencyRateManager(currencyRateManager)
     , m_companyInfos(companyInfos)
     , m_saleBookAccounts(saleBookAccounts)
     , m_purchaseBookAccounts(purchaseBookAccounts)
     , m_journalTable(journalTable)
     , m_selfVatBookAccounts(selfVatBookAccounts)
+    , m_amzPaymentSettings(amzPaymentSettings)
 {
 }
 
-QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformation purchaseInformation)
+
+QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
+    const PurchaseInformation &purchaseInformation) const
 {
     QString companyCurrency = m_companyInfos->getCurrency();
     auto entry = QSharedPointer<JournalEntry>::create(purchaseInformation.date, companyCurrency);
@@ -232,7 +237,73 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(PurchaseInformatio
     return entry;
 }
 
-QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
+QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
+    const AmzPaymentInfo &paymentInfo) const
+{
+    if (!m_amzPaymentSettings)
+        return nullptr;
+
+    QString companyCurrency = m_companyInfos->getCurrency();
+    QDate date = paymentInfo.dateTo;
+
+    auto entry = QSharedPointer<JournalEntry>::create(date, companyCurrency);
+
+    QString debitAccount  = m_amzPaymentSettings->getAccountDebit();
+    QString amazonAccount = m_amzPaymentSettings->getAmazonAccount();
+
+    // Label: "Paiement amazon.{countryCode} {paid} {paidCurrency}"
+    // When paidCurrency != companyCurrency, JournalEntry auto-appends the
+    // conversion rate "(Conv: {amount} {currency} @ {rate})" to each
+    // converted line, satisfying the requirement of showing the rate.
+    QString commonTitle = QString("Paiement amazon.%1 %2 %3")
+                          .arg(paymentInfo.countryCode,
+                               QString::number(paymentInfo.paid, 'f', 2),
+                               paymentInfo.paidCurrency);
+
+    auto getRate = [&](const QString &currency) -> double {
+        if (currency == companyCurrency || currency.isEmpty())
+            return 1.0;
+        return m_currencyRateManager->rate(currency, companyCurrency, date);
+    };
+
+    auto makeDebit = [&](const QString &account, const QString &currency, double amount) {
+        JournalEntry::EntryLine line;
+        line.title   = commonTitle;
+        line.account = account;
+        line.currency_amount[currency] = amount;
+        entry->addDebitLeft(line, currency, getRate(currency));
+    };
+
+    auto makeCredit = [&](const QString &account, const QString &currency, double amount) {
+        JournalEntry::EntryLine line;
+        line.title   = commonTitle;
+        line.account = account;
+        line.currency_amount[currency] = amount;
+        entry->addCreditRight(line, currency, getRate(currency));
+    };
+
+    // Balance lines (both must be present together)
+    if (paymentInfo.hasBalanceStart && paymentInfo.hasBalanceEnd) {
+        makeDebit (debitAccount, paymentInfo.balanceStartCurrency, paymentInfo.balanceStart);
+        makeCredit(debitAccount, paymentInfo.balanceEndCurrency,   paymentInfo.balanceEnd);
+    }
+
+    // Expenses deducted by Amazon → debit
+    if (paymentInfo.hasExpenses && paymentInfo.expenses > 0.0)
+        makeDebit(debitAccount, paymentInfo.expensesCurrency, paymentInfo.expenses);
+
+    // Refunded expenses → credit
+    if (paymentInfo.hasRefundedExpenses && paymentInfo.refundedExpenses > 0.0)
+        makeCredit(debitAccount, paymentInfo.refundedExpensesCurrency, paymentInfo.refundedExpenses);
+
+    // Actual payment received from Amazon → debit Amazon account
+    if (paymentInfo.paid > 0.0)
+        makeDebit(amazonAccount, paymentInfo.paidCurrency, paymentInfo.paid);
+
+    return entry;
+}
+
+QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntryGrouped(
     ActivitySource *source,
     const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
@@ -326,8 +397,18 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
         
         // Add total (Revenue + VAT) to Customer Account
         QString custAcc = accounts.customerAccount;
+        while (custAcc.isEmpty() && callbackAddIfMissing) {
+            bool shouldRetry = co_await callbackAddIfMissing(
+                QObject::tr("Missing Customer Account"),
+                QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
+                    .arg(taxSchemeToString(key.scheme)).arg(key.vatRate));
+            if (!shouldRetry)
+                break;
+            accounts = co_await m_saleBookAccounts->getAccounts(vc, key.vatRate, callbackAddIfMissing);
+            custAcc = accounts.customerAccount;
+        }
         if (custAcc.isEmpty()) {
-            ExceptionWithTitleText exception(QObject::tr("Missing Customer Account"), 
+            ExceptionWithTitleText exception(QObject::tr("Missing Customer Account"),
                 QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
                 .arg(taxSchemeToString(key.scheme)).arg(key.vatRate));
             exception.raise();
@@ -375,8 +456,9 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
 }
 
 QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
-        QSharedPointer<Shipment> shipmentOrRefund
-        , std::function<QCoro::Task<bool> (const QString &, const QString &)> callbackAddIfMissing)
+    QSharedPointer<Shipment> shipmentOrRefund
+    , const QString &customerAccount
+    , std::function<QCoro::Task<bool> (const QString &, const QString &)> callbackAddIfMissing)
 {
     if (!shipmentOrRefund) {
         co_return nullptr;
@@ -387,10 +469,10 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
         co_return nullptr;
     }
     
-    QString companyCurrency = m_companyInfos->getCurrency();
-    QString companyCountry = m_companyInfos->getCompanyCountryCode();
-    QDate entryDate = activities.first().getDateTime().date();
-    QString shipmentId = shipmentOrRefund->getId();
+    const QString &companyCurrency = m_companyInfos->getCurrency();
+    const QString &companyCountry = m_companyInfos->getCompanyCountryCode();
+    const QDate &entryDate = activities.first().getDateTime().date();
+    const QString &shipmentId = shipmentOrRefund->getId();
     
     auto entry = QSharedPointer<JournalEntry>::create(entryDate, companyCurrency);
     
@@ -415,10 +497,34 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
         
         BooksAccountsSalesTable::Accounts accounts = co_await m_saleBookAccounts->getAccounts(vc, vatRate, callbackAddIfMissing);
         
+        
+        QString custAcc;
+        if (!customerAccount.isEmpty()) {
+            custAcc = customerAccount;
+        } else {
+            custAcc = accounts.customerAccount;
+            while (custAcc.isEmpty() && callbackAddIfMissing) {
+                bool shouldRetry = co_await callbackAddIfMissing(
+                    QObject::tr("Missing Customer Account"),
+                    QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
+                        .arg(taxSchemeToString(activity.getTaxScheme())).arg(vatRate));
+                if (!shouldRetry)
+                    break;
+                accounts = co_await m_saleBookAccounts->getAccounts(vc, vatRate, callbackAddIfMissing);
+                custAcc = accounts.customerAccount;
+            }
+            if (custAcc.isEmpty()) {
+                ExceptionWithTitleText exception(
+                    QObject::tr("Missing Customer Account"),
+                    QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
+                        .arg(taxSchemeToString(activity.getTaxScheme())).arg(vatRate));
+                exception.raise();
+            }
+        }
+
         revenueByAccount[accounts.saleAccount][currency] += amountUntaxed;
         vatByAccount[accounts.vatAccount][currency] += amountTaxes;
-        
-        QString custAcc = accounts.customerAccount.isEmpty() ? "411000" : accounts.customerAccount;
+
         receivableByAccount[custAcc][currency] += (amountUntaxed + amountTaxes);
     }
     

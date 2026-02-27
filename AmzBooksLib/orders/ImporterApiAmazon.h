@@ -46,6 +46,7 @@ public:
     bool recomputeTaxes() const override;
     bool isWrongIfConflict() const override;
     bool fixRefundDate() const override;
+    bool isGroupedOrders() const override;
 
 protected:
     // Common helper methods for Amazon SP-API

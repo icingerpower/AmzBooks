@@ -55,6 +55,11 @@ public:
         bool isWrongIfConflict = false;
         bool fixTaxDate = false;
     };
+    struct OrderInfo{
+        QString store;
+        bool isGrouped = true;
+        QString customerAccount;
+    };
 
     // Batch variant: records multiple shipments in one or more transactions (500 per batch).
     // New shipments are inserted with a single execBatch() call per batch.
@@ -72,7 +77,7 @@ public:
     void removeShipmenOrRefund(const QString &shipmentOrRefundId);
     bool containsOrder(const QString &orderId) const;
     bool containsShipmentOrRefund(const QString &shipmentOrRefundId) const;
-    void recordOrders(const QHash<QString, QString> &orderId_store); // Batch upsert, 1000 at a time
+    void recordOrders(const QHash<QString, OrderInfo> &orderId_infos); // Batch upsert, 1000 at a time
     QHash<QString, QString> getStores(const QList<QSharedPointer<Shipment>> &shipments) const; // orderId → store
     void recordAddressesTo(const QHash<QString, Address> &orderId_addressTo); // Batch upsert, 1000 at a time
     void recordInventoryMove(const QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> &year_month_countryFrom_countryTo_id_SkuMovedUnits); // Batch upsert 500 at a time; throws ExceptionWithTitleText if any transactionId is empty

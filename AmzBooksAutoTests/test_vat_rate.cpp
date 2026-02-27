@@ -26,6 +26,7 @@ private slots:
     void test_EuCountries();
     void test_AmazonReportsRates();
     void test_NonOssScenarios();
+    void test_ServiceRatesCopiedFromProducts();
 
 
 private:
@@ -418,6 +419,64 @@ bool TestVatRateResolver::isKnownAnomaly(const QString &taxCountry, const QDate 
     return false;
 }
 
+
+void TestVatRateResolver::test_ServiceRatesCopiedFromProducts()
+{
+    // In-memory resolver: no persistence, defaults only
+    VatResolver resolver(QDir(), nullptr, false);
+
+    const QDate date(2024, 6, 1);
+
+    // --- hasRate: standard Service rates must exist for all major countries ---
+    QVERIFY(resolver.hasRate(date, "FR", SaleType::Service));
+    QVERIFY(resolver.hasRate(date, "DE", SaleType::Service));
+    QVERIFY(resolver.hasRate(date, "IT", SaleType::Service));
+    QVERIFY(resolver.hasRate(date, "ES", SaleType::Service));
+    QVERIFY(resolver.hasRate(date, "GB", SaleType::Service));
+    QVERIFY(resolver.hasRate(date, "PL", SaleType::Service));
+    QVERIFY(resolver.hasRate(date, "HU", SaleType::Service));
+    QVERIFY(resolver.hasRate(date, "SE", SaleType::Service));
+    QVERIFY(resolver.hasRate(date, "NL", SaleType::Service));
+    QVERIFY(resolver.hasRate(date, "BE", SaleType::Service));
+
+    // --- getRate: Service rate must match the standard Products rate ---
+    QVERIFY(qFuzzyCompare(resolver.getRate(date, "FR", SaleType::Service), 0.20));
+    QVERIFY(qFuzzyCompare(resolver.getRate(date, "DE", SaleType::Service), 0.19));
+    QVERIFY(qFuzzyCompare(resolver.getRate(date, "IT", SaleType::Service), 0.22));
+    QVERIFY(qFuzzyCompare(resolver.getRate(date, "ES", SaleType::Service), 0.21));
+    QVERIFY(qFuzzyCompare(resolver.getRate(date, "GB", SaleType::Service), 0.20));
+
+    // Non-EU countries (0% for products) are also copied to Service
+    QVERIFY(resolver.getRate(date, "CA", SaleType::Service) == 0.0);
+    QVERIFY(resolver.getRate(date, "US", SaleType::Service) == 0.0);
+
+    // --- Date-based transitions must be copied to Service too ---
+    // EE: 20% before 2024-01-01, 22% from 2024-01-01
+    QVERIFY(qFuzzyCompare(resolver.getRate(QDate(2023, 6, 1), "EE", SaleType::Service), 0.20));
+    QVERIFY(qFuzzyCompare(resolver.getRate(QDate(2024, 1, 1), "EE", SaleType::Service), 0.22));
+
+    // FI: 24% before 2024-09-01, 25.5% from 2024-09-01
+    QVERIFY(qFuzzyCompare(resolver.getRate(QDate(2024, 8, 31), "FI", SaleType::Service), 0.24));
+    QVERIFY(qFuzzyCompare(resolver.getRate(QDate(2024, 9, 1),  "FI", SaleType::Service), 0.255));
+
+    // SK: 20% before 2025-01-01, 23% from 2025-01-01
+    QVERIFY(qFuzzyCompare(resolver.getRate(QDate(2024, 12, 31), "SK", SaleType::Service), 0.20));
+    QVERIFY(qFuzzyCompare(resolver.getRate(QDate(2025, 1, 1),  "SK", SaleType::Service), 0.23));
+
+    // LU: 16% in 2023, 17% from 2024
+    QVERIFY(qFuzzyCompare(resolver.getRate(QDate(2023, 6, 1), "LU", SaleType::Service), 0.16));
+    QVERIFY(qFuzzyCompare(resolver.getRate(QDate(2024, 1, 1), "LU", SaleType::Service), 0.17));
+
+    // --- Reduced product rates (specialProductType != "") must NOT be copied to Service.
+    // getRate falls back to the standard "" rate, so hasRate returns true but the
+    // returned value must be the standard rate, NOT the books-reduced rate. ---
+    QVERIFY(qFuzzyCompare(resolver.getRate(date, "FR", SaleType::Service, "A_BOOKS_GEN"), 0.20)); // 5.5% NOT copied
+    QVERIFY(qFuzzyCompare(resolver.getRate(date, "DE", SaleType::Service, "A_BOOKS_GEN"), 0.19)); // 7% NOT copied
+    QVERIFY(qFuzzyCompare(resolver.getRate(date, "GB", SaleType::Service, "A_BOOKS_GEN"), 0.20)); // 0% NOT copied
+
+    // Unknown country has no Service rate
+    QVERIFY(!resolver.hasRate(date, "XX", SaleType::Service));
+}
 
 QTEST_MAIN(TestVatRateResolver)
 #include "test_vat_rate.moc"

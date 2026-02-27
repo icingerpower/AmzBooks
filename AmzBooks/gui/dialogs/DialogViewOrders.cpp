@@ -74,10 +74,10 @@ DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfo
     m_storeInfoModel = new QStandardItemModel(this);
     m_storeInfoModel->setColumnCount(2);
     m_storeInfoModel->setHorizontalHeaderLabels({tr("Event ID"), tr("Store")});
-    for (auto it = orderInfos.orderId_store.constBegin(); it != orderInfos.orderId_store.constEnd(); ++it) {
+    for (auto it = orderInfos.orderId_infos.constBegin(); it != orderInfos.orderId_infos.constEnd(); ++it) {
         QList<QStandardItem *> row;
         row << new QStandardItem(it.key());
-        row << new QStandardItem(it.value());
+        row << new QStandardItem(it.value().store);
         m_storeInfoModel->appendRow(row);
     }
     ui->tableViewStoreInfos->setModel(m_storeInfoModel);

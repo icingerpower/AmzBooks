@@ -12,6 +12,7 @@
 #include "InventoryMove.h"
 
 #include "ActivitySource.h"
+#include "OrderManager.h"
 
 #include <functional>
 #include <utility>
@@ -41,7 +42,7 @@ public:
         QList<Shipment> shipments;
         QList<Refund> refunds;
         QHash<QString, Amount> orderId_refundClue;
-        QHash<QString, QString> orderId_store;
+        QHash<QString, OrderManager::OrderInfo> orderId_infos;
         QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> year_month_countryFrom_countryTo_id_SkuMovedUnits;
         QDate dateMin;
         QDate dateMax;
@@ -69,6 +70,7 @@ public:
     virtual bool recomputeTaxes() const = 0;
     virtual bool isWrongIfConflict() const = 0; // If 2 drafts conflicts, if one is wrong if conflict, we take data of the one not wrong
     virtual bool fixRefundDate() const = 0; //The refund tax date of refund is wrong and need to be fixed when the refund is added in the OrderManager, but using the tax date of the original order
+    virtual bool isGroupedOrders() const = 0; //If not grouped, in book keeping generation, one entry set is done / shipment & refund instead of gathering by month and vat
 
     const QMap<QString, ParamInfo> &getLoadedParamValues() const;
 

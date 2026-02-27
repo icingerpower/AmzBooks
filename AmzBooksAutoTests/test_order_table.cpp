@@ -44,7 +44,7 @@ static QSharedPointer<Shipment> makeShipment(
         Amount(amountTaxed, vatAmount),
         taxSource, "DE", taxScheme, jurisdictionLevel, saleType,
         {}, {}, invoiceId);
-    return QSharedPointer<Shipment>::create(QList<Activity>{*act.value});
+    return QSharedPointer<Shipment>::create(QList<Activity>{*act.value}, "", true);
 }
 
 using CompleteData = QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>;
@@ -827,7 +827,7 @@ void TestOrderCompleteTableRealData::test_activityIdOrig_neverCrossesOrderBounda
 
 void TestOrderCompleteTableRealData::test_siteColumn_notEmptyAfterRecordingOrders()
 {
-    // Verifies that COL_SITE is populated when orderId_store data from the importer
+    // Verifies that COL_SITE is populated when orderId_infos data from the importer
     // is recorded via recordOrders() before building the table.
     // This is the integration path that PaneOrderFiles.cpp must follow.
     const QString vatDir = "data/amazon-vat-reports/2025";
@@ -866,8 +866,8 @@ void TestOrderCompleteTableRealData::test_siteColumn_notEmptyAfterRecordingOrder
         manager.m_db.commit();
 
         // Record orderId→store mapping so COL_SITE can be populated
-        if (!result.orderInfos->orderId_store.isEmpty())
-            manager.recordOrders(result.orderInfos->orderId_store);
+        if (!result.orderInfos->orderId_infos.isEmpty())
+            manager.recordOrders(result.orderInfos->orderId_infos);
     }
 
     auto data = manager.get_channel_site_ShipmentAndRefundsConflicts(
@@ -885,7 +885,7 @@ void TestOrderCompleteTableRealData::test_siteColumn_notEmptyAfterRecordingOrder
 
     // The importer must have extracted at least some store values
     QVERIFY2(!orderIdToSite.isEmpty(),
-             "getStores() returned empty — recordOrders() was not called or orderId_store was empty");
+             "getStores() returned empty — recordOrders() was not called or orderId_infos was empty");
 
     OrderCompleteTable table(data, orderIdToSite);
     QVERIFY(table.rowCount() > 0);
@@ -897,7 +897,7 @@ void TestOrderCompleteTableRealData::test_siteColumn_notEmptyAfterRecordingOrder
             ++rowsWithSite;
     }
     QVERIFY2(rowsWithSite > 0,
-             "All COL_SITE values are empty — orderId_store was not saved to the orders table");
+             "All COL_SITE values are empty — orderId_infos was not saved to the orders table");
 }
 
 // ---------------------------------------------------------------------------

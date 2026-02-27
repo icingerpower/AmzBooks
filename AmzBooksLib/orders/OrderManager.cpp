@@ -119,6 +119,31 @@ void OrderManager::initDb()
         }
     }
 
+    // Migration: Add is_ungrouped and customer_account columns if missing in orders
+    {
+        QSqlQuery qMig(m_db);
+        qMig.exec("PRAGMA table_info(orders)");
+        bool hasIsUngrouped = false;
+        bool hasCustomerAccount = false;
+        while (qMig.next()) {
+            const QString col = qMig.value("name").toString();
+            if (col == "is_ungrouped")    hasIsUngrouped = true;
+            if (col == "customer_account") hasCustomerAccount = true;
+        }
+        if (!hasIsUngrouped) {
+            QSqlQuery qAlter(m_db);
+            if (!qAlter.exec("ALTER TABLE orders ADD COLUMN is_ungrouped INTEGER NOT NULL DEFAULT 0")) {
+                qWarning() << "Failed to add is_ungrouped column to orders:" << qAlter.lastError().text();
+            }
+        }
+        if (!hasCustomerAccount) {
+            QSqlQuery qAlter(m_db);
+            if (!qAlter.exec("ALTER TABLE orders ADD COLUMN customer_account TEXT DEFAULT ''")) {
+                qWarning() << "Failed to add customer_account column to orders:" << qAlter.lastError().text();
+            }
+        }
+    }
+
     // Migration: Add inserted_at column if missing in shipments
     {
         QSqlQuery qMig(m_db);
@@ -828,17 +853,16 @@ QHash<QString, int> OrderManager::getInventoryExported(
     return sku_units;
 }
 
-void OrderManager::recordOrders(const QHash<QString, QString> &orderId_store)
+void OrderManager::recordOrders(const QHash<QString, OrderInfo> &orderId_infos)
 {
-    if (orderId_store.isEmpty())
+    if (orderId_infos.isEmpty())
         return;
 
-    // Collect entries once; iterate hash only once
-    struct Entry { QString id; QString store; };
+    struct Entry { QString id; QString store; int isUngrouped; QString customerAccount; };
     QList<Entry> entries;
-    entries.reserve(orderId_store.size());
-    for (auto it = orderId_store.cbegin(); it != orderId_store.cend(); ++it)
-        entries.append({it.key(), it.value()});
+    entries.reserve(orderId_infos.size());
+    for (auto it = orderId_infos.cbegin(); it != orderId_infos.cend(); ++it)
+        entries.append({it.key(), it.value().store, it.value().isGrouped ? 0 : 1, it.value().customerAccount});
 
     const int batchSize = 1000;
     const QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
@@ -847,23 +871,29 @@ void OrderManager::recordOrders(const QHash<QString, QString> &orderId_store)
     {
         const int batchEnd = qMin(batchStart + batchSize, entries.size());
 
-        QVariantList ids, stores, nows;
+        QVariantList ids, stores, isUngroupedList, customerAccounts, nows;
         ids.reserve(batchEnd - batchStart);
         stores.reserve(batchEnd - batchStart);
+        isUngroupedList.reserve(batchEnd - batchStart);
+        customerAccounts.reserve(batchEnd - batchStart);
         nows.reserve(batchEnd - batchStart);
         for (int i = batchStart; i < batchEnd; ++i) {
-            ids    << entries[i].id;
-            stores << entries[i].store;
-            nows   << now;
+            ids              << entries[i].id;
+            stores           << entries[i].store;
+            isUngroupedList  << entries[i].isUngrouped;
+            customerAccounts << entries[i].customerAccount;
+            nows             << now;
         }
 
         m_db.transaction();
         QSqlQuery q(m_db);
-        q.prepare("INSERT INTO orders (id, store, inserted_at) VALUES (?, ?, ?) "
-                  "ON CONFLICT(id) DO UPDATE SET store=excluded.store");
+        q.prepare("INSERT INTO orders (id, store, inserted_at, is_ungrouped, customer_account) VALUES (?, ?, ?, ?, ?) "
+                  "ON CONFLICT(id) DO UPDATE SET store=excluded.store, is_ungrouped=excluded.is_ungrouped, customer_account=excluded.customer_account");
         q.addBindValue(ids);
         q.addBindValue(stores);
         q.addBindValue(nows);
+        q.addBindValue(isUngroupedList);
+        q.addBindValue(customerAccounts);
         if (!q.execBatch()) {
             qWarning() << "OrderManager::recordOrders batch insert failed:" << q.lastError();
             m_db.rollback();
@@ -1002,6 +1032,19 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
         co_return QObject::tr("No shipments found for order %1").arg(orderId);
     }
 
+    // Look up whether this order is grouped and its customer account
+    bool orderIsGrouped = true;
+    QString orderCustomerAccount;
+    {
+        QSqlQuery qOrd(m_db);
+        qOrd.prepare("SELECT COALESCE(is_ungrouped, 0), COALESCE(customer_account, '') FROM orders WHERE id = ?");
+        qOrd.addBindValue(orderId);
+        if (qOrd.exec() && qOrd.next()) {
+            orderIsGrouped = qOrd.value(0).toInt() == 0;
+            orderCustomerAccount = qOrd.value(1).toString();
+        }
+    }
+
     // Helper lambda: create a refund from a shipment with given amount
     auto createRefundFromShipment = [&](const ShipmentInfo &info) -> QString {
         const auto &activities = info.shipment->getActivities();
@@ -1048,7 +1091,7 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
             return QObject::tr("Failed to create refund activities for shipment %1").arg(info.id);
         }
 
-        Refund refund(refundActivities);
+        Refund refund(refundActivities, orderCustomerAccount, orderIsGrouped);
 
         // Parse source key back to ActivitySource
         ActivitySource source;
@@ -1266,27 +1309,33 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
         std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const
 {
     QMultiMap<QDateTime, QSharedPointer<Shipment>> results;
-    
-    QString queryStr = "SELECT current_json, source_key, event_date, id FROM shipments WHERE 1=1";
+
+    QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, "
+                       "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
+                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "FROM shipments s "
+                       "LEFT JOIN orders o ON s.order_id = o.id "
+                       "WHERE 1=1";
     if (dateFrom.isValid()) {
-        queryStr += QString(" AND event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
+        queryStr += QString(" AND s.event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
     }
     if (dateTo.isValid()) {
-        queryStr += QString(" AND event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
+        queryStr += QString(" AND s.event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
     }
-    
+
     QSqlQuery query(m_db);
     query.exec(queryStr);
-    
+
     while (query.next()) {
         QString jsonStr = query.value(0).toString();
         QString sourceKey = query.value(1).toString();
         QString dateStr = query.value(2).toString();
         QString id = query.value(3).toString();
+        bool isGrouped = query.value(4).toInt() == 0;
+        QString customerAccount = query.value(5).toString();
         QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
-        
+
         // Parse Source
-        // source_key: type|channel|subchannel|report
         QStringList parts = sourceKey.split('|');
         ActivitySource source;
         if (parts.size() >= 4) {
@@ -1297,11 +1346,13 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
         } else {
             source.type = ActivitySourceType::API; // Default
         }
-        
+
         // Parse Shipment
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
         QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
-        
+        shipment->setIsGrouped(isGrouped);
+        shipment->setCustomerAccount(customerAccount);
+
         // Check for Reversal
         if (id.contains("-rev-")) {
             QList<Activity> newActs;
@@ -1329,14 +1380,14 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
                    newActs.append(*res.value);
                }
             }
-            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs, customerAccount, isGrouped));
         }
 
         if (!acceptCallback || acceptCallback(&source, shipment.data())) {
             results.insert(eventDate, shipment);
         }
     }
-    
+
     return results;
 }
 
@@ -1346,25 +1397,32 @@ QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManag
         std::function<bool(const ActivitySource*, const Shipment*)> acceptCallback) const
 {
     QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> results;
-    
-    QString queryStr = "SELECT current_json, source_key, event_date, id FROM shipments WHERE 1=1";
+
+    QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, "
+                       "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
+                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "FROM shipments s "
+                       "LEFT JOIN orders o ON s.order_id = o.id "
+                       "WHERE 1=1";
     if (dateFrom.isValid()) {
-        queryStr += QString(" AND event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
+        queryStr += QString(" AND s.event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
     }
     if (dateTo.isValid()) {
-        queryStr += QString(" AND event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
+        queryStr += QString(" AND s.event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
     }
-    
+
     QSqlQuery query(m_db);
     query.exec(queryStr);
-    
+
     while (query.next()) {
         QString jsonStr = query.value(0).toString();
         QString sourceKey = query.value(1).toString();
         QString dateStr = query.value(2).toString();
         QString id = query.value(3).toString();
+        bool isGrouped = query.value(4).toInt() == 0;
+        QString customerAccount = query.value(5).toString();
         QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
-        
+
         // Parse Source
         QStringList parts = sourceKey.split('|');
         ActivitySource source;
@@ -1376,11 +1434,13 @@ QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManag
         } else {
             source.type = ActivitySourceType::API; // Default
         }
-        
+
         // Parse Shipment
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
         QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
-        
+        shipment->setIsGrouped(isGrouped);
+        shipment->setCustomerAccount(customerAccount);
+
         // Check for Reversal
         if (id.contains("-rev-")) {
             QList<Activity> newActs;
@@ -1408,14 +1468,14 @@ QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManag
                    newActs.append(*res.value);
                }
             }
-            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs, customerAccount, isGrouped));
         }
 
         if (!acceptCallback || acceptCallback(&source, shipment.data())) {
             results[source].insert(eventDate, shipment);
         }
     }
-    
+
     return results;
 }
 
@@ -1425,29 +1485,38 @@ QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, Orde
 OrderManager::get_channel_site_ShipmentAndRefundsInsertedAt(const QDate &dateFromInsertedDb, const QDate &dateToInsertedDb) const
 {
     auto result = QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>::create();
-    
-    QString queryStr = "SELECT current_json, source_key, event_date, id FROM shipments WHERE 1=1";
+
+    QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, "
+                       "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
+                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "FROM shipments s "
+                       "LEFT JOIN orders o ON s.order_id = o.id "
+                       "WHERE 1=1";
     if (dateFromInsertedDb.isValid()) {
-        queryStr += QString(" AND inserted_at >= '%1'").arg(dateFromInsertedDb.toString(Qt::ISODate));
+        queryStr += QString(" AND s.inserted_at >= '%1'").arg(dateFromInsertedDb.toString(Qt::ISODate));
     }
     if (dateToInsertedDb.isValid()) {
-         queryStr += QString(" AND inserted_at < '%1'").arg(dateToInsertedDb.addDays(1).toString(Qt::ISODate));
+        queryStr += QString(" AND s.inserted_at < '%1'").arg(dateToInsertedDb.addDays(1).toString(Qt::ISODate));
     }
-    
+
     QSqlQuery query(m_db);
     query.exec(queryStr);
     while (query.next()) {
         QString jsonStr = query.value(0).toString();
         QString sourceKey = query.value(1).toString();
         QString id = query.value(3).toString();
-        
+        bool isGrouped = query.value(4).toInt() == 0;
+        QString customerAccount = query.value(5).toString();
+
         QStringList parts = sourceKey.split('|');
         QString channel = (parts.size() >= 2) ? parts[1] : "Unknown";
         QString subchannel = (parts.size() >= 3) ? parts[2] : "Unknown";
 
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
         QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
-        
+        shipment->setIsGrouped(isGrouped);
+        shipment->setCustomerAccount(customerAccount);
+
         if (id.contains("-rev-")) {
             QList<Activity> newActs;
             for (const auto &act : shipment->getActivities()) {
@@ -1474,9 +1543,9 @@ OrderManager::get_channel_site_ShipmentAndRefundsInsertedAt(const QDate &dateFro
                    newActs.append(*res.value);
                }
             }
-            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs, customerAccount, isGrouped));
         }
-        
+
         if (shipment->getActivities().isEmpty()) continue;
         const auto &act = shipment->getActivities().first();
         TaxResolver::TaxContext ctx;
@@ -1484,11 +1553,11 @@ OrderManager::get_channel_site_ShipmentAndRefundsInsertedAt(const QDate &dateFro
         ctx.taxScheme = act.getTaxScheme();
         ctx.taxJurisdictionLevel = act.getTaxJurisdictionLevel();
         ctx.countryCodeVatPaidTo = act.getCountryCodeVatPaidTo();
-        
+
         (*result)[channel][subchannel][ctx].shipmentsRefundsSameActivity.append(shipment);
         (*result)[channel][subchannel][ctx].invoicesToDo.append(false);
     }
-    
+
     return result;
 }
 
@@ -1593,7 +1662,9 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
 {
     QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipment>>>> results;
 
-    QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, o.store "
+    QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, o.store, "
+                       "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
+                       "COALESCE(o.customer_account, '') AS customer_account "
                        "FROM shipments s "
                        "LEFT JOIN orders o ON s.order_id = o.id "
                        "WHERE 1=1";
@@ -1614,6 +1685,8 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
         QString dateStr = query.value(2).toString();
         QString id = query.value(3).toString();
         QString store = query.value(4).toString();
+        bool isGrouped = query.value(5).toInt() == 0;
+        QString customerAccount = query.value(6).toString();
         QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
 
         // Parse Source
@@ -1631,6 +1704,8 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
         // Parse Shipment
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
         QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        shipment->setIsGrouped(isGrouped);
+        shipment->setCustomerAccount(customerAccount);
 
         // Check for Reversal
         if (id.contains("-rev-")) {
@@ -1659,7 +1734,7 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
                    newActs.append(*res.value);
                }
             }
-            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs, customerAccount, isGrouped));
         }
 
         if (!acceptCallback || acceptCallback(&source, shipment.data())) {
@@ -1674,22 +1749,29 @@ QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, Orde
 OrderManager::get_channel_site_ShipmentAndRefundsConflicts(const QDate &dateFrom, const QDate &dateTo) const
 {
     auto result = QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>::create();
-    
-    QString queryStr = "SELECT current_json, source_key, event_date, id FROM shipments WHERE 1=1";
+
+    QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, "
+                       "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
+                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "FROM shipments s "
+                       "LEFT JOIN orders o ON s.order_id = o.id "
+                       "WHERE 1=1";
     if (dateFrom.isValid()) {
-        queryStr += QString(" AND event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
+        queryStr += QString(" AND s.event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
     }
     if (dateTo.isValid()) {
-        queryStr += QString(" AND event_date < '%1'").arg(dateTo.addDays(1).toString(Qt::ISODate));
+        queryStr += QString(" AND s.event_date < '%1'").arg(dateTo.addDays(1).toString(Qt::ISODate));
     }
-    
+
     QSqlQuery query(m_db);
     query.exec(queryStr);
     while (query.next()) {
         QString jsonStr = query.value(0).toString();
         QString sourceKey = query.value(1).toString();
         QString id = query.value(3).toString();
-        
+        bool isGrouped = query.value(4).toInt() == 0;
+        QString customerAccount = query.value(5).toString();
+
         // Parse Source
         QStringList parts = sourceKey.split('|');
         QString channel = (parts.size() >= 2) ? parts[1] : "Unknown";
@@ -1698,7 +1780,9 @@ OrderManager::get_channel_site_ShipmentAndRefundsConflicts(const QDate &dateFrom
         // Parse Shipment
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
         QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
-        
+        shipment->setIsGrouped(isGrouped);
+        shipment->setCustomerAccount(customerAccount);
+
         // Check for Reversal
         if (id.contains("-rev-")) {
             QList<Activity> newActs;
@@ -1726,9 +1810,9 @@ OrderManager::get_channel_site_ShipmentAndRefundsConflicts(const QDate &dateFrom
                    newActs.append(*res.value);
                }
             }
-            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs, customerAccount, isGrouped));
         }
-        
+
         if (shipment->getActivities().isEmpty()) continue;
         const auto &act = shipment->getActivities().first();
         TaxResolver::TaxContext ctx;
@@ -1736,11 +1820,11 @@ OrderManager::get_channel_site_ShipmentAndRefundsConflicts(const QDate &dateFrom
         ctx.taxScheme = act.getTaxScheme();
         ctx.taxJurisdictionLevel = act.getTaxJurisdictionLevel();
         ctx.countryCodeVatPaidTo = act.getCountryCodeVatPaidTo();
-        
+
         (*result)[channel][subchannel][ctx].shipmentsRefundsSameActivity.append(shipment);
         (*result)[channel][subchannel][ctx].invoicesToDo.append(false);
     }
-    
+
     return result;
 }
 
@@ -1813,8 +1897,10 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
     // Now fetch ALL shipments for those roots (including history outside date range)
     // along with their invoicing info and address
     QString queryStr = R"(
-        SELECT s.id, s.order_id, s.current_json, s.source_key, s.event_date, 
-               COALESCE(s.root_id, s.id) as root_id, o.address_json, inv.json as inv_json
+        SELECT s.id, s.order_id, s.current_json, s.source_key, s.event_date,
+               COALESCE(s.root_id, s.id) as root_id, o.address_json, inv.json as inv_json,
+               COALESCE(o.is_ungrouped, 0) AS is_ungrouped,
+               COALESCE(o.customer_account, '') AS customer_account
         FROM shipments s
         LEFT JOIN orders o ON s.order_id = o.id
         LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id
@@ -1843,12 +1929,16 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
         QString addressJson = query.value("address_json").toString();
         QString invJson = query.value("inv_json").toString();
         QString eventDateStr = query.value("event_date").toString();
+        bool isGrouped = query.value("is_ungrouped").toInt() == 0;
+        QString customerAccount = query.value("customer_account").toString();
         QDate eventDate = QDate::fromString(eventDateStr.left(10), Qt::ISODate);
-        
+
         // Parse Shipment
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
         QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
-        
+        shipment->setIsGrouped(isGrouped);
+        shipment->setCustomerAccount(customerAccount);
+
         // Check for Reversal - negate amounts if it's a reversal entry
         if (id.contains("-rev-")) {
             QList<Activity> newActs;
@@ -1876,7 +1966,7 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
                    newActs.append(*res.value);
                }
             }
-            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs, customerAccount, isGrouped));
         }
         
         // Add to grouped results
@@ -1943,9 +2033,14 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
 {
     QMultiMap<QDateTime, QSharedPointer<Shipment>> results;
 
-    QString queryStr = "SELECT current_json, source_key, event_date, id FROM shipments WHERE 1=1";
+    QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, "
+                       "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
+                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "FROM shipments s "
+                       "LEFT JOIN orders o ON s.order_id = o.id "
+                       "WHERE 1=1";
     if (minDateAdded.isValid())
-        queryStr += QString(" AND inserted_at >= '%1'").arg(minDateAdded.toString(Qt::ISODate));
+        queryStr += QString(" AND s.inserted_at >= '%1'").arg(minDateAdded.toString(Qt::ISODate));
 
     QSqlQuery query(m_db);
     query.exec(queryStr);
@@ -1955,10 +2050,14 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
         QString sourceKey = query.value(1).toString();
         QString dateStr   = query.value(2).toString();
         QString id        = query.value(3).toString();
+        bool isGrouped    = query.value(4).toInt() == 0;
+        QString customerAccount = query.value(5).toString();
         QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
 
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
         QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        shipment->setIsGrouped(isGrouped);
+        shipment->setCustomerAccount(customerAccount);
 
         if (id.contains("-rev-")) {
             QList<Activity> newActs;
@@ -1976,7 +2075,7 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
                     newActs.append(*res.value);
                 }
             }
-            shipment = QSharedPointer<Shipment>::create(Shipment(newActs));
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs, customerAccount, isGrouped));
         }
 
         results.insert(eventDate, shipment);

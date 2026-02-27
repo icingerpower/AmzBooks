@@ -98,6 +98,11 @@ bool ImporterApiTemu::fixRefundDate() const
     return true;
 }
 
+bool ImporterApiTemu::isGroupedOrders() const
+{
+    return true;
+}
+
 QList<ImporterApiTemu::ShopConfig> ImporterApiTemu::getShops() const
 {
     QList<ShopConfig> shops;

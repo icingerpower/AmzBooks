@@ -56,6 +56,11 @@ bool ImporterFileAmazonFbaInvoicing::fixRefundDate() const
     return false;
 }
 
+bool ImporterFileAmazonFbaInvoicing::isGroupedOrders() const
+{
+    return true;
+}
+
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::_loadReport(
     const QString &filePath,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
@@ -234,12 +239,12 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         }
         
         const QString &salesChannel = line.value(idxSalesChannel);
-        ret.orderInfos->orderId_store.insert(orderId, salesChannel);
+        ret.orderInfos->orderId_infos.insert(orderId, OrderManager::OrderInfo{salesChannel, isGroupedOrders(), ""});
     }
 
     // Build one Shipment per unique shipId (preserving insertion order)
     for (const QString &sId : shipIdOrder) {
-        Shipment shipment(shipIdActivities[sId]);
+        Shipment shipment(shipIdActivities[sId], "", isGroupedOrders());
         ret.orderInfos->shipments.append(shipment);
     }
 
