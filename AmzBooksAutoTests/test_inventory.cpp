@@ -6,6 +6,7 @@
 #include "inventory/InventoryTable.h"
 #include "inventory/PurchaseCsvLoader.h"
 #include "ExceptionWithTitleText.h"
+#include "books/ImportPriceTable.h"
 
 class TestInventory : public QObject
 {
@@ -444,7 +445,47 @@ void TestInventory::test_bad_filename_raises_exception()
     QVERIFY(threw2);
 }
 
-QTEST_MAIN(TestInventory)
+// ---------------------------------------------------------------------------
+// TestImportPriceTable
+// ---------------------------------------------------------------------------
+class TestImportPriceTable : public QObject
+{
+    Q_OBJECT
+
+private slots:
+    void initTestCase();
+    void cleanupTestCase();
+
+    // Structure & metadata
+    void test_structure();       // rowCount, columnCount, country labels
+    void test_headers();         // horizontal headerData + invalid cases
+    void test_editability();     // flags: country col read-only, price col editable
+
+    // Business logic
+    void test_initial_prices();  // all prices are 0.0 on a fresh model
+    void test_set_and_get();     // setShippingPrice / getShippingPrice round-trip
+    void test_default_fallback();// unknown country code falls back to Default row
+    void test_signals();         // dataChanged emitted on change; silent on no-op
+
+    // Persistence
+    void test_persistence();     // CSV save + reload preserves all values
+    void test_invalid_access();  // invalid index / read-only column guard
+
+private:
+    QDir m_dir;
+};
+
+// ---------------------------------------------------------------------------
+// Combined main — runs both test classes in the same executable.
+// ---------------------------------------------------------------------------
+int main(int argc, char **argv)
+{
+    QCoreApplication app(argc, argv);
+    int status = 0;
+    { TestInventory        tc; status |= QTest::qExec(&tc, argc, argv); }
+    { TestImportPriceTable tc; status |= QTest::qExec(&tc, argc, argv); }
+    return status;
+}
 #include "test_inventory.moc"
 
 void TestInventory::test_add_file_creates_year()
@@ -651,4 +692,190 @@ void TestInventory::test_sorting()
     QCOMPARE(tree.index(2, 0, y2025).data().toString(), QString("2025-01-01__a.csv"));
 }
 
+// ===========================================================================
+// TestImportPriceTable implementations
+// ===========================================================================
 
+void TestImportPriceTable::initTestCase()
+{
+    QDir base = QDir::current();
+    base.mkpath(QStringLiteral("test_import_price_table_env"));
+    m_dir = QDir(base.filePath(QStringLiteral("test_import_price_table_env")));
+    // Remove any CSV left over by a previous run so we start from a clean state.
+    QFile::remove(m_dir.absoluteFilePath(QStringLiteral("import-prices.csv")));
+}
+
+void TestImportPriceTable::cleanupTestCase()
+{
+    m_dir.removeRecursively();
+}
+
+// ---------------------------------------------------------------------------
+// Structure & metadata
+// ---------------------------------------------------------------------------
+
+void TestImportPriceTable::test_structure()
+{
+    // No CSV exists yet → freshly initialised model.
+    ImportPriceTable table(m_dir);
+
+    QCOMPARE(table.rowCount(QModelIndex()),    5); // [1] Default, US, CA, UK, JP
+    QCOMPARE(table.columnCount(QModelIndex()), 2); // [2] Country | Price
+
+    // Country labels must appear in the documented order.
+    QCOMPARE(table.data(table.index(0, 0)).toString(), QStringLiteral("Default")); // [3]
+    QCOMPARE(table.data(table.index(1, 0)).toString(), QStringLiteral("US"));      // [4]
+    QCOMPARE(table.data(table.index(2, 0)).toString(), QStringLiteral("CA"));      // [5]
+    QCOMPARE(table.data(table.index(3, 0)).toString(), QStringLiteral("UK"));      // [6]
+    QCOMPARE(table.data(table.index(4, 0)).toString(), QStringLiteral("JP"));      // [7]
+}
+
+void TestImportPriceTable::test_headers()
+{
+    ImportPriceTable table(m_dir);
+
+    QCOMPARE(table.headerData(0, Qt::Horizontal).toString(), QStringLiteral("Country"));    // [8]
+    QCOMPARE(table.headerData(1, Qt::Horizontal).toString(), QStringLiteral("Price / KG")); // [9]
+
+    // Vertical headers and wrong roles must return an invalid QVariant.
+    QVERIFY(!table.headerData(0, Qt::Vertical).isValid()); // [10]
+}
+
+void TestImportPriceTable::test_editability()
+{
+    ImportPriceTable table(m_dir);
+
+    // The Country column (0) must be read-only.
+    QVERIFY(!(table.flags(table.index(0, 0)) & Qt::ItemIsEditable)); // [11]
+    // The Price column (1) must be editable.
+    QVERIFY(  table.flags(table.index(0, 1)) & Qt::ItemIsEditable);  // [12]
+}
+
+// ---------------------------------------------------------------------------
+// Business logic
+// ---------------------------------------------------------------------------
+
+void TestImportPriceTable::test_initial_prices()
+{
+    // Guarantee a pristine file-less state for this test.
+    QFile::remove(m_dir.absoluteFilePath(QStringLiteral("import-prices.csv")));
+
+    ImportPriceTable table(m_dir);
+
+    QVERIFY(table.wasNewlyCreated()); // [13] no pre-existing CSV
+
+    // Every country must start at exactly 0.0.
+    QCOMPARE(table.data(table.index(0, 1)).toDouble(), 0.0); // [14] Default
+    QCOMPARE(table.data(table.index(1, 1)).toDouble(), 0.0); // [15] US
+    QCOMPARE(table.data(table.index(2, 1)).toDouble(), 0.0); // [16] CA
+    QCOMPARE(table.data(table.index(3, 1)).toDouble(), 0.0); // [17] UK
+    QCOMPARE(table.data(table.index(4, 1)).toDouble(), 0.0); // [18] JP
+}
+
+void TestImportPriceTable::test_set_and_get()
+{
+    ImportPriceTable table(m_dir);
+
+    table.setShippingPrice(QStringLiteral("US"), 3.5);
+    QVERIFY(qFuzzyCompare(table.getShippingPrice(QStringLiteral("US")), 3.5)); // [19]
+
+    table.setShippingPrice(QStringLiteral("CA"), 4.25);
+    QVERIFY(qFuzzyCompare(table.getShippingPrice(QStringLiteral("CA")), 4.25)); // [20]
+
+    // setData() on the price column must be equivalent to setShippingPrice().
+    table.setData(table.index(3, 1), 5.75); // UK is row 3
+    QVERIFY(qFuzzyCompare(table.getShippingPrice(QStringLiteral("UK")), 5.75)); // [21]
+
+    // data() and getShippingPrice() must always agree.
+    QVERIFY(qFuzzyCompare(
+        table.data(table.index(1, 1)).toDouble(),
+        table.getShippingPrice(QStringLiteral("US")))); // [22]
+
+    table.setShippingPrice(QStringLiteral(""), 1.99);
+    QVERIFY(qFuzzyCompare(table.getShippingPrice(QStringLiteral("")), 1.99)); // [23]
+}
+
+void TestImportPriceTable::test_default_fallback()
+{
+    ImportPriceTable table(m_dir);
+    table.setShippingPrice(QStringLiteral(""), 2.5);
+
+    // Any unknown country code must fall back to the Default row price.
+    QVERIFY(qFuzzyCompare(table.getShippingPrice(QStringLiteral("FR")), 2.5)); // [24]
+    QVERIFY(qFuzzyCompare(table.getShippingPrice(QStringLiteral("DE")), 2.5)); // [25]
+    // Querying the Default row explicitly must return the same value.
+    QVERIFY(qFuzzyCompare(table.getShippingPrice(QStringLiteral("")),   2.5)); // [26]
+}
+
+void TestImportPriceTable::test_signals()
+{
+    ImportPriceTable table(m_dir);
+    QSignalSpy spy(&table, &ImportPriceTable::dataChanged);
+
+    // A price change must emit exactly one dataChanged signal.
+    table.setShippingPrice(QStringLiteral("JP"), 6.0);
+    QCOMPARE(spy.count(), 1); // [27]
+
+    // Setting the identical value must be a no-op — no signal emitted.
+    spy.clear();
+    table.setShippingPrice(QStringLiteral("JP"), 6.0);
+    QCOMPARE(spy.count(), 0); // [28]
+}
+
+// ---------------------------------------------------------------------------
+// Persistence
+// ---------------------------------------------------------------------------
+
+void TestImportPriceTable::test_persistence()
+{
+    // Delete any CSV so wasNewlyCreated() is reliable.
+    QFile::remove(m_dir.absoluteFilePath(QStringLiteral("import-prices.csv")));
+
+    const double wantUS      = 8.4;
+    const double wantCA      = 9.1;
+    const double wantJP      = 3.3;
+    const double wantDefault = 1.11;
+
+    {
+        ImportPriceTable table(m_dir);
+        QVERIFY(table.wasNewlyCreated()); // [29] no pre-existing CSV
+
+        table.setShippingPrice(QStringLiteral("US"), wantUS);
+        table.setShippingPrice(QStringLiteral("CA"), wantCA);
+        table.setShippingPrice(QStringLiteral("JP"), wantJP);
+        table.setShippingPrice(QStringLiteral(""),   wantDefault);
+        // Each setShippingPrice() triggers _save(); CSV is written here.
+    }
+
+    // Re-open: CSV must now exist and values must be preserved.
+    ImportPriceTable reloaded(m_dir);
+
+    QVERIFY(!reloaded.wasNewlyCreated());                                        // [30]
+    QVERIFY(qFuzzyCompare(reloaded.getShippingPrice(QStringLiteral("US")), wantUS));      // [31]
+    QVERIFY(qFuzzyCompare(reloaded.getShippingPrice(QStringLiteral("CA")), wantCA));      // [32]
+    QVERIFY(qFuzzyCompare(reloaded.getShippingPrice(QStringLiteral("JP")), wantJP));      // [33]
+    QVERIFY(qFuzzyCompare(reloaded.getShippingPrice(QStringLiteral("")),   wantDefault)); // [34]
+
+    // UK was never set: it must still appear as a row with price 0.0
+    // (robustness against new countries being added to COUNTRY_ROWS).
+    QCOMPARE(reloaded.rowCount(QModelIndex()), 5);                               // [35]
+    QCOMPARE(reloaded.data(reloaded.index(3, 1)).toDouble(), 0.0);               // [36] UK = 0.0
+}
+
+// ---------------------------------------------------------------------------
+// Invalid access
+// ---------------------------------------------------------------------------
+
+void TestImportPriceTable::test_invalid_access()
+{
+    ImportPriceTable table(m_dir);
+
+    // data() on an invalid index must return an invalid (null) QVariant.
+    QVERIFY(!table.data(QModelIndex()).isValid()); // [37]
+
+    // rowCount() with any non-root parent must return 0 (the model is flat).
+    QCOMPARE(table.rowCount(table.index(0, 0)), 0); // [38]
+
+    // setData() on the read-only country column (0) must fail.
+    QVERIFY(!table.setData(table.index(0, 0), QStringLiteral("Anything"))); // [39]
+}
