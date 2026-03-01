@@ -98,6 +98,9 @@ public:
 
     // Retrieves the invoicing info associated with a shipment's root ID.
     QSharedPointer<InvoicingInfo> getInvoicingInfo(const QString &shipmentId) const;
+
+    // Retrieves the recorded "address to" for a given order ID, or nullptr if none.
+    QSharedPointer<Address> getAddressTo(const QString &orderId) const;
     void publish(QDate &dateUntil); //Shipment updated are published and the original from source are ignored (when replaced) except if they were published already
     void clearUnpublished(); // Usefull if data were loaded with a bug. It will clear all unpublished
     void deleteDatabase(); // Usefull to reset + also for unit tests

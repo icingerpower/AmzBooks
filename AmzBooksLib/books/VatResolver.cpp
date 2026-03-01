@@ -88,140 +88,157 @@ void VatResolver::_fillIfEmpty()
     // SaleType: 0=Products, 1=Service
     // ProductType: "" = Standard
     
+    // Helper lambda: build a row and append it directly (no per-row cache rebuild / save).
+    auto addRow = [this](const QDate &dateFrom, const QDate &dateTo, SaleType saleType,
+                         const QString &country, const QString &specialProduct,
+                         const QString &territory, double rate)
+    {
+        QStringList row;
+        row << country
+            << dateFrom.toString("yyyy-MM-dd")
+            << (dateTo.isValid() ? dateTo.toString("yyyy-MM-dd") : "")
+            << QString::number(static_cast<int>(saleType))
+            << specialProduct
+            << territory
+            << QString::number(rate);
+        m_listOfStringList.append(row);
+    };
+
+    beginResetModel();
+
     // DE Standard 19%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "DE", "", "", 0.19);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "DE", "", "", 0.19);
     // DE Reduced 7% (e.g. Books)
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "DE", "A_BOOKS_GEN", "", 0.07);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "DE", "A_BOOKS_GEN", "", 0.07);
     
     // FR Standard 20%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "FR", "", "", 0.20);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "FR", "", "", 0.20);
     // FR Reduced 5.5% (Books)
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "FR", "A_BOOKS_GEN", "", 0.055);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "FR", "A_BOOKS_GEN", "", 0.055);
 
     // MC (Monaco) - follows FR
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "MC", "", "", 0.20);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "MC", "A_BOOKS_GEN", "", 0.055);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "MC", "", "", 0.20);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "MC", "A_BOOKS_GEN", "", 0.055);
     
     // IT Standard 22%
-    recordRate(QDate(), QDate(), SaleType::Products, "IT", "", "", 0.22);
+    addRow(QDate(), QDate(), SaleType::Products, "IT", "", "", 0.22);
     // IT Reduced 4% (Books)
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "IT", "A_BOOKS_GEN", "", 0.04);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "IT", "A_BOOKS_GEN", "", 0.04);
     
     // ES Standard 21%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "ES", "", "", 0.21);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "ES", "", "", 0.21);
     // ES Reduced 4% (Books)
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "ES", "A_BOOKS_GEN", "", 0.04);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "ES", "A_BOOKS_GEN", "", 0.04);
 
     // PL Standard 23%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "PL", "", "", 0.23);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "PL", "", "", 0.23);
     // PL Reduced 5% (Books)
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "PL", "A_BOOKS_GEN", "", 0.05);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "PL", "A_BOOKS_GEN", "", 0.05);
     
     // CZ Standard 21%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "CZ", "", "", 0.21);
-    // CZ Reduced 10% (Books) until 2023-12-31? Need to check. 
-    // For now assuming 10%
-     recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "CZ", "A_BOOKS_GEN", "", 0.10);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "CZ", "", "", 0.21);
+    // CZ Reduced 10% (Books)
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "CZ", "A_BOOKS_GEN", "", 0.10);
 
     // NL Standard 21%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "NL", "", "", 0.21);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "NL", "", "", 0.21);
     // NL Reduced 9%
-     recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "NL", "A_BOOKS_GEN", "", 0.09);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "NL", "A_BOOKS_GEN", "", 0.09);
 
     // BE Standard 21%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "BE", "", "", 0.21);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "BE", "", "", 0.21);
     // BE Reduced 6%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "BE", "A_BOOKS_GEN", "", 0.06);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "BE", "A_BOOKS_GEN", "", 0.06);
 
     // SE Standard 25%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "SE", "", "", 0.25);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "SE", "", "", 0.25);
     // SE Reduced 6%
-     recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "SE", "A_BOOKS_GEN", "", 0.06);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "SE", "A_BOOKS_GEN", "", 0.06);
 
     // GB Standard 20%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "GB", "", "", 0.20);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "GB", "", "", 0.20);
     // GB Zero 0% (Books)
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "GB", "A_BOOKS_GEN", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "GB", "A_BOOKS_GEN", "", 0.0);
 
     // IE Standard 23%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "IE", "", "", 0.23);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "IE", "", "", 0.23);
     
     // XI (Northern Ireland) - aligned with GB VAT Rules for rates usually
     // Standard 20%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "XI", "", "", 0.20);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "XI", "", "", 0.20);
     // XI Zero 0% (Books)
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "XI", "A_BOOKS_GEN", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "XI", "A_BOOKS_GEN", "", 0.0);
 
     // AT Standard 20%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "AT", "", "", 0.20);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "AT", "", "", 0.20);
     // PT Standard 23%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "PT", "", "", 0.23);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "PT", "", "", 0.23);
     // LU Standard: 17% usually, but 16% in 2023
-    recordRate(QDate(2023, 1, 1), QDate(2023, 12, 31), SaleType::Products, "LU", "", "", 0.16);
-    recordRate(QDate(2024, 1, 1), QDate(), SaleType::Products, "LU", "", "", 0.17); // Revert to 17% from 2024
-    recordRate(QDate(), QDate(), SaleType::Products, "LU", "", "", 0.17); // Fallback / Pre-2023
+    addRow(QDate(2023, 1, 1), QDate(2023, 12, 31), SaleType::Products, "LU", "", "", 0.16);
+    addRow(QDate(2024, 1, 1), QDate(), SaleType::Products, "LU", "", "", 0.17); // Revert to 17% from 2024
+    addRow(QDate(), QDate(), SaleType::Products, "LU", "", "", 0.17); // Fallback / Pre-2023
 
     // HU Standard 27%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "HU", "", "", 0.27);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "HU", "", "", 0.27);
     
     // FI Standard: 24% until 31 Aug 2024, 25.5% from 1 Sep 2024
-    recordRate(QDate(2024, 9, 1), QDate(), SaleType::Products, "FI", "", "", 0.255);
-    recordRate(QDate(), QDate(2024, 8, 31), SaleType::Products, "FI", "", "", 0.24);
+    addRow(QDate(2024, 9, 1), QDate(), SaleType::Products, "FI", "", "", 0.255);
+    addRow(QDate(), QDate(2024, 8, 31), SaleType::Products, "FI", "", "", 0.24);
 
     // SI Standard 22%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "SI", "", "", 0.22);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "SI", "", "", 0.22);
     // RO Standard: 19% until 31 Jul 2025, 21% from 1 Aug 2025
-    recordRate(QDate(2025, 8, 1), QDate(), SaleType::Products, "RO", "", "", 0.21);
-    recordRate(QDate(), QDate(2025, 7, 31), SaleType::Products, "RO", "", "", 0.19);
+    addRow(QDate(2025, 8, 1), QDate(), SaleType::Products, "RO", "", "", 0.21);
+    addRow(QDate(), QDate(2025, 7, 31), SaleType::Products, "RO", "", "", 0.19);
     // GR Standard 24%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "GR", "", "", 0.24);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "GR", "", "", 0.24);
     // SK Standard: 20% until 31 Dec 2024, 23% from 1 Jan 2025
-    recordRate(QDate(2025, 1, 1), QDate(), SaleType::Products, "SK", "", "", 0.23);
-    recordRate(QDate(), QDate(2024, 12, 31), SaleType::Products, "SK", "", "", 0.20);
+    addRow(QDate(2025, 1, 1), QDate(), SaleType::Products, "SK", "", "", 0.23);
+    addRow(QDate(), QDate(2024, 12, 31), SaleType::Products, "SK", "", "", 0.20);
     // DK Standard 25%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "DK", "", "", 0.25);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "DK", "", "", 0.25);
     
     // EE Standard: 20% until 2023-12-31, 22% from 2024-01-01
-    recordRate(QDate(2024, 1, 1), QDate(), SaleType::Products, "EE", "", "", 0.22);
-    recordRate(QDate(), QDate(2023, 12, 31), SaleType::Products, "EE", "", "", 0.20);
+    addRow(QDate(2024, 1, 1), QDate(), SaleType::Products, "EE", "", "", 0.22);
+    addRow(QDate(), QDate(2023, 12, 31), SaleType::Products, "EE", "", "", 0.20);
 
     // HR Standard 25%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "HR", "", "", 0.25);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "HR", "", "", 0.25);
     // BG Standard 20%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "BG", "", "", 0.20);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "BG", "", "", 0.20);
     // LT Standard 21%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "LT", "", "", 0.21);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "LT", "", "", 0.21);
     // LV Standard 21%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "LV", "", "", 0.21);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "LV", "", "", 0.21);
     // MT Standard 18%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "MT", "", "", 0.18);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "MT", "", "", 0.18);
     // CY Standard 19%
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "CY", "", "", 0.19);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "CY", "", "", 0.19);
     
     // Non-EU / Territories
     // CH 0% (Standard) in Amazon Reports context
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "CH", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "CH", "", "", 0.0);
     // SM (San Marino) 0% in Amazon Reports? (Usually import/exempt logic)
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "SM", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "SM", "", "", 0.0);
     // RE, GP, MQ (French Overseas) - Often 0% or specific local VAT not always in Amazon system as standard EU VAT
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "RE", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "GP", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "MQ", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "RE", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "GP", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "MQ", "", "", 0.0);
     // CA, HK, JP, US, IL - Non EU, 0% for our context
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "CA", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "HK", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "JP", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "US", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "IL", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "CA", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "HK", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "JP", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "US", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "IL", "", "", 0.0);
     // TH
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "TH", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "TH", "", "", 0.0);
     // JE, VA, IS, AR, GF, NO
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "JE", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "VA", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "IS", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "AR", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "GF", "", "", 0.0);
-    recordRate(QDate(2021, 1, 1), QDate(), SaleType::Products, "NO", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "JE", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "VA", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "IS", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "AR", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "GF", "", "", 0.0);
+    addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "NO", "", "", 0.0);
 
     // Copy standard Products rates (empty specialProductType) to SaleType::Service.
     // In most countries the standard VAT rate is identical for goods and services;
@@ -239,8 +256,13 @@ void VatResolver::_fillIfEmpty()
         if (serviceRateExceptions.contains(row[0])) continue;
         QDate dateFrom = QDate::fromString(row[1], "yyyy-MM-dd");
         QDate dateTo   = QDate::fromString(row[2], "yyyy-MM-dd");
-        recordRate(dateFrom, dateTo, SaleType::Service, row[0], "", row[5], row[6].toDouble());
+        addRow(dateFrom, dateTo, SaleType::Service, row[0], "", row[5], row[6].toDouble());
     }
+
+    // Single cache rebuild + save after all rows are added
+    _rebuildCache();
+    _save();
+    endResetModel();
 }
 
 void VatResolver::_load()

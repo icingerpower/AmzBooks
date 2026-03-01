@@ -540,6 +540,71 @@ void PaneBookKeeping::generateInvoices()
     QMessageBox::information(this, tr("Invoice Generation Complete"), msg);
 }
 
+void PaneBookKeeping::regenerateInvoices()
+{
+    // 1. Ask for the output folder
+    QSettings settings;
+    QString lastDir = settings.value("lastInvoicesDir", QDir::homePath()).toString();
+    QString dir = QFileDialog::getExistingDirectory(this, tr("Select Invoices Output Folder"), lastDir);
+    if (dir.isEmpty())
+        return;
+    settings.setValue("lastInvoicesDir", dir);
+    QDir outDir(dir);
+
+    // 2. Build the date range from the selected year
+    int year = ui->comboBoxYear->currentText().toInt();
+    QDate from(year, 1, 1);
+    QDate to(year, 12, 31);
+
+    // 3. Set up InvoiceGenerator (loads the CSV registry)
+    QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
+    CompanyInfosTable companyInfos(workingDir);
+    CompanyAddressTable companyAddress(workingDir);
+    const QString apiKey = companyInfos.getApiKeyFixer();
+    CurrencyRateManager currencyRates(workingDir, apiKey);
+    VatNumbersTable vatNumbers(workingDir);
+    InvoiceGenerator generator(workingDir, &companyInfos, &companyAddress, &currencyRates, &vatNumbers);
+
+    // 4. Ask whether to delete existing PDFs in the date range before regenerating
+    auto answer = QMessageBox::question(
+        this,
+        tr("Delete Existing Invoices"),
+        tr("Do you want to delete existing invoice PDFs for %1 in the selected folder before regenerating?\n"
+           "(Only files for invoices within the %1 date range will be removed — "
+           "files outside the range are left untouched.)")
+            .arg(year),
+        QMessageBox::Yes | QMessageBox::No,
+        QMessageBox::No);
+
+    if (answer == QMessageBox::Yes) {
+        for (int row = 0; row < generator.rowCount(); ++row) {
+            QDate recDate = generator.data(generator.index(row, InvoiceGenerator::ColDate)).toDate();
+            if (recDate < from || recDate > to)
+                continue;
+            const QString invoiceNumber =
+                generator.data(generator.index(row, InvoiceGenerator::ColInvoiceNumber)).toString();
+            if (invoiceNumber.isEmpty())
+                continue;
+            QString sanitized = invoiceNumber;
+            sanitized.replace('/', '-').replace('\\', '-');
+            QDir yearDir(outDir.filePath(QString::number(recDate.year())));
+            const QString pdfPath = yearDir.absoluteFilePath(sanitized + ".pdf");
+            if (QFile::exists(pdfPath))
+                QFile::remove(pdfPath);
+        }
+    }
+
+    // 5. Regenerate
+    generator.regenerateInvoices(outDir, from, to, *m_orderManager);
+
+    QMessageBox::information(
+        this,
+        tr("Regeneration Complete"),
+        tr("Invoices for %1 have been regenerated in:\n%2")
+            .arg(year)
+            .arg(outDir.absolutePath()));
+}
+
 void PaneBookKeeping::unselectAll()
 {
     QList<QTableView *> allViews = this->findChildren<QTableView *>();
@@ -1570,6 +1635,10 @@ void PaneBookKeeping::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneBookKeeping::generateInvoices);
+    connect(ui->buttonRegenerateInvoices,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::regenerateInvoices);
     connect(ui->buttonUnselectAll,
             &QPushButton::clicked,
             this,

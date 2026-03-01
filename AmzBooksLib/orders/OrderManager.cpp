@@ -1198,6 +1198,22 @@ QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfo(const QString &ship
     return nullptr;
 }
 
+QSharedPointer<Address> OrderManager::getAddressTo(const QString &orderId) const
+{
+    QSqlQuery q(m_db);
+    q.prepare("SELECT address_json FROM orders WHERE id = ?");
+    q.addBindValue(orderId);
+    if (!q.exec() || !q.next())
+        return nullptr;
+    const QString addrJson = q.value(0).toString();
+    if (addrJson.isEmpty())
+        return nullptr;
+    const QJsonObject addrObj = QJsonDocument::fromJson(addrJson.toUtf8()).object();
+    if (addrObj.isEmpty())
+        return nullptr;
+    return QSharedPointer<Address>::create(Address::fromJson(addrObj));
+}
+
 void OrderManager::publish(QDate &dateUntil)
 {
     m_db.transaction();

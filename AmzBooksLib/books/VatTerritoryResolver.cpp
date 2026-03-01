@@ -121,54 +121,67 @@ void VatTerritoryResolver::_fillIfEmpty()
 {
     if (m_listOfStringList.size() == 0)
     {
+        // Helper lambda: append row directly without per-row cache rebuild / save.
+        auto addRow = [this](const QString &country, const QString &postal,
+                             const QString &city, const QString &territory) {
+            m_listOfStringList.append({country, city, postal, territory});
+        };
+
+        beginResetModel();
+
         // --- ITALY (IT) ---
-        addTerritory("IT", "23041", "Livigno", "IT-LIVIGNO");
-        addTerritory("IT", "23030", "Livigno", "IT-LIVIGNO");
-        addTerritory("IT", "22061", "Campione", "IT-CAMPIONE");
-        addTerritory("IT", "22060", "Campione", "IT-CAMPIONE");
-        addTerritory("IT", "00120", "Citta del Vaticano", "VA"); 
+        addRow("IT", "23041", "Livigno", "IT-LIVIGNO");
+        addRow("IT", "23030", "Livigno", "IT-LIVIGNO");
+        addRow("IT", "22061", "Campione", "IT-CAMPIONE");
+        addRow("IT", "22060", "Campione", "IT-CAMPIONE");
+        addRow("IT", "00120", "Citta del Vaticano", "VA");
         for (int i = 47890; i <= 47899; ++i) {
-            addTerritory("IT", QString::number(i), "San Marino", "SM");
+            addRow("IT", QString::number(i), "San Marino", "SM");
         }
 
         // --- SPAIN (ES) ---
         // Canary Islands: 35xxx and 38xxx
-        for (int i = 35000; i <= 35999; ++i) addTerritory("ES", QString::number(i), "", "ES-CANARY");
-        for (int i = 38000; i <= 38999; ++i) addTerritory("ES", QString::number(i), "", "ES-CANARY");
+        for (int i = 35000; i <= 35999; ++i) addRow("ES", QString::number(i), "", "ES-CANARY");
+        for (int i = 38000; i <= 38999; ++i) addRow("ES", QString::number(i), "", "ES-CANARY");
         // Ceuta (51xxx), Melilla (52xxx)
-        for (int i = 51000; i <= 51999; ++i) addTerritory("ES", QString::number(i), "Ceuta", "ES-CEUTA");
-        for (int i = 52000; i <= 52999; ++i) addTerritory("ES", QString::number(i), "Melilla", "ES-MELILLA");
+        for (int i = 51000; i <= 51999; ++i) addRow("ES", QString::number(i), "Ceuta", "ES-CEUTA");
+        for (int i = 52000; i <= 52999; ++i) addRow("ES", QString::number(i), "Melilla", "ES-MELILLA");
 
         // --- GREECE (GR) ---
-        addTerritory("GR", "63086", "Karyes", "GR-ATHOS");
-        addTerritory("GR", "63087", "Daphni", "GR-ATHOS");
+        addRow("GR", "63086", "Karyes", "GR-ATHOS");
+        addRow("GR", "63087", "Daphni", "GR-ATHOS");
 
         // --- GERMANY (DE) ---
-        addTerritory("DE", "27498", "Helgoland", "DE-HELGOLAND");
-        addTerritory("DE", "78266", "Busingen", "DE-BUSINGEN");
+        addRow("DE", "27498", "Helgoland", "DE-HELGOLAND");
+        addRow("DE", "78266", "Busingen", "DE-BUSINGEN");
 
         // --- FRANCE (FR) ---
         // DOM-TOM treated as Non-EU for VAT purposes
-        for (int i = 97100; i <= 97199; ++i) addTerritory("FR", QString::number(i), "Guadeloupe", "GP");
-        for (int i = 97200; i <= 97299; ++i) addTerritory("FR", QString::number(i), "Martinique", "MQ");
-        for (int i = 97300; i <= 97399; ++i) addTerritory("FR", QString::number(i), "Guyane", "GF");
-        for (int i = 97400; i <= 97499; ++i) addTerritory("FR", QString::number(i), "Reunion", "RE");
-        addTerritory("FR", "97500", "Saint-Pierre-et-Miquelon", "PM");
-        for (int i = 97600; i <= 97699; ++i) addTerritory("FR", QString::number(i), "Mayotte", "YT");
-        addTerritory("FR", "97133", "Saint-Barthelemy", "BL"); // Technically non-EU
-        addTerritory("FR", "97150", "Saint-Martin", "MF"); // Treated as non-EU VAT-wise in some contexts or distinctive
+        for (int i = 97100; i <= 97199; ++i) addRow("FR", QString::number(i), "Guadeloupe", "GP");
+        for (int i = 97200; i <= 97299; ++i) addRow("FR", QString::number(i), "Martinique", "MQ");
+        for (int i = 97300; i <= 97399; ++i) addRow("FR", QString::number(i), "Guyane", "GF");
+        for (int i = 97400; i <= 97499; ++i) addRow("FR", QString::number(i), "Reunion", "RE");
+        addRow("FR", "97500", "Saint-Pierre-et-Miquelon", "PM");
+        for (int i = 97600; i <= 97699; ++i) addRow("FR", QString::number(i), "Mayotte", "YT");
+        addRow("FR", "97133", "Saint-Barthelemy", "BL"); // Technically non-EU
+        addRow("FR", "97150", "Saint-Martin", "MF"); // Treated as non-EU VAT-wise in some contexts or distinctive
         // Monaco? usually treated as FR.
 
         // --- FINLAND (FI) ---
         // Aland Islands (AX)
         for (int i = 22000; i <= 22999; ++i) {
-            addTerritory("FI", QString::number(i), "", "FI-ALAND");
+            addRow("FI", QString::number(i), "", "FI-ALAND");
         }
 
         // --- UNITED KINGDOM (GB) ---
         // Channel Islands
-        addTerritory("GB", "JE1 1AA", "Jersey", "JE"); 
-        addTerritory("GB", "GY1 1AA", "Guernsey", "GG"); 
+        addRow("GB", "JE1 1AA", "Jersey", "JE");
+        addRow("GB", "GY1 1AA", "Guernsey", "GG");
+
+        // Single cache rebuild + save after all entries are added
+        _rebuildCache();
+        _save();
+        endResetModel();
     }
 }
 

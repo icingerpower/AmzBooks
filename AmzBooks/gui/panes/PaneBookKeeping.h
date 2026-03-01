@@ -43,6 +43,8 @@ private:
 public slots:
     void loadYearSelected();
     void generateBookKeeping();
+    void generateInvoices();
+    void regenerateInvoices();
     void unselectAll();
     void associate();
     void dissociate();
@@ -70,7 +72,6 @@ private:
     BooksConnections *m_booksConnections;
     class OrderManager *m_orderManager;
     QCoro::Task<> generateBookKeepingAsync();
-    void generateInvoices();
 };
 
 #endif // PANEBOOKKEEPING_H

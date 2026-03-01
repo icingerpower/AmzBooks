@@ -41,6 +41,13 @@
       </widget>
      </item>
      <item>
+      <widget class="QPushButton" name="buttonRegenerateInvoices">
+       <property name="text">
+        <string>Regenerate invoices</string>
+       </property>
+      </widget>
+     </item>
+     <item>
       <widget class="QPushButton" name="buttonAssociate">
        <property name="text">
         <string>Associate</string>

@@ -65,6 +65,9 @@ private slots:
     // vatOnPayment flag tests
     void test_vatOnPayment_defaultFalse();
 
+    // Regeneration tests
+    void test_regenerateInvoices();
+
 private:
     QTemporaryDir *m_tempDir = nullptr;
 };
@@ -986,6 +989,272 @@ void TestInvoicing::test_vatOnPayment_defaultFalse()
     QVERIFY(jsonTrue["vatOnPayment"].toBool());
     InvoicingInfo loadedTrue = InvoicingInfo::fromJson(jsonTrue);
     QVERIFY(loadedTrue.getVatOnPayment());
+}
+
+// ===========================================================================
+// test_regenerateInvoices
+// Full round-trip:
+//   1. Generate 3 invoices (2 in range [Jan-Feb 2025], 1 out-of-range [Mar 2025])
+//      plus a revision pair also in range.
+//   2. Call regenerateInvoices for [Jan-Feb 2025].
+//   3. Verify that exactly the in-range PDFs are created under the output folder.
+//   4. Verify that all attributes saved in the CSV and in OrderManager are intact
+//      after regeneration (invoice number, date, tax scheme, channel, line items,
+//      amounts, quantity, address, etc.).
+// ===========================================================================
+void TestInvoicing::test_regenerateInvoices()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid()); // VERIFY 1
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    companyAddress.insertRows(0, 1); // ensure at least one company address row
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    VatNumbersTable vatNumbers(tempDir.path());
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress,
+                                &currencyRates, &vatNumbers);
+
+    // -----------------------------------------------------------------------
+    // Tax contexts
+    // -----------------------------------------------------------------------
+    TaxResolver::TaxContext ctx1; // FR DomesticVat, Sale service channel
+    ctx1.taxScheme                = TaxScheme::DomesticVat;
+    ctx1.taxDeclaringCountryCode  = "FR";
+    ctx1.taxJurisdictionLevel     = TaxJurisdictionLevel::Country;
+    ctx1.countryCodeVatPaidTo     = "FR";
+
+    TaxResolver::TaxContext ctx2; // DE EuOssUnion, Amazon channel
+    ctx2.taxScheme                = TaxScheme::EuOssUnion;
+    ctx2.taxDeclaringCountryCode  = "DE";
+    ctx2.taxJurisdictionLevel     = TaxJurisdictionLevel::Country;
+    ctx2.countryCodeVatPaidTo     = "DE";
+
+    // -----------------------------------------------------------------------
+    // Invoice 1 — Jan 2025, FR service sale (IN RANGE)
+    // -----------------------------------------------------------------------
+    const QDate   date1    = QDate(2025, 1, 15);
+    const QString orderId1 = "ORD-REGEN-001";
+
+    auto itemRes1 = LineItem::create("SVC1", "IT Consulting", 500.0, 0.20, 1);
+    QVERIFY(itemRes1.ok()); // VERIFY 2
+
+    Address addr1("Client Alpha", "1 Rue Test", "", "", "Paris", "75001", "FR",
+                  "FR12345", "", "", "", "");
+    orderManager.recordAddressesTo({{orderId1, addr1}});
+
+    QString inv1 = generator.getBaseInvoiceNumber(date1, ctx1, "Sale service", "", orderId1);
+    QVERIFY(!inv1.isEmpty()); // VERIFY 3
+
+    auto infoRes1 = InvoicingInfo::create(nullptr, {*itemRes1.value}, inv1);
+    QVERIFY(infoRes1.ok()); // VERIFY 4
+
+    // Generate original PDF into a scratch folder (not the regen target)
+    QTemporaryDir origDir;
+    QVERIFY(origDir.isValid()); // VERIFY 5
+    generator.generateInvoice(inv1, "", origDir.filePath("inv1.pdf"),
+                               addr1, *infoRes1.value, orderId1, orderManager, date1);
+    QVERIFY(QFile::exists(origDir.filePath("inv1.pdf"))); // VERIFY 6
+
+    // -----------------------------------------------------------------------
+    // Invoice 2 — Feb 2025, DE Amazon OSS sale (IN RANGE)
+    // -----------------------------------------------------------------------
+    const QDate   date2    = QDate(2025, 2, 20);
+    const QString orderId2 = "ORD-REGEN-002";
+
+    auto itemRes2 = LineItem::create("AMZ2", "Product A", 300.0, 0.19, 2);
+    QVERIFY(itemRes2.ok()); // VERIFY 7
+
+    Address addr2("Client Beta", "2 Test Street", "", "", "Berlin", "10115", "DE",
+                  "DE98765", "", "", "", "");
+    orderManager.recordAddressesTo({{orderId2, addr2}});
+
+    QString inv2 = generator.getBaseInvoiceNumber(date2, ctx2, "Amazon", "amazon.de", orderId2);
+    QVERIFY(!inv2.isEmpty()); // VERIFY 8
+
+    auto infoRes2 = InvoicingInfo::create(nullptr, {*itemRes2.value}, inv2);
+    QVERIFY(infoRes2.ok()); // VERIFY 9
+
+    generator.generateInvoice(inv2, "", origDir.filePath("inv2.pdf"),
+                               addr2, *infoRes2.value, orderId2, orderManager, date2);
+    QVERIFY(QFile::exists(origDir.filePath("inv2.pdf"))); // VERIFY 10
+
+    // -----------------------------------------------------------------------
+    // Invoice 3 — Mar 2025, FR service sale (OUT OF RANGE)
+    // -----------------------------------------------------------------------
+    const QDate   date3    = QDate(2025, 3, 10);
+    const QString orderId3 = "ORD-REGEN-003";
+
+    auto itemRes3 = LineItem::create("SVC3", "Training", 800.0, 0.20, 4);
+    QVERIFY(itemRes3.ok()); // VERIFY 11
+
+    Address addr3("Client Gamma", "3 Avenue", "", "", "Lyon", "69001", "FR",
+                  "FR11111", "", "", "", "");
+    orderManager.recordAddressesTo({{orderId3, addr3}});
+
+    QString inv3 = generator.getBaseInvoiceNumber(date3, ctx1, "Sale service", "", orderId3);
+    auto infoRes3 = InvoicingInfo::create(nullptr, {*itemRes3.value}, inv3);
+    QVERIFY(infoRes3.ok()); // VERIFY 12
+
+    generator.generateInvoice(inv3, "", origDir.filePath("inv3.pdf"),
+                               addr3, *infoRes3.value, orderId3, orderManager, date3);
+    QVERIFY(QFile::exists(origDir.filePath("inv3.pdf"))); // VERIFY 13
+
+    // -----------------------------------------------------------------------
+    // Revision pair — Jan 2025, same orderId, base + R01 (IN RANGE)
+    // -----------------------------------------------------------------------
+    const QDate   dateRev    = QDate(2025, 1, 25);
+    const QString orderIdRev = "ORD-REGEN-REV";
+
+    auto itemResRev = LineItem::create("SVCR", "Analysis", 200.0, 0.20, 3);
+    QVERIFY(itemResRev.ok()); // VERIFY 14
+
+    Address addrRev("Client Delta", "4 Impasse", "", "", "Bordeaux", "33000", "FR",
+                    "FR77777", "", "", "", "");
+    orderManager.recordAddressesTo({{orderIdRev, addrRev}});
+
+    // Use getNextInvoiceNumbers to produce base + revision in one call
+    QList<bool>  revToDo = {true, true};
+    QStringList  revSids = {orderIdRev, orderIdRev};
+    QStringList  revNums = generator.getNextInvoiceNumbers(
+        dateRev, ctx1, "Sale service", "", revToDo, std::nullopt, revSids);
+    QCOMPARE(revNums.size(), 2); // VERIFY 15
+    QVERIFY(revNums[1].endsWith("-R01")); // VERIFY 16
+
+    auto infoResRevBase = InvoicingInfo::create(nullptr, {*itemResRev.value}, revNums[0]);
+    QVERIFY(infoResRevBase.ok()); // VERIFY 17
+    generator.generateInvoice(revNums[0], "", origDir.filePath("invRevBase.pdf"),
+                               addrRev, *infoResRevBase.value, orderIdRev, orderManager, dateRev);
+    QVERIFY(QFile::exists(origDir.filePath("invRevBase.pdf"))); // VERIFY 18
+
+    auto infoResRevR = InvoicingInfo::create(nullptr, {*itemResRev.value}, revNums[1]);
+    QVERIFY(infoResRevR.ok()); // VERIFY 19
+    generator.generateInvoice(revNums[1], revNums[0], origDir.filePath("invRevR01.pdf"),
+                               addrRev, *infoResRevR.value, orderIdRev, orderManager, dateRev);
+    QVERIFY(QFile::exists(origDir.filePath("invRevR01.pdf"))); // VERIFY 20
+
+    // Generator now holds 5 records (inv1, inv2, inv3, revBase, revR01)
+    QCOMPARE(generator.rowCount(), 5); // VERIFY 21
+
+    // -----------------------------------------------------------------------
+    // Verify CSV attributes saved for inv1 before regeneration
+    // -----------------------------------------------------------------------
+    bool foundInv1 = false;
+    for (int row = 0; row < generator.rowCount(); ++row) {
+        QString num = generator.data(generator.index(row, InvoiceGenerator::ColInvoiceNumber)).toString();
+        if (num == inv1) {
+            foundInv1 = true;
+            // VERIFY 22: Date attribute correct in CSV
+            QCOMPARE(generator.data(generator.index(row, InvoiceGenerator::ColDate)).toDate(), date1);
+            // VERIFY 23: TaxDeclaringCountry correct in CSV
+            QCOMPARE(generator.data(generator.index(row, InvoiceGenerator::ColTaxDeclaringCountry)).toString(),
+                     QString("FR"));
+            // VERIFY 24: TaxScheme correct in CSV
+            QCOMPARE(generator.data(generator.index(row, InvoiceGenerator::ColTaxScheme)).toString(),
+                     QString("DomesticVat"));
+            // VERIFY 25: Channel correct in CSV
+            QCOMPARE(generator.data(generator.index(row, InvoiceGenerator::ColChannel)).toString(),
+                     QString("Sale service"));
+            // VERIFY 26: CountryVatPaidTo correct in CSV
+            QCOMPARE(generator.data(generator.index(row, InvoiceGenerator::ColCountryVatPaidTo)).toString(),
+                     QString("FR"));
+            break;
+        }
+    }
+    QVERIFY(foundInv1); // VERIFY 27
+
+    // -----------------------------------------------------------------------
+    // Call regenerateInvoices for Jan–Feb 2025
+    // -----------------------------------------------------------------------
+    QTemporaryDir regenDir;
+    QVERIFY(regenDir.isValid()); // VERIFY 28
+
+    const QDate dateFrom(2025, 1, 1);
+    const QDate dateTo(2025, 2, 28);
+    generator.regenerateInvoices(QDir(regenDir.path()), dateFrom, dateTo, orderManager);
+
+    // Helper to build expected PDF path in the regen output folder
+    auto sanitize = [](const QString &s) {
+        QString r = s;
+        r.replace('/', '-').replace('\\', '-');
+        return r;
+    };
+    auto regenPdf = [&](const QDate &d, const QString &invNum) {
+        return regenDir.filePath(QString("%1/%2.pdf").arg(d.year()).arg(sanitize(invNum)));
+    };
+
+    // VERIFY 29: inv1 regenerated (Jan 2025 — in range)
+    QVERIFY(QFile::exists(regenPdf(date1, inv1)));
+
+    // VERIFY 30: inv2 regenerated (Feb 2025 — in range)
+    QVERIFY(QFile::exists(regenPdf(date2, inv2)));
+
+    // VERIFY 31: inv3 NOT regenerated (Mar 2025 — out of range)
+    QVERIFY(!QFile::exists(regenPdf(date3, inv3)));
+
+    // VERIFY 32: revision base regenerated (Jan 2025 — in range)
+    QVERIFY(QFile::exists(regenPdf(dateRev, revNums[0])));
+
+    // VERIFY 33: revision R01 regenerated (Jan 2025 — in range)
+    QVERIFY(QFile::exists(regenPdf(dateRev, revNums[1])));
+
+    // VERIFY 34: generator still has 5 records (regeneration must not alter the registry)
+    QCOMPARE(generator.rowCount(), 5);
+
+    // -----------------------------------------------------------------------
+    // Verify InvoicingInfo attributes preserved in OrderManager after regeneration
+    // -----------------------------------------------------------------------
+    auto stored1 = orderManager.getInvoicingInfo(orderId1);
+    QVERIFY(!stored1.isNull()); // VERIFY 35
+
+    // VERIFY 36: invoice number still correct for order 1
+    QVERIFY(stored1->getInvoiceNumber().has_value());
+    QCOMPARE(stored1->getInvoiceNumber().value(), inv1); // VERIFY 37
+
+    // VERIFY 38: line item count preserved for order 1
+    QCOMPARE(stored1->getItems().size(), 1);
+
+    // VERIFY 39: line item name preserved
+    QCOMPARE(stored1->getItems().first().getName(), QString("IT Consulting"));
+
+    // VERIFY 40: line item total taxed (TTC) preserved
+    QCOMPARE(stored1->getItems().first().getTotalTaxed(), 500.0);
+
+    // VERIFY 41: line item quantity preserved
+    QCOMPARE(stored1->getItems().first().getQuantity(), 1);
+
+    auto stored2 = orderManager.getInvoicingInfo(orderId2);
+    QVERIFY(!stored2.isNull()); // VERIFY 42
+
+    // VERIFY 43: invoice number preserved for order 2
+    QCOMPARE(stored2->getInvoiceNumber().value(), inv2);
+
+    // VERIFY 44: line item name preserved for order 2
+    QCOMPARE(stored2->getItems().first().getName(), QString("Product A"));
+
+    // VERIFY 45: line item quantity preserved for order 2
+    QCOMPARE(stored2->getItems().first().getQuantity(), 2);
+
+    // VERIFY 46: line item total taxed (TTC) preserved for order 2
+    QCOMPARE(stored2->getItems().first().getTotalTaxed(), 600.0); // 300 TTC × qty 2
+
+    auto stored3 = orderManager.getInvoicingInfo(orderId3);
+    QVERIFY(!stored3.isNull()); // VERIFY 47
+
+    // VERIFY 48: invoice number for out-of-range order 3 is unchanged
+    QCOMPARE(stored3->getInvoiceNumber().value(), inv3);
+
+    // -----------------------------------------------------------------------
+    // Verify address round-trip via getAddressTo for order 1
+    // -----------------------------------------------------------------------
+    auto reloadedAddr1 = orderManager.getAddressTo(orderId1);
+    QVERIFY(!reloadedAddr1.isNull()); // VERIFY 49
+
+    // VERIFY 50: full name round-trip
+    QCOMPARE(reloadedAddr1->getFullName(), QString("Client Alpha"));
 }
 
 QTEST_MAIN(TestInvoicing)

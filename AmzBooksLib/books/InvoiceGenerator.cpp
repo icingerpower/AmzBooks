@@ -383,20 +383,21 @@ void InvoiceGenerator::generateInvoice(
     const Address &addressTo,
     const InvoicingInfo &invoicingInfo,
     const QString &orderId,
-    OrderManager &orderManager)
+    OrderManager &orderManager,
+    const QDate &invoiceDate)
 {
     // 1. Gather Data
     QString companyName = "Your Company Name"; // Default
     QString companyAddress = "";
 
-    // Use CompanyAddressTable for current address
-    QDate invoiceDate = QDate::currentDate(); // Or use payment date?
+    // Use CompanyAddressTable for current address; fall back to current date if not supplied
+    QDate actualInvoiceDate = invoiceDate.isValid() ? invoiceDate : QDate::currentDate();
     if (m_companyAddress) {
-        companyName = m_companyAddress->getCompanyName(invoiceDate);
-        QString street1 = m_companyAddress->getStreet1(invoiceDate);
-        QString street2 = m_companyAddress->getStreet2(invoiceDate);
-        QString postal = m_companyAddress->getPostalCode(invoiceDate);
-        QString city = m_companyAddress->getCity(invoiceDate);
+        companyName = m_companyAddress->getCompanyName(actualInvoiceDate);
+        QString street1 = m_companyAddress->getStreet1(actualInvoiceDate);
+        QString street2 = m_companyAddress->getStreet2(actualInvoiceDate);
+        QString postal = m_companyAddress->getPostalCode(actualInvoiceDate);
+        QString city = m_companyAddress->getCity(actualInvoiceDate);
 
         companyAddress += street1 + "<br>";
         if (!street2.isEmpty()) companyAddress += street2 + "<br>";
@@ -543,8 +544,8 @@ void InvoiceGenerator::generateInvoice(
     QString destCountry = addressTo.getCountryCode(); // Should translate or map code to name? Keeping code for now is safer or map elsewhere
     
     // Format dates
-    QString invDateStr = invoiceDate.toString("dd/MM/yyyy");
-    QDate payDate = invoicingInfo.getPaymentDate(invoiceDate); // Fallback to inv date if not set, or order date
+    QString invDateStr = actualInvoiceDate.toString("dd/MM/yyyy");
+    QDate payDate = invoicingInfo.getPaymentDate(actualInvoiceDate); // Fallback to inv date if not set, or order date
     QString payDateStr = payDate.toString("dd/MM/yyyy");
 
     // Previous invoice line
@@ -897,6 +898,61 @@ void InvoiceGenerator::removeInvoiceByNumber(const QString &invoiceNumber)
     if (removed > 0) {
         m_sequenceCache.clear();
         _save();
+    }
+}
+
+void InvoiceGenerator::regenerateInvoices(
+    const QDir &folderTo,
+    const QDate &dateFrom,
+    const QDate &dateTo,
+    OrderManager &orderManager)
+{
+    // Iterate a snapshot of the records so that any implicit saves inside
+    // generateInvoice do not invalidate our iteration.
+    const QList<InvoiceRecord> snapshot = m_data;
+
+    const Address emptyAddr("", "", "", "", "", "", "", "", "", "", "", "");
+
+    for (const InvoiceRecord &record : snapshot) {
+        if (record.date < dateFrom || record.date > dateTo)
+            continue;
+        if (record.shipmentId.isEmpty())
+            continue;
+
+        // Retrieve InvoicingInfo and address from the OrderManager
+        QSharedPointer<InvoicingInfo> info = orderManager.getInvoicingInfo(record.shipmentId);
+        if (!info)
+            continue;
+
+        QSharedPointer<Address> addrPtr = orderManager.getAddressTo(record.shipmentId);
+        const Address &addr = addrPtr ? *addrPtr : emptyAddr;
+
+        // Determine previous invoice number for revision invoices (e.g. BASE-R01 → BASE)
+        QString prevNumber;
+        const int rIdx = record.invoiceNumber.lastIndexOf("-R");
+        if (rIdx != -1) {
+            const QString suffix = record.invoiceNumber.mid(rIdx + 2);
+            bool ok;
+            suffix.toInt(&ok);
+            if (ok)
+                prevNumber = record.invoiceNumber.left(rIdx);
+        }
+
+        // Build output path mirroring the layout used by generateInvoices()
+        QString sanitized = record.invoiceNumber;
+        sanitized.replace('/', '-').replace('\\', '-');
+        QDir yearDir(folderTo.filePath(QString::number(record.date.year())));
+        yearDir.mkpath(".");
+        const QString pdfPath = yearDir.absoluteFilePath(sanitized + ".pdf");
+
+        try {
+            generateInvoice(record.invoiceNumber, prevNumber, pdfPath,
+                            addr, *info, record.shipmentId, orderManager,
+                            record.date);
+        } catch (const std::exception &ex) {
+            qWarning() << "[InvoiceGenerator::regenerateInvoices] Failed for"
+                       << record.shipmentId << ":" << ex.what();
+        }
     }
 }
 

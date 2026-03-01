@@ -56,6 +56,15 @@ public:
         const Address &addressTo,
         const InvoicingInfo &invoicingInfo,
         const QString &orderId,
+        OrderManager &orderManager,
+        const QDate &invoiceDate = QDate()); // Empty = use current date
+
+    // Regenerate PDFs for all invoice records whose date falls within [dateFrom, dateTo].
+    // Retrieves InvoicingInfo and address from orderManager via the stored shipmentId.
+    void regenerateInvoices(
+        const QDir &folderTo,
+        const QDate &dateFrom,
+        const QDate &dateTo,
         OrderManager &orderManager);
 
     // QAbstractTableModel interface

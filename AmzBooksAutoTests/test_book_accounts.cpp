@@ -479,8 +479,8 @@ private slots:
         // 1. Init & Modify
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 7);  // Country, Currency, FixerApiKey + 4 Legal Infos
-            
+            QCOMPARE(table.rowCount(), 9);  // Country, Currency, FixerApiKey + 6 Legal Infos
+
             // Modify Country (Row 0, Col 1)
             table.setData(table.index(0, 1), "US");
             
@@ -491,8 +491,8 @@ private slots:
         // 2. Persistence (New Instance)
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 7);  // Country, Currency, FixerApiKey + 4 Legal Infos
-            
+            QCOMPARE(table.rowCount(), 9);  // Country, Currency, FixerApiKey + 6 Legal Infos
+
             // Check Values
             QCOMPARE(table.data(table.index(0, 1)).toString(), "US");
             QCOMPARE(table.data(table.index(1, 1)).toString(), "USD");
@@ -512,9 +512,9 @@ private slots:
 
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            // The bug is that it loads all rows including fake ones.
-            // We want strict 7 rows.
-            QCOMPARE(table.rowCount(), 7); 
+            // The table enforces a fixed structure; fake rows must be ignored.
+            // We want strict 9 rows.
+            QCOMPARE(table.rowCount(), 9);
             
             // Should still have valid data for known IDs
             QCOMPARE(table.getCompanyCountryCode(), "US");
@@ -530,8 +530,8 @@ private slots:
         // 1. Set API Key (Row 2 = FixerApiKey)
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 7);
-            
+            QCOMPARE(table.rowCount(), 9);
+
             // Row 2 is FixerApiKey
             table.setData(table.index(2, 1), testApiKey);
             
