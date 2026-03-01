@@ -49,13 +49,14 @@ private slots:
     void test_get_channel_site_ShipmentAndRefunds();
     void test_TaxAmountTable();
     void test_tryRecordRefund();
-    void test_importOrderInvariance();
     void test_OrderInvoicingTable();
     void test_conflictResolution_isWrongIfConflict();
     void test_inventoryMove();
     void test_fixTaxDate();
     void test_recordShipmentsFromSource_performance();
     void test_groupedUngrouped();
+    void test_recordInvoicingInfo_recordInfo_twice();
+    void test_importOrderInvariance(); // Keep this test last
 };
 
 void TestOrderManager::initTestCase()
@@ -3048,6 +3049,113 @@ void TestOrderManager::test_groupedUngrouped()
             total += it.value().size();
 
         QCOMPARE(total, 2);  // both now grouped
+    }
+}
+
+// ===========================================================================
+// test_recordInvoicingInfo_recordInfo_twice
+// Verifies that recordInvoicingInfo() can be called multiple times to
+// progressively enrich the stored info:
+//   Step 1 – Record without invoice number or link (only line items + other fields).
+//   Step 2 – Retrieve, add invoice number, record again. Check number is persisted.
+//   Step 3 – Retrieve, add invoice link,  record again. Check both number and link.
+// ===========================================================================
+void TestOrderManager::test_recordInvoicingInfo_recordInfo_twice()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    OrderManager manager(tempDir.path());
+
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+
+    // Create a shipment to attach invoicing info to
+    auto actRes = Activity::create(
+        "evt-inv-tw", "act-inv-tw", "",
+        QDateTime(QDate(2024, 3, 15), QTime(10, 0)),
+        QDateTime(QDate(2024, 3, 15), QTime(10, 0)),
+        "EUR", "FR", "DE", false, "DE",
+        Amount(150.0, 30.0),
+        TaxSource::MarketplaceProvided, "DE",
+        TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country,
+        SaleType::Products);
+    QVERIFY(actRes.ok());
+    Shipment shipment({*actRes.value}, "", true);
+    manager.recordShipmentFromSource("ord-inv-tw", &source, &shipment, QDate());
+
+    // -----------------------------------------------------------------------
+    // Step 1: Record invoice info WITHOUT invoice number or link
+    //         (but with a line item and a payment date as "other information")
+    // -----------------------------------------------------------------------
+    auto lineItemRes = LineItem::create("SKU-001", "Product A", 150.0, 0.20, 1);
+    QVERIFY(lineItemRes.ok());
+
+    auto resInfo1 = InvoicingInfo::create(&shipment,
+                                          {*lineItemRes.value} /*lineItems*/,
+                                          std::nullopt /*invoiceNumber*/,
+                                          std::nullopt /*invoiceLink*/,
+                                          QDate(2024, 3, 15) /*paymentDate*/);
+    QVERIFY(resInfo1.ok());
+    InvoicingInfo info1 = *resInfo1.value;
+    manager.recordInvoicingInfo(shipment.getId(), &info1);
+
+    // Retrieve and verify: no number, no link yet
+    {
+        auto retrieved = manager.getInvoicingInfo(shipment.getId());
+        QVERIFY(retrieved);
+        QVERIFY(!retrieved->getInvoiceNumber().has_value());
+        QVERIFY(!retrieved->getInvoiceLink().has_value());
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 2: Retrieve, add invoice number, record again
+    // -----------------------------------------------------------------------
+    {
+        auto retrieved = manager.getInvoicingInfo(shipment.getId());
+        QVERIFY(retrieved);
+
+        // Enrich with invoice number
+        retrieved->setInvoiceNumber("INV-2024-001");
+        manager.recordInvoicingInfo(shipment.getId(), retrieved.get());
+    }
+
+    // Retrieve and verify: number present, still no link
+    {
+        auto retrieved = manager.getInvoicingInfo(shipment.getId());
+        QVERIFY(retrieved);
+        QVERIFY(retrieved->getInvoiceNumber().has_value());
+        QCOMPARE(retrieved->getInvoiceNumber().value(), QString("INV-2024-001"));
+        QVERIFY(!retrieved->getInvoiceLink().has_value());
+    }
+
+    // -----------------------------------------------------------------------
+    // Step 3: Retrieve, add invoice link, record again
+    // -----------------------------------------------------------------------
+    {
+        auto retrieved = manager.getInvoicingInfo(shipment.getId());
+        QVERIFY(retrieved);
+
+        // Build a new InvoicingInfo that carries both number and link.
+        // InvoicingInfo::create is the only way to set the link (no setter exposed),
+        // so we reconstruct from the shipment and copy the fields already present.
+        auto resInfo3 = InvoicingInfo::create(&shipment,
+                                              retrieved->getItems(),
+                                              retrieved->getInvoiceNumber(),
+                                              QString("https://invoices.example.com/INV-2024-001.pdf"),
+                                              retrieved->getPaymentDate(QDate(2024, 3, 15)));
+        QVERIFY(resInfo3.ok());
+        InvoicingInfo info3 = *resInfo3.value;
+        manager.recordInvoicingInfo(shipment.getId(), &info3);
+    }
+
+    // Retrieve and verify: both number and link are present
+    {
+        auto retrieved = manager.getInvoicingInfo(shipment.getId());
+        QVERIFY(retrieved);
+        QVERIFY(retrieved->getInvoiceNumber().has_value());
+        QCOMPARE(retrieved->getInvoiceNumber().value(), QString("INV-2024-001"));
+        QVERIFY(retrieved->getInvoiceLink().has_value());
+        QCOMPARE(retrieved->getInvoiceLink().value(),
+                 QString("https://invoices.example.com/INV-2024-001.pdf"));
     }
 }
 

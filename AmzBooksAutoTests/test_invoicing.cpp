@@ -4,13 +4,19 @@
 #include "books/InvoiceGenerator.h"
 #include "books/CompanyInfosTable.h"
 #include "books/CompanyAddressTable.h"
+#include "books/VatNumbersTable.h"
+#include "books/ServiceSalesBooksTable.h"
+#include "books/ServiceClientManager.h"
+#include "books/VatResolver.h"
 #include "CurrencyRateManager.h"
 #include "books/TaxResolver.h"
 #include "books/TaxScheme.h"
 #include "books/TaxJurisdictionLevel.h"
+#include "orders/OrderManager.h"
 #include "orders/InvoicingInfo.h"
 #include "orders/LineItem.h"
 #include "orders/Address.h"
+#include "orders/Shipment.h"
 
 class TestInvoicing : public QObject
 {
@@ -38,6 +44,10 @@ private slots:
     void test_getNextInvoiceNumbers_multipleRevisions();
     void test_getNextInvoiceNumbers_emptyList();
     void test_getNextInvoiceNumbers_mixedInvoicesToDo();
+    void test_getNextInvoiceNumbers_twoOrdersSameContext();
+
+    // Delete and recreate tests
+    void test_deleteAndRecreateInvoice();
 
     // Persistence and model tests
     void test_persistence();
@@ -47,6 +57,13 @@ private slots:
 
     // Invoice generation tests
     void test_generateInvoice();
+
+    // "Facture d'origine" correctness tests
+    void test_twoIndependentSales_noFractureOrigine();
+    void test_refundSale_hasFractureOrigine();
+
+    // vatOnPayment flag tests
+    void test_vatOnPayment_defaultFalse();
 
 private:
     QTemporaryDir *m_tempDir = nullptr;
@@ -143,8 +160,8 @@ void TestInvoicing::test_getBaseInvoiceNumber_format()
     context.countryCodeVatPaidTo = "FR";
     
     QDate date(2026, 2, 15);
-    
-    QString invoiceNum = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr");
+
+    QString invoiceNum = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr", "ship-1");
     
     // VERIFY 16: Invoice number starts with correct year-month
     QVERIFY(invoiceNum.startsWith("202602"));
@@ -176,8 +193,8 @@ void TestInvoicing::test_getBaseInvoiceNumber_differentDates()
     context.taxJurisdictionLevel = TaxJurisdictionLevel::Country;
     context.countryCodeVatPaidTo = "FR";
     
-    QString inv1 = generator.getBaseInvoiceNumber(QDate(2026, 1, 1), context, "Amazon", "amazon.fr");
-    QString inv2 = generator.getBaseInvoiceNumber(QDate(2026, 2, 1), context, "Amazon", "amazon.fr");
+    QString inv1 = generator.getBaseInvoiceNumber(QDate(2026, 1, 1), context, "Amazon", "amazon.fr", "ship-jan");
+    QString inv2 = generator.getBaseInvoiceNumber(QDate(2026, 2, 1), context, "Amazon", "amazon.fr", "ship-feb");
     
     // VERIFY 20: Different months produce different prefixes
     QVERIFY(inv1.startsWith("202601"));
@@ -211,8 +228,8 @@ void TestInvoicing::test_getBaseInvoiceNumber_differentContexts()
     context2.taxJurisdictionLevel = TaxJurisdictionLevel::Country;
     context2.countryCodeVatPaidTo = "DE";
     
-    QString inv1 = generator.getBaseInvoiceNumber(date, context1, "Amazon", "amazon.fr");
-    QString inv2 = generator.getBaseInvoiceNumber(date, context2, "Amazon", "amazon.de");
+    QString inv1 = generator.getBaseInvoiceNumber(date, context1, "Amazon", "amazon.fr", "ship-fr");
+    QString inv2 = generator.getBaseInvoiceNumber(date, context2, "Amazon", "amazon.de", "ship-de");
     
     // VERIFY 21: Different tax schemes produce different invoice numbers
     QVERIFY(inv1.contains("DOM"));
@@ -242,9 +259,9 @@ void TestInvoicing::test_getBaseInvoiceNumber_sequencing()
     
     QDate date(2026, 4, 1);
     
-    QString inv1 = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr");
-    QString inv2 = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr");
-    QString inv3 = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr");
+    QString inv1 = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr", "ship-1");
+    QString inv2 = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr", "ship-2");
+    QString inv3 = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr", "ship-3");
     
     // VERIFY 23: First invoice ends with 001
     QVERIFY(inv1.endsWith("-001"));
@@ -278,8 +295,8 @@ void TestInvoicing::test_getNextInvoiceNumbers_noExisting()
     QDate date(2026, 5, 1);
     QList<bool> invoicesToDo = {true};
     
-    QStringList result = generator.getNextInvoiceNumbers(date, context, "Amazon", "amazon.fr", invoicesToDo, std::nullopt);
-    
+    QStringList result = generator.getNextInvoiceNumbers(date, context, "Amazon", "amazon.fr", invoicesToDo, std::nullopt, {"order-1"});
+
     // VERIFY 26: Single shipment with no existing invoice generates new number
     QCOMPARE(result.size(), 1);
     QVERIFY(result[0].startsWith("202605"));
@@ -307,8 +324,8 @@ void TestInvoicing::test_getNextInvoiceNumbers_withExisting()
     QList<bool> invoicesToDo = {true, true};
     QString existingInvoice = "MKT-12345"; // Marketplace-generated number
     
-    QStringList result = generator.getNextInvoiceNumbers(date, context, "Amazon", "amazon.fr", invoicesToDo, existingInvoice);
-    
+    QStringList result = generator.getNextInvoiceNumbers(date, context, "Amazon", "amazon.fr", invoicesToDo, existingInvoice, {"order-A", "order-A"});
+
     // VERIFY 27: First shipment uses existing marketplace number
     QCOMPARE(result[0], QString("MKT-12345"));
     
@@ -337,8 +354,8 @@ void TestInvoicing::test_getNextInvoiceNumbers_multipleRevisions()
     QList<bool> invoicesToDo = {true, true, true, true};
     QString existingInvoice = "DE-INV-001";
     
-    QStringList result = generator.getNextInvoiceNumbers(date, context, "Amazon", "amazon.de", invoicesToDo, existingInvoice);
-    
+    QStringList result = generator.getNextInvoiceNumbers(date, context, "Amazon", "amazon.de", invoicesToDo, existingInvoice, {"ord", "ord", "ord", "ord"});
+
     // VERIFY 29: First uses original
     QCOMPARE(result[0], QString("DE-INV-001"));
     
@@ -372,8 +389,8 @@ void TestInvoicing::test_getNextInvoiceNumbers_emptyList()
     QDate date(2026, 8, 1);
     QList<bool> invoicesToDo; // Empty
     
-    QStringList result = generator.getNextInvoiceNumbers(date, context, "Amazon", "amazon.fr", invoicesToDo, std::nullopt);
-    
+    QStringList result = generator.getNextInvoiceNumbers(date, context, "Amazon", "amazon.fr", invoicesToDo, std::nullopt, {});
+
     // VERIFY 33: Empty list returns empty result
     QVERIFY(result.isEmpty());
 }
@@ -400,8 +417,8 @@ void TestInvoicing::test_getNextInvoiceNumbers_mixedInvoicesToDo()
     QList<bool> invoicesToDo = {true, false, true};
     QString existingInvoice = "EXIST-001";
     
-    QStringList result = generator.getNextInvoiceNumbers(date, context, "Amazon", "amazon.fr", invoicesToDo, existingInvoice);
-    
+    QStringList result = generator.getNextInvoiceNumbers(date, context, "Amazon", "amazon.fr", invoicesToDo, existingInvoice, {"ord-1", "ord-1", "ord-1"});
+
     // VERIFY 34: Correct size
     QCOMPARE(result.size(), 3);
     
@@ -413,6 +430,54 @@ void TestInvoicing::test_getNextInvoiceNumbers_mixedInvoicesToDo()
     
     // VERIFY 37: Third gets revision
     QCOMPARE(result[2], QString("EXIST-001-R01"));
+}
+
+void TestInvoicing::test_getNextInvoiceNumbers_twoOrdersSameContext()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress, &currencyRates);
+
+    TaxResolver::TaxContext context;
+    context.taxScheme = TaxScheme::DomesticVat;
+    context.taxDeclaringCountryCode = "FR";
+    context.taxJurisdictionLevel = TaxJurisdictionLevel::Country;
+    context.countryCodeVatPaidTo = "FR";
+
+    QDate date(2026, 2, 15);
+
+    // Two different orders grouped under the same tax context
+    QList<bool> invoicesToDo = {true, true};
+
+    QStringList result = generator.getNextInvoiceNumbers(
+        date, context, "Amazon", "amazon.fr", invoicesToDo, std::nullopt,
+        {"order-1", "order-2"});
+
+    // VERIFY 48: Two distinct orders each receive their own sequential number
+    QCOMPARE(result.size(), 2);
+    QVERIFY(result[0].endsWith("-001"));
+    QVERIFY(result[1].endsWith("-002"));
+
+    // VERIFY 49: The two numbers share the same prefix but are different
+    QVERIFY(result[0] != result[1]);
+
+    // Now simulate a refund for order-1: it should receive the original
+    // invoice number with -R01 appended, not a new sequential number.
+    QList<bool> refundTodo = {true, true};
+    QStringList refundResult = generator.getNextInvoiceNumbers(
+        date, context, "Amazon", "amazon.fr", refundTodo, std::nullopt,
+        {"order-1", "order-1"});
+
+    // VERIFY 50: The base entry returns the cached original number for order-1
+    QCOMPARE(refundResult[0], result[0]);
+
+    // VERIFY 51: The refund entry gets -R01 appended to the original number
+    QCOMPARE(refundResult[1], result[0] + "-R01");
 }
 
 // ========== PERSISTENCE AND MODEL TESTS ==========
@@ -439,8 +504,8 @@ void TestInvoicing::test_persistence()
         context.taxJurisdictionLevel = TaxJurisdictionLevel::Country;
         context.countryCodeVatPaidTo = "FR";
         
-        QString inv1 = generator.getBaseInvoiceNumber(QDate(2026, 10, 1), context, "Amazon", "amazon.fr");
-        QString inv2 = generator.getBaseInvoiceNumber(QDate(2026, 10, 2), context, "Amazon", "amazon.fr");
+        QString inv1 = generator.getBaseInvoiceNumber(QDate(2026, 10, 1), context, "Amazon", "amazon.fr", "inv-1");
+        QString inv2 = generator.getBaseInvoiceNumber(QDate(2026, 10, 2), context, "Amazon", "amazon.fr", "inv-2");
         
         // Trigger save by generating invoice (mocking PDF path)
         auto resInfo = InvoicingInfo::create(nullptr, {}, "DUMMY");
@@ -492,9 +557,9 @@ void TestInvoicing::test_sort()
     context.countryCodeVatPaidTo = "FR";
     
     // Add in non-chronological order
-    generator.getBaseInvoiceNumber(QDate(2026, 12, 1), context, "Amazon", "amazon.fr");
-    generator.getBaseInvoiceNumber(QDate(2026, 11, 1), context, "Amazon", "amazon.fr");
-    generator.getBaseInvoiceNumber(QDate(2026, 10, 1), context, "Amazon", "amazon.fr");
+    generator.getBaseInvoiceNumber(QDate(2026, 12, 1), context, "Amazon", "amazon.fr", "ship-dec");
+    generator.getBaseInvoiceNumber(QDate(2026, 11, 1), context, "Amazon", "amazon.fr", "ship-nov");
+    generator.getBaseInvoiceNumber(QDate(2026, 10, 1), context, "Amazon", "amazon.fr", "ship-oct");
     
     // Sort ascending by date
     generator.sort(InvoiceGenerator::ColDate, Qt::AscendingOrder);
@@ -569,7 +634,7 @@ void TestInvoicing::test_generateInvoice()
     QDate date(2026, 11, 15);
     
     // Get invoice number (does NOT save to CSV yet)
-    QString invoiceNum = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr");
+    QString invoiceNum = generator.getBaseInvoiceNumber(date, context, "Amazon", "amazon.fr", "inv-001");
     
     // Create InvoicingInfo
     // Create InvoicingInfo
@@ -628,6 +693,299 @@ void TestInvoicing::test_generateInvoice()
     QVERIFY(csv.open(QIODevice::ReadOnly));
     QString content = csv.readAll();
     QVERIFY(content.contains(invoiceNum));
+}
+
+// ========== DELETE AND RECREATE TESTS ==========
+
+void TestInvoicing::test_deleteAndRecreateInvoice()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    companyAddress.insertRows(0, 1); // ensure at least one address row for generateInvoice
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    OrderManager orderManager(tempDir.path());
+
+    // One single InvoiceGenerator instance used throughout the whole test,
+    // matching the real-world scenario where the generator lives for the
+    // lifetime of the application session.
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress, &currencyRates);
+
+    TaxResolver::TaxContext context;
+    context.taxScheme = TaxScheme::DomesticVat;
+    context.taxDeclaringCountryCode = "FR";
+    context.taxJurisdictionLevel = TaxJurisdictionLevel::Country;
+    context.countryCodeVatPaidTo = "FR";
+
+    const QDate date(2026, 2, 15);
+    const QString saleId = "svc-del-recreate-001";
+
+    // === First creation ===
+    // Simulates: ServiceSalesBooksTable::createSale → InvoiceGenerator::getBaseInvoiceNumber
+    QString inv1 = generator.getBaseInvoiceNumber(date, context, "Service", "", saleId);
+
+    // VERIFY 52: first invoice number was assigned
+    QVERIFY(!inv1.isEmpty());
+
+    // VERIFY 53: it is the first invoice in this context
+    QVERIFY(inv1.endsWith("-001"));
+
+    // Generate the invoice PDF (saves inv1 to CSV and records in OrderManager)
+    auto lineItemRes = LineItem::create("SVC", "Software Dev", 600.0, 0.20, 1);
+    QVERIFY(lineItemRes.ok());
+    QList<LineItem> items = {*lineItemRes.value};
+    auto resInfo = InvoicingInfo::create(nullptr, items, inv1);
+    QVERIFY(resInfo.ok());
+    InvoicingInfo info = *resInfo.value;
+    Address addr("Client Corp", "1 Rue Test", "", "", "Paris", "75001", "FR", "", "", "", "", "");
+    const QString pdfPath1 = tempDir.filePath("inv1.pdf");
+    generator.generateInvoice(inv1, "", pdfPath1, addr, info, saleId, orderManager);
+
+    // VERIFY 54: PDF was created (which means CSV was saved and OrderManager was updated)
+    QVERIFY(QFile::exists(pdfPath1));
+
+    // VERIFY 55: generator holds exactly one record after save
+    QCOMPARE(generator.rowCount(), 1);
+
+    // === Delete ===
+    // Simulates: ServiceSalesBooksTable::remove → m_invoiceGenerator->removeInvoiceByNumber
+    generator.removeInvoiceByNumber(inv1);
+
+    // VERIFY 56: the record is gone from the generator (and from the CSV)
+    QCOMPARE(generator.rowCount(), 0);
+
+    // === Second creation with the same saleId ===
+    // Simulates: ServiceSalesBooksTable::createSale called again for the same sale
+    QString inv2 = generator.getBaseInvoiceNumber(date, context, "Service", "", saleId);
+
+    // VERIFY 57: the regenerated number is IDENTICAL to the original
+    QCOMPARE(inv2, inv1);
+
+    // Generate the second invoice to confirm the full round-trip
+    auto resInfo2 = InvoicingInfo::create(nullptr, items, inv2);
+    QVERIFY(resInfo2.ok());
+    InvoicingInfo info2 = *resInfo2.value;
+    const QString pdfPath2 = tempDir.filePath("inv2.pdf");
+    generator.generateInvoice(inv2, "", pdfPath2, addr, info2, saleId, orderManager);
+
+    // VERIFY 58: second PDF was also created
+    QVERIFY(QFile::exists(pdfPath2));
+
+    // VERIFY 59: a different shipment afterwards advances the counter correctly
+    QString inv3 = generator.getBaseInvoiceNumber(date, context, "Service", "", "svc-del-recreate-002");
+    QVERIFY(inv3.endsWith("-002"));
+}
+
+// ===========================================================================
+// test_twoIndependentSales_noFractureOrigine
+// Two service sales with different order IDs, same date and amount.
+// When generating invoices for both, neither should have a "Facture d'origine"
+// (i.e. neither invoice number should carry a -R revision suffix, and the
+// prevNumber derived from the fixed logic must be empty for both).
+// ===========================================================================
+void TestInvoicing::test_twoIndependentSales_noFractureOrigine()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("Client A", "Consulting", "FR", "FR12345", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    companyAddress.insertRows(0, 1);
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    VatNumbersTable vatNumbers(tempDir.path());
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress, &currencyRates, &vatNumbers);
+
+    ServiceSalesBooksTable serviceTable(nullptr, &orderManager, tempDir.path());
+
+    const QDate date(2026, 2, 15);
+    const double amount = 600.0;
+
+    // Two independent sales: same date and amount, but different order IDs
+    serviceTable.createSale(&clientManager, 0, date, amount, "EUR",
+                            "ORDER-A", "Consulting", 1, "706000", vatResolver, taxResolver);
+    serviceTable.createSale(&clientManager, 0, date, amount, "EUR",
+                            "ORDER-B", "Consulting", 1, "706000", vatResolver, taxResolver);
+
+    QCOMPARE(serviceTable.rowCount(), 2);
+
+    // Simulate the PaneBookKeeping::generateInvoices logic
+    auto noInvMap = orderManager.get_channel_site_ShipmentAndRefundsNoInvoices(date, date);
+    QVERIFY(!noInvMap.isNull());
+
+    int invoicesChecked = 0;
+    for (auto chanIt = noInvMap->cbegin(); chanIt != noInvMap->cend(); ++chanIt) {
+        const QString channel = chanIt.key();
+        for (auto subIt = chanIt->cbegin(); subIt != chanIt->cend(); ++subIt) {
+            for (auto ctxIt = subIt->cbegin(); ctxIt != subIt->cend(); ++ctxIt) {
+                const TaxResolver::TaxContext &taxCtx = ctxIt.key();
+                const OrderManager::ShipmentRefundsWithUpdates &entry = ctxIt.value();
+                if (entry.shipmentsRefundsSameActivity.isEmpty()) continue;
+
+                QStringList shipmentIds;
+                for (const auto &shipment : entry.shipmentsRefundsSameActivity) {
+                    if (shipment && !shipment->getActivities().isEmpty())
+                        shipmentIds.append(shipment->getActivities().first().getEventId());
+                    else
+                        shipmentIds.append(QString());
+                }
+
+                std::optional<QString> existingNumber;
+                if (entry.invoicingInfo) {
+                    auto optNum = entry.invoicingInfo->getInvoiceNumber();
+                    if (optNum.has_value() && !optNum->isEmpty())
+                        existingNumber = optNum;
+                }
+
+                QStringList invoiceNumbers = generator.getNextInvoiceNumbers(
+                    date, taxCtx, channel, "", entry.invoicesToDo, existingNumber, shipmentIds);
+
+                QCOMPARE(invoiceNumbers.size(), 2);
+
+                for (const QString &invNum : invoiceNumbers) {
+                    QVERIFY(!invNum.isEmpty());
+
+                    // Verify no -R revision suffix (not a refund/revision)
+                    const int rIdx = invNum.lastIndexOf("-R");
+                    bool isRevision = false;
+                    if (rIdx != -1) {
+                        bool ok;
+                        invNum.mid(rIdx + 2).toInt(&ok);
+                        isRevision = ok;
+                    }
+                    QVERIFY2(!isRevision,
+                        qPrintable(QString("Invoice '%1' should not be a revision").arg(invNum)));
+
+                    // Verify the fixed prevNumber logic gives empty prevNumber
+                    QString prevNumber;
+                    if (rIdx != -1) {
+                        bool ok;
+                        invNum.mid(rIdx + 2).toInt(&ok);
+                        if (ok) prevNumber = invNum.left(rIdx);
+                    }
+                    QVERIFY2(prevNumber.isEmpty(),
+                        qPrintable(QString("Invoice '%1' must not have a 'Facture d'origine'").arg(invNum)));
+
+                    ++invoicesChecked;
+                }
+
+                // The two invoice numbers must be distinct sequential numbers
+                QVERIFY(invoiceNumbers[0] != invoiceNumbers[1]);
+                QVERIFY(invoiceNumbers[0].endsWith("-001") || invoiceNumbers[1].endsWith("-001"));
+                QVERIFY(invoiceNumbers[0].endsWith("-002") || invoiceNumbers[1].endsWith("-002"));
+            }
+        }
+    }
+
+    QCOMPARE(invoicesChecked, 2);
+}
+
+// ===========================================================================
+// test_refundSale_hasFractureOrigine
+// When a shipment and its refund share the same order ID, getNextInvoiceNumbers
+// returns [base, base-R01]. The fixed prevNumber logic must give:
+//   - invoice[0] (base)    → prevNumber = ""
+//   - invoice[1] (base-R01) → prevNumber = base (triggers "Facture d'origine")
+// ===========================================================================
+void TestInvoicing::test_refundSale_hasFractureOrigine()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress, &currencyRates);
+
+    TaxResolver::TaxContext context;
+    context.taxScheme = TaxScheme::DomesticVat;
+    context.taxDeclaringCountryCode = "FR";
+    context.taxJurisdictionLevel = TaxJurisdictionLevel::Country;
+    context.countryCodeVatPaidTo = "FR";
+
+    const QDate date(2026, 2, 15);
+
+    // Same shipmentId appears twice: original shipment + refund
+    QList<bool> invoicesToDo = {true, true};
+    QStringList shipmentIds = {"ORDER-REFUND", "ORDER-REFUND"};
+
+    QStringList invoiceNumbers = generator.getNextInvoiceNumbers(
+        date, context, "Service", "", invoicesToDo, std::nullopt, shipmentIds);
+
+    QCOMPARE(invoiceNumbers.size(), 2);
+
+    const QString &base   = invoiceNumbers[0];
+    const QString &refund = invoiceNumbers[1];
+
+    // Base invoice: no revision suffix
+    QVERIFY(!base.isEmpty());
+    QVERIFY(!base.contains("-R"));
+
+    // Refund invoice: has -R01 suffix
+    QVERIFY(refund.endsWith("-R01"));
+
+    // Fixed prevNumber logic applied to the base: must be empty
+    {
+        QString prevNumber;
+        const int rIdx = base.lastIndexOf("-R");
+        if (rIdx != -1) {
+            bool ok;
+            base.mid(rIdx + 2).toInt(&ok);
+            if (ok) prevNumber = base.left(rIdx);
+        }
+        QVERIFY2(prevNumber.isEmpty(),
+            "Base invoice must not reference a prior invoice (no 'Facture d'origine')");
+    }
+
+    // Fixed prevNumber logic applied to the refund: must equal the base number
+    {
+        QString prevNumber;
+        const int rIdx = refund.lastIndexOf("-R");
+        if (rIdx != -1) {
+            bool ok;
+            refund.mid(rIdx + 2).toInt(&ok);
+            if (ok) prevNumber = refund.left(rIdx);
+        }
+        QCOMPARE(prevNumber, base);
+    }
+}
+
+// ===========================================================================
+// test_vatOnPayment_defaultFalse
+// InvoicingInfo created via the factory without specifying vatOnPayment must
+// have getVatOnPayment() == false, and the flag must survive a JSON round-trip.
+// ===========================================================================
+void TestInvoicing::test_vatOnPayment_defaultFalse()
+{
+    // Default: vatOnPayment is false
+    auto res = InvoicingInfo::create(nullptr, {}, QString("INV-VOP-001"));
+    QVERIFY(res.ok());
+    QVERIFY(!res.value->getVatOnPayment());
+
+    // JSON round-trip: false must not write the key and must reload as false
+    QJsonObject json = res.value->toJson();
+    QVERIFY(!json.contains("vatOnPayment"));
+    InvoicingInfo loaded = InvoicingInfo::fromJson(json);
+    QVERIFY(!loaded.getVatOnPayment());
+
+    // When explicitly set to true, the key is written and reloaded correctly
+    res.value->setVatOnPayment(true);
+    QJsonObject jsonTrue = res.value->toJson();
+    QVERIFY(jsonTrue.contains("vatOnPayment"));
+    QVERIFY(jsonTrue["vatOnPayment"].toBool());
+    InvoicingInfo loadedTrue = InvoicingInfo::fromJson(jsonTrue);
+    QVERIFY(loadedTrue.getVatOnPayment());
 }
 
 QTEST_MAIN(TestInvoicing)

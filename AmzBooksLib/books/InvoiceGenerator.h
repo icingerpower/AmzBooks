@@ -13,6 +13,7 @@
 class CompanyInfosTable;
 class CompanyAddressTable;
 class CurrencyRateManager;
+class VatNumbersTable;
 class Address;
 class InvoicingInfo;
 
@@ -28,6 +29,7 @@ public:
         const CompanyInfosTable *companyInfos,
         const CompanyAddressTable *companyAddress,
         const CurrencyRateManager *currencyRates,
+        const VatNumbersTable *vatNumbers = nullptr,
         QObject *parent = nullptr);
 
     // Invoice number generation
@@ -35,7 +37,8 @@ public:
         const QDate &date,
         const TaxResolver::TaxContext &taxContext,
         const QString &channel,
-        const QString &store);
+        const QString &store,
+        const QString &shipmentId);
 
     QStringList getNextInvoiceNumbers(
         const QDate &date,
@@ -43,7 +46,8 @@ public:
         const QString &channel,
         const QString &store,
         const QList<bool> &invoicesToDo,
-        const std::optional<QString> &existingInvoiceNumber);
+        const std::optional<QString> &existingInvoiceNumber,
+        const QStringList &shipmentIds);
 
     void generateInvoice(
         const QString &invoiceNumber,
@@ -101,6 +105,7 @@ private:
         QString channel;
         QString store;
         QString invoiceNumber;
+        QString shipmentId; // Persisted for idempotent re-generation after delete + recreate
     };
 
     QString _buildContextKey(
@@ -110,6 +115,19 @@ private:
         const QString &store) const;
 
     int _getNextSequenceForContext(const QString &contextKey);
+
+public:
+    // Remove the invoice record associated with a shipmentId (base + any revisions).
+    // Call this before deleting the corresponding sale so that if the sale is
+    // recreated, the same invoice number is re-assigned from scratch.
+    void removeInvoiceRecord(const QString &shipmentId);
+
+    // Remove the invoice record identified by its invoice number plus any -Rxx revision
+    // records.  Called from ServiceSalesBooksTable::remove() when an invoice has already
+    // been generated (i.e. the number is stored in the OrderManager).
+    void removeInvoiceByNumber(const QString &invoiceNumber);
+
+private:
     
 
     QString m_filePath;
@@ -117,6 +135,7 @@ private:
     const CompanyInfosTable *m_companyInfos;
     const CompanyAddressTable *m_companyAddress;
     const CurrencyRateManager *m_currencyRates;
+    const VatNumbersTable *m_vatNumbers;
 
     // Cache for tracking sequences per context (YYYYMM-{scheme}-{country}-{channel}-{store})
     QHash<QString, int> m_sequenceCache;

@@ -23,7 +23,10 @@ public:
     std::optional<QString> getInvoiceNumber() const;
     void setInvoiceNumber(const QString &invoiceNumber);
     std::optional<QString> getInvoiceLink() const;
-    
+
+    bool getVatOnPayment() const { return m_vatOnPayment; }
+    void setVatOnPayment(bool vatOnPayment) { m_vatOnPayment = vatOnPayment; }
+
     /// Returns the payment date. If not set, returns the orderDate as default (instant payment).
     QDate getPaymentDate(const QDate &orderDate) const;
 
@@ -42,6 +45,7 @@ private:
     std::optional<QString> m_invoiceNumber;
     std::optional<QString> m_invoiceLink;
     std::optional<QDate> m_paymentDate;
+    bool m_vatOnPayment = false;
 };
 
 #endif // INVOICINGINFO_H

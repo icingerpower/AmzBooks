@@ -63,7 +63,11 @@ void OrderManager::initDb()
     }
 
     QSqlQuery query(m_db);
+    query.exec("PRAGMA journal_mode = WAL;");
+    query.exec("PRAGMA synchronous = NORMAL;");
     query.exec("PRAGMA foreign_keys = ON;");
+
+    m_db.transaction();
 
     if (!query.exec(OrderManagerSql::CREATE_TABLE_ORDERS)) {
          qWarning() << "Failed to create orders table:" << query.lastError().text();
@@ -162,6 +166,7 @@ void OrderManager::initDb()
             }
         }
     }
+    m_db.commit();
 }
 
 QDateTime OrderManager::getLastDateTime(ActivitySource *activitySource) const
@@ -1832,8 +1837,11 @@ OrderManager::get_channel_site_ShipmentAndRefundsConflicts(const QDate &dateFrom
 
 void OrderManager::deleteDatabase()
 {
-    m_db.close();
-    QSqlDatabase::removeDatabase(m_db.connectionName());
+    if (m_db.isOpen()) {
+        m_db.close();
+    }
+    m_db = QSqlDatabase();
+    QSqlDatabase::removeDatabase(m_connectionName);
     QFile::remove(m_filePathDb);
     initDb();
 }
@@ -1841,9 +1849,169 @@ void OrderManager::deleteDatabase()
 QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>
 OrderManager::get_channel_site_ShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate &dateTo) const
 {
-    // TODO any shipment without an orderid and site should led to ExceptionWithTitleText
-    return nullptr;
+    auto result = QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>::create();
+
+    // Phase 1: find distinct root IDs whose shipments (within dateFrom..dateTo) lack an invoice number.
+    // Same logic as getShipmentAndRefundsNoInvoices.
+    QString rootQueryStr = R"(
+        SELECT DISTINCT COALESCE(s.root_id, s.id) as root_id
+        FROM shipments s
+        LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id
+        WHERE 1=1
+    )";
+
+    if (dateFrom.isValid()) {
+        rootQueryStr += QString(" AND DATE(s.event_date) >= '%1'").arg(dateFrom.toString(Qt::ISODate));
+    }
+    if (dateTo.isValid()) {
+        rootQueryStr += QString(" AND DATE(s.event_date) <= '%1'").arg(dateTo.toString(Qt::ISODate));
+    }
+
+    rootQueryStr += R"( AND (
+        inv.shipment_root_id IS NULL
+        OR inv.json NOT LIKE '%"invoiceNumber":%'
+        OR inv.json LIKE '%"invoiceNumber":null%'
+        OR s.id LIKE '%-rev-%'
+        OR s.id LIKE '%-v-%'
+    ))";
+
+    QSqlQuery rootQuery(m_db);
+    rootQuery.exec(rootQueryStr);
+    QSet<QString> rootIdsToProcess;
+    while (rootQuery.next()) {
+        rootIdsToProcess.insert(rootQuery.value("root_id").toString());
+    }
+
+    if (rootIdsToProcess.isEmpty()) {
+        return result;
+    }
+
+    // Phase 2: fetch all shipments for those roots, with invoicing info and source.
+    QStringList quotedIds;
+    for (const QString &id : rootIdsToProcess) {
+        quotedIds << QString("'%1'").arg(id);
+    }
+
+    QString queryStr =
+        "SELECT s.id, s.current_json, s.source_key, s.event_date, "
+        "COALESCE(s.root_id, s.id) as root_id, "
+        "inv.json as inv_json, "
+        "o.address_json, "
+        "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
+        "COALESCE(o.customer_account, '') AS customer_account "
+        "FROM shipments s "
+        "LEFT JOIN orders o ON s.order_id = o.id "
+        "LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id "
+        "WHERE COALESCE(s.root_id, s.id) IN ("
+        + quotedIds.join(", ") + ") "
+        "ORDER BY root_id, s.event_date";
+
+    QSqlQuery query(m_db);
+    query.exec(queryStr);
+
+    // Group shipments by (channel, subchannel, TaxContext), accumulating per root.
+    // We use a helper map: rootId → (channel, subchannel, ctx) so we don't recompute.
+    struct RootMeta { QString channel; QString subchannel; TaxResolver::TaxContext ctx; };
+    QHash<QString, RootMeta> rootMeta;
+    QHash<QString, QString>  rootInvJson;
+
+    while (query.next()) {
+        const QString id             = query.value("id").toString();
+        const QString rootId         = query.value("root_id").toString();
+        const QString jsonStr        = query.value("current_json").toString();
+        const QString sourceKey      = query.value("source_key").toString();
+        const QString invJson        = query.value("inv_json").toString();
+        const QString addressJson    = query.value("address_json").toString();
+        const bool    isGrouped      = query.value("is_ungrouped").toInt() == 0;
+        const QString customerAccount = query.value("customer_account").toString();
+
+        // Parse source → channel / subchannel.
+        QStringList parts = sourceKey.split('|');
+        const QString channel    = (parts.size() >= 2) ? parts[1] : QString();
+        const QString subchannel = (parts.size() >= 3 && !parts[2].isEmpty()) ? parts[2] : QStringLiteral("Unknown");
+
+        // Enforce the TODO requirement: every no-invoice shipment must have at least a channel.
+        // (A missing or empty channel means the shipment has no recognisable origin/site.)
+        if (channel.isEmpty()) {
+            ExceptionWithTitleText ex(
+                QObject::tr("Missing Channel / Site"),
+                QObject::tr("Shipment '%1' has no channel or site information. "
+                            "Cannot group no-invoice shipments without a valid channel.")
+                    .arg(id));
+            ex.raise();
+        }
+
+        // Parse and optionally negate (reversal) the shipment.
+        QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
+        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        shipment->setIsGrouped(isGrouped);
+        shipment->setCustomerAccount(customerAccount);
+
+        if (id.contains("-rev-")) {
+            QList<Activity> newActs;
+            for (const auto &act : shipment->getActivities()) {
+                Amount negatedAmount(-act.getAmountTaxed(), -act.getAmountTaxesSource());
+                auto res = Activity::create(act.getEventId(),
+                                            act.getActivityId(),
+                                            act.getSubActivityId(),
+                                            act.getDateTime(),
+                                            act.getDateTimeTax(),
+                                            act.getCurrency(),
+                                            act.getCountryCodeFrom(),
+                                            act.getCountryCodeTo(),
+                                            act.getIsCompany(),
+                                            act.getCountryCodeVatPaidTo(),
+                                            negatedAmount,
+                                            act.getTaxSource(),
+                                            act.getTaxDeclaringCountryCode(),
+                                            act.getTaxScheme(),
+                                            act.getTaxJurisdictionLevel(),
+                                            act.getSaleType(),
+                                            act.getVatTerritoryFrom(),
+                                            act.getVatTerritoryTo());
+                if (res.value) {
+                    newActs.append(*res.value);
+                }
+            }
+            shipment = QSharedPointer<Shipment>::create(Shipment(newActs, customerAccount, isGrouped));
+        }
+
+        if (shipment->getActivities().isEmpty()) continue;
+
+        // Derive TaxContext from the first activity.
+        const auto &act = shipment->getActivities().first();
+        TaxResolver::TaxContext ctx;
+        ctx.taxDeclaringCountryCode = act.getTaxDeclaringCountryCode();
+        ctx.taxScheme               = act.getTaxScheme();
+        ctx.taxJurisdictionLevel    = act.getTaxJurisdictionLevel();
+        ctx.countryCodeVatPaidTo    = act.getCountryCodeVatPaidTo();
+
+        // Cache metadata for this root (first shipment wins; all revisions share same root).
+        if (!rootMeta.contains(rootId)) {
+            rootMeta[rootId] = RootMeta{channel, subchannel, ctx};
+            rootInvJson[rootId] = invJson;
+
+            // Initialise the channel/subchannel/ctx entry if needed.
+            auto &entry = (*result)[channel][subchannel][ctx];
+            if (!invJson.isEmpty()) {
+                QJsonObject invObj = QJsonDocument::fromJson(invJson.toUtf8()).object();
+                entry.invoicingInfo = QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(invObj));
+            }
+            if (!addressJson.isEmpty()) {
+                QJsonObject addrObj = QJsonDocument::fromJson(addressJson.toUtf8()).object();
+                entry.addressTo = QSharedPointer<Address>::create(Address::fromJson(addrObj));
+            }
+        }
+
+        const RootMeta &meta = rootMeta[rootId];
+        auto &entry = (*result)[meta.channel][meta.subchannel][meta.ctx];
+        entry.shipmentsRefundsSameActivity.append(shipment);
+        entry.invoicesToDo.append(true); // all entries here need an invoice
+    }
+
+    return result;
 }
+
 
 QSharedPointer<QList<OrderManager::ShipmentRefundsWithUpdates>>
 OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate &dateTo) const

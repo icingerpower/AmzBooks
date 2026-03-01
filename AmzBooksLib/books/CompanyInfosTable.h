@@ -20,11 +20,18 @@ public:
     static const QString ID_LEGAL_SIRET;
     static const QString ID_LEGAL_RCS;
     static const QString ID_LEGAL_VAT_INTRACOMMUNITY;
+    static const QString ID_LEGAL_INVOICE_BOTTOM;
+    static const QString ID_VAT_ON_PAYMENT_TEXT;
     explicit CompanyInfosTable(const QDir &workingDir, QObject *parent = nullptr);
     const QString &getCompanyCountryCode() const;
     static QColor getHighlightColorDark();
     const QString &getCurrency() const;
     const QString &getApiKeyFixer() const;
+    const QString &getLegalID() const;
+    const QString &getLegalRCS() const;
+    const QString &getLegalVatIntracommunity() const;
+    const QString &getInvoiceLegalBottom() const;
+    const QString &getVatOnPaymentText() const;
     bool hadData() const;
     int getRowById(const QString &id) const;
 

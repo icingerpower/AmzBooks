@@ -24,8 +24,10 @@ public:
     const QString& getSku() const noexcept;
     const QString& getName() const noexcept;
     int getQuantity() const noexcept;
+    double getAmountUntaxed() const noexcept;
     double getAmountTaxed() const noexcept;
     double getTaxes() const noexcept;
+    double getTotalUntaxed() const noexcept;
     double getTotalTaxed() const noexcept;
     double getTotalTaxes() const noexcept;
 

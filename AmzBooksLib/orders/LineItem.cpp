@@ -38,7 +38,7 @@ LineItem::LineItem(
     : m_sku(std::move(sku))
     , m_name(std::move(name))
     , m_quantity(quantity)
-    , m_amount(taxedAmount, taxedAmount * vatRate)
+    , m_amount(taxedAmount, taxedAmount - (taxedAmount / (1 + vatRate)))
 {
 }
 
@@ -57,6 +57,11 @@ int LineItem::getQuantity() const noexcept
     return m_quantity;
 }
 
+double LineItem::getAmountUntaxed() const noexcept
+{
+    return m_amount.getAmountUntaxed();
+}
+
 double LineItem::getAmountTaxed() const noexcept
 {
     return m_amount.getAmountTaxed();
@@ -65,6 +70,11 @@ double LineItem::getAmountTaxed() const noexcept
 double LineItem::getTaxes() const noexcept
 {
     return m_amount.getTaxes();
+}
+
+double LineItem::getTotalUntaxed() const noexcept
+{
+    return m_amount.getAmountUntaxed() * m_quantity;
 }
 
 double LineItem::getTotalTaxed() const noexcept

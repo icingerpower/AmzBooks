@@ -219,7 +219,7 @@ target_include_directories(TestServiceSales PRIVATE ../AmzBooksLib)
 
 add_executable(TestInvoicing test_invoicing.cpp)
 add_test(NAME TestInvoicing COMMAND TestInvoicing)
-target_link_libraries(TestInvoicing PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_link_libraries(TestInvoicing PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib)
 target_include_directories(TestInvoicing PRIVATE ../AmzBooksLib)
 
 

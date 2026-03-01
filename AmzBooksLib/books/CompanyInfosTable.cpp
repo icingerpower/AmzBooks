@@ -18,6 +18,8 @@ const QString CompanyInfosTable::ID_LEGAL_SHARE_CAPITAL = "Legal_ShareCapital";
 const QString CompanyInfosTable::ID_LEGAL_SIRET = "Legal_Siret";
 const QString CompanyInfosTable::ID_LEGAL_RCS = "Legal_RCS";
 const QString CompanyInfosTable::ID_LEGAL_VAT_INTRACOMMUNITY = "Legal_VATIntracommunity";
+const QString CompanyInfosTable::ID_LEGAL_INVOICE_BOTTOM = "Legal_InvoiceBottom";
+const QString CompanyInfosTable::ID_VAT_ON_PAYMENT_TEXT  = "Legal_VatOnPaymentText";
 
 CompanyInfosTable::CompanyInfosTable(
     const QDir &workingDir, QObject *parent)
@@ -62,6 +64,61 @@ const QString &CompanyInfosTable::getApiKeyFixer() const
 {
     for (const auto &item : m_data) {
         if (item.id == ID_FIXER_API_KEY) {
+            return item.value;
+        }
+    }
+    static QString empty;
+    return empty;
+}
+
+const QString &CompanyInfosTable::getLegalID() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == ID_LEGAL_SIRET) {
+            return item.value;
+        }
+    }
+    static QString empty;
+    return empty;
+}
+
+const QString &CompanyInfosTable::getLegalRCS() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == ID_LEGAL_RCS) {
+            return item.value;
+        }
+    }
+    static QString empty;
+    return empty;
+}
+
+const QString &CompanyInfosTable::getLegalVatIntracommunity() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == ID_LEGAL_VAT_INTRACOMMUNITY) {
+            return item.value;
+        }
+    }
+    static QString empty;
+    return empty;
+}
+
+const QString &CompanyInfosTable::getInvoiceLegalBottom() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == ID_LEGAL_INVOICE_BOTTOM) {
+            return item.value;
+        }
+    }
+    static QString empty;
+    return empty;
+}
+
+const QString &CompanyInfosTable::getVatOnPaymentText() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == ID_VAT_ON_PAYMENT_TEXT) {
             return item.value;
         }
     }
@@ -222,6 +279,27 @@ void CompanyInfosTable::_initDefaultRows()
         item.id = ID_LEGAL_VAT_INTRACOMMUNITY;
         item.parameter = tr("Legal VAT Intracommunity");
         item.value = "";
+        item.encrypt = false;
+        m_data.append(item);
+    }
+
+    // Row 8: Invoice Legal Bottom
+    {
+        InfoItem item;
+        item.id = ID_LEGAL_INVOICE_BOTTOM;
+        item.parameter = tr("Invoice Legal Bottom");
+        item.value = "Toute somme non payée à échéance est susceptible de porter intérêts à un taux égal à une fois et demi le taux d'intérêt légal.<br>"
+                     "Tout retard de paiement entraine de plein droit et sans qu'un rappel ne soit nécessaire, outre les pénalités de retard, une obligation pour le débiteur de payer une indemnité forfaitaire pour frais de recouvrement de 40 EUR.";
+        item.encrypt = false;
+        m_data.append(item);
+    }
+
+    // Row 9: VAT on payment mention text
+    {
+        InfoItem item;
+        item.id = ID_VAT_ON_PAYMENT_TEXT;
+        item.parameter = tr("VAT on Payment Text");
+        item.value = "TVA acquittée sur encaissements";
         item.encrypt = false;
         m_data.append(item);
     }

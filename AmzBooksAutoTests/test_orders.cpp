@@ -216,10 +216,10 @@ void TestOrders::test_shipments()
     QCOMPARE(invInfo.getItems()[0].getTotalTaxes(), 10.0);
     QCOMPARE(invInfo.getItems()[1].getTotalTaxes(), 10.0);
 
-    // Case with delta adjustment (small delta < 0.015 per unit)
-    // Activity says 20.01 taxes, items say 20.0 (10+10). Delta 0.01.
-    // 0.01 / 1 (first item qty) = 0.01 <= 0.015.
-    // Should dump 0.01 on the first item.
+    // Case with delta adjustment (large delta, spread evenly)
+    // Activity says 20.01 taxes, items say ~16.67 (TTC-based: 50-50/1.2 each). Delta ~3.34.
+    // 3.34 / 1 (first item qty) > 0.015 → spread evenly across total qty 2.
+    // Each item gets ~1.67 added: 8.33 + 1.67 = 10.005.
     auto resultDelta = Activity::create(
         "evt-ship-002", "act-ship-002", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(), "EUR", "FR", "DE", false, "DE",
         Amount(100.0, 20.01), 
@@ -235,10 +235,9 @@ void TestOrders::test_shipments()
     QVERIFY(resInvInfoDelta.ok());
     InvoicingInfo invInfoDelta = *resInvInfoDelta.value;
     
-    // adjustItemTaxes should add 0.01 to the first item only.
-    // First item taxes was 10.0. New should be 10.01.
-    QCOMPARE(invInfoDelta.getItems()[0].getTotalTaxes(), 10.01);
-    QCOMPARE(invInfoDelta.getItems()[1].getTotalTaxes(), 10.0);
+    // Both items get equal share of the spread delta.
+    QCOMPARE(invInfoDelta.getItems()[0].getTotalTaxes(), 10.005);
+    QCOMPARE(invInfoDelta.getItems()[1].getTotalTaxes(), 10.005);
 
     // Case with large delta adjustment (spread evenly)
     // Activity says 20.20 (+0.20 delta). 0.20 / 1 (first item qty) = 0.20 > 0.015.

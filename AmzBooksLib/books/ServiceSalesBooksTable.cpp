@@ -2,9 +2,11 @@
 #include "ServiceClientManager.h"
 #include "VatResolver.h"
 #include "TaxResolver.h"
+#include "InvoiceGenerator.h"
 #include "orders/OrderManager.h"
 #include "orders/Shipment.h"
 #include "orders/InvoicingInfo.h"
+#include "orders/Address.h"
 #include "books/Activity.h"
 #include "ExceptionWithTitleText.h"
 #include <QUuid>
@@ -20,6 +22,11 @@ ServiceSalesBooksTable::ServiceSalesBooksTable(
     , m_orderManager(orderManager)
 {
     init();
+}
+
+QString ServiceSalesBooksTable::getId() const
+{
+    return "ServiceSales";
 }
 
 void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManager
@@ -107,7 +114,7 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         taxJurisdictionLevel,       // Jurisdiction Level
         SaleType::Service,          // SaleType::Service
         "", "",
-        QString{}                   // Invoice ID
+        account                     // Store bookkeeping account in invoiceId for persistence
     );
 
     if (!res.value) {
@@ -142,6 +149,23 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     m_orderManager->recordShipmentFromSource(orderId, &source, &shipment, date, false);
     m_orderManager->recordOrders({{orderId, OrderManager::OrderInfo{QString(), false, clientAccount}}});
 
+    // Record client address so the invoice can display the destination
+    Address clientAddress(
+        clientManager->getClientName(clientRow),    // fullName
+        clientManager->getStreet1(clientRow),        // addressLine1
+        clientManager->getStreet2(clientRow),        // addressLine2
+        QString(),                                   // addressLine3
+        clientManager->getCity(clientRow),           // city
+        clientManager->getPostalCode(clientRow),     // postalCode
+        country,                                     // countryCode (already fetched above)
+        QString(),                                   // stateOrRegion
+        QString(),                                   // email
+        QString(),                                   // phone
+        clientManager->getClientName(clientRow),    // companyName
+        clientManager->getVatNumber(clientRow)       // taxId
+    );
+    m_orderManager->recordAddressesTo({{orderId, clientAddress}});
+
     // 6. Create and record InvoicingInfo with payment date
     // Use paymentDate only if it differs from orderDate (non-instant payment)
     std::optional<QDate> optPaymentDate = (paymentDate != date) ? std::optional<QDate>(paymentDate) : std::nullopt;
@@ -152,11 +176,12 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         QString err = lineItemRes.errors.isEmpty() ? "Unknown" : lineItemRes.errors.first().message;
         ExceptionWithTitleText(tr("Invalid Line Item"), err).raise();
     }
-    auto resInfo = InvoicingInfo::create(&shipment, {lineItemRes.value.value()}, QString{}, std::nullopt, optPaymentDate);
+    auto resInfo = InvoicingInfo::create(&shipment, {lineItemRes.value.value()}, std::nullopt, std::nullopt, optPaymentDate);
     if (!resInfo.ok()) {
         QString err = resInfo.errors.isEmpty() ? "Unknown" : resInfo.errors.first().message;
         ExceptionWithTitleText(tr("Invalid Invoicing Info"), err).raise();
     }
+    resInfo.value->setVatOnPayment(clientManager->getVatOnPayment(clientRow));
     m_orderManager->recordInvoicingInfo(activityId, &resInfo.value.value());
     
     // 7. Add to AbstractBooksTable (gross amount = net + vat)
@@ -176,10 +201,21 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
 
 bool ServiceSalesBooksTable::remove(const QString &rowId)
 {
-    // 1. Remove from OrderManager
+    // 1. Remove the invoice registry entry BEFORE removeOrder deletes invoicing_infos
+    if (m_invoiceGenerator) {
+        auto info = m_orderManager->getInvoicingInfo(rowId);
+        if (info) {
+            const QString inv = info->getInvoiceNumber().value_or("");
+            if (!inv.isEmpty()) {
+                m_invoiceGenerator->removeInvoiceByNumber(inv);
+            }
+        }
+    }
+
+    // 2. Remove from OrderManager
     m_orderManager->removeOrder(rowId);
-    
-    // 2. Remove from AbstractBooksTable
+
+    // 3. Remove from AbstractBooksTable
     return AbstractBooksTable::remove(rowId);
 }
 
@@ -213,12 +249,13 @@ void ServiceSalesBooksTable::load(int year)
         const Activity &act = activities.first();
 
         add(act.getEventId(),
-            act.getInvoiceId(),
+            act.getInvoiceId(),         // bookId (invoice/account code stored here)
             act.getDateTime().date(),
             act.getAmountTaxed(), // Total Amount (TTC = gross)
             act.getCurrency(), 
             act.getSubActivityId(), // Label stored in subActivityId
-            "", "", 
+            act.getInvoiceId(),     // account1: recovered from invoiceId field
+            "", 
             act.getAmountTaxes(), 
             act.getCountryCodeTo(), // Used as VAT Country
             act.getCurrency());

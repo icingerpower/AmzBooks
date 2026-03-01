@@ -244,7 +244,7 @@ void TestJournalTable::test_getters()
     item = table.getJournalServiceSale();
     QCOMPARE(item.name, QString("Sale of service"));
     QCOMPARE(item.code, QString("VTSERVICE"));
-    QCOMPARE(item.id, QString("Sale service"));
+    QCOMPARE(item.id, QString("Service"));
 
     // getJournalAmzPayment
     item = table.getJournalAmzPayment();

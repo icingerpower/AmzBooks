@@ -14,12 +14,16 @@
 #include "books/JournalEntryFactory.h"
 #include "books/JournalEntry.h"
 #include "books/CompanyInfosTable.h"
+#include "books/CompanyAddressTable.h"
+#include "books/InvoiceGenerator.h"
+#include "books/VatNumbersTable.h"
 #include "books/BooksAccountsSalesTable.h"
 #include "books/BookAccountPurchaseTable.h"
 #include "books/JournalTable.h"
 #include "books/BookSaverFull.h"
 #include "CurrencyRateManager.h"
 #include "orders/OrderManager.h"
+#include "orders/Address.h"
 #include "orders/Shipment.h"
 #include "orders/ActivitySource.h"
 #include "orders/InvoicingInfo.h"
@@ -130,6 +134,10 @@ private slots:
     void test_paymentDate_edgeCases();
     void test_createSale_withBookKeeping();
     void test_lineitem_and_quantity();
+    void test_noInvoices_and_recordInfo();
+    void test_persistence_all_columns();
+    void test_deleteWithInvoice();
+    void test_vatOnPayment_true();
 };
 
 void TestServiceSales::test_InvoicingInfo_paymentDate()
@@ -598,6 +606,429 @@ void TestServiceSales::test_lineitem_and_quantity()
 
     // VERIFY 10: line item total gross matches totalTTC
     QCOMPARE(item.getTotalTaxed(), totalTTC);
+}
+
+// ===========================================================================
+// test_noInvoices_and_recordInfo
+// Verifies the full workflow:
+//   1. Create a service sale → appears in BOTH getShipmentAndRefundsNoInvoices
+//      AND get_channel_site_ShipmentAndRefundsNoInvoices because no invoice number is set yet.
+//   2. Retrieve the InvoicingInfo, add an invoice number, record it again.
+//   3. Line item details (title, quantity, payment date) are still present.
+//   4. Entry no longer appears in either NoInvoices query.
+// ===========================================================================
+void TestServiceSales::test_noInvoices_and_recordInfo()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    // FR client — 30-day payment terms
+    clientManager.addClient("Dupont SAS", "IT Consulting", "FR", "FR98765", "EUR",
+                            PaymentType::AfterXDays, 30);
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable serviceTable(nullptr, &orderManager, tempDir.path());
+
+    const QDate saleDate(2025, 5, 10);
+    const QString orderId  = "SVC-NOINV-001";
+    const QString title    = "IT Consulting";
+    const int     qty      = 2;
+    const double  totalTTC = 600.0;   // 2 × 300 TTC
+
+    serviceTable.createSale(&clientManager, 0, saleDate, totalTTC, "EUR",
+                            orderId, title, qty, "", vatResolver, taxResolver);
+
+    QCOMPARE(serviceTable.rowCount(), 1);
+    QVERIFY(orderManager.containsOrder(orderId));
+
+    // -----------------------------------------------------------------------
+    // Step 1: Sale without invoice number → must appear in BOTH NoInvoices queries
+    // -----------------------------------------------------------------------
+    const QDate from(2025, 1, 1);
+    const QDate to(2025, 12, 31);
+
+    // --- Flat list variant ---
+    auto noInvList = orderManager.getShipmentAndRefundsNoInvoices(from, to);
+    QVERIFY(!noInvList.isNull());
+    QCOMPARE(noInvList->size(), 1);
+
+    // Verify address was recorded by createSale
+    QVERIFY(!noInvList->first().addressTo.isNull());
+    QCOMPARE(noInvList->first().addressTo->getFullName(), QString("Dupont SAS"));
+    QCOMPARE(noInvList->first().addressTo->getCountryCode(), QString("FR"));
+    QCOMPARE(noInvList->first().addressTo->getTaxId(), QString("FR98765"));
+
+    // --- Channel/site map variant ---
+    auto noInvMap = orderManager.get_channel_site_ShipmentAndRefundsNoInvoices(from, to);
+    QVERIFY(!noInvMap.isNull());
+    // The service sale uses channel = ServiceSalesBooksTable::CHANNEL_SALE, subchannel = "Unknown"
+    const QString expectedChannel = QString(ServiceSalesBooksTable::CHANNEL_SALE);
+    QVERIFY(noInvMap->contains(expectedChannel));
+    // At least one channel entry present
+    int totalShipmentsInMap = 0;
+    for (auto &subMap : *noInvMap) {
+        for (auto &ctxMap : subMap) {
+            for (auto &entry : ctxMap) {
+                totalShipmentsInMap += entry.shipmentsRefundsSameActivity.size();
+            }
+        }
+    }
+    QCOMPARE(totalShipmentsInMap, 1);
+
+    // -----------------------------------------------------------------------
+    // Step 2: Retrieve InvoicingInfo, add invoice number, record again
+    // -----------------------------------------------------------------------
+    auto info = orderManager.getInvoicingInfo(orderId);
+    QVERIFY(!info.isNull());
+
+    // Sanity: no invoice number yet
+    QVERIFY(!info->getInvoiceNumber().has_value());
+
+    // Add the invoice number
+    info->setInvoiceNumber("INV-2025-042");
+    orderManager.recordInvoicingInfo(orderId, info.get());
+
+    // -----------------------------------------------------------------------
+    // Step 3: Retrieve again and verify line item details are preserved
+    // -----------------------------------------------------------------------
+    auto updatedInfo = orderManager.getInvoicingInfo(orderId);
+    QVERIFY(!updatedInfo.isNull());
+
+    // Invoice number must be present
+    QVERIFY(updatedInfo->getInvoiceNumber().has_value());
+    QCOMPARE(updatedInfo->getInvoiceNumber().value(), QString("INV-2025-042"));
+
+    // Line items must still be there
+    QCOMPARE(updatedInfo->getItems().size(), 1);
+    const LineItem &item = updatedInfo->getItems().first();
+
+    // Service title preserved
+    QCOMPARE(item.getName(), title);
+
+    // Quantity preserved
+    QCOMPARE(item.getQuantity(), qty);
+
+    // Total gross preserved
+    QCOMPARE(item.getTotalTaxed(), totalTTC);
+
+    // Payment date (30 days after sale date) preserved
+    const QDate expectedPayment = saleDate.addDays(30); // 2025-06-09
+    QCOMPARE(updatedInfo->getPaymentDate(saleDate), expectedPayment);
+
+    // -----------------------------------------------------------------------
+    // Step 4: BOTH NoInvoices queries must now be empty
+    // -----------------------------------------------------------------------
+
+    // --- Flat list variant ---
+    auto noInvListAfter = orderManager.getShipmentAndRefundsNoInvoices(from, to);
+    QVERIFY(!noInvListAfter.isNull());
+    QCOMPARE(noInvListAfter->size(), 0);
+
+    // --- Channel/site map variant ---
+    auto noInvMapAfter = orderManager.get_channel_site_ShipmentAndRefundsNoInvoices(from, to);
+    QVERIFY(!noInvMapAfter.isNull());
+    int totalAfter = 0;
+    for (auto &subMap : *noInvMapAfter) {
+        for (auto &ctxMap : subMap) {
+            for (auto &entry : ctxMap) {
+                totalAfter += entry.shipmentsRefundsSameActivity.size();
+            }
+        }
+    }
+    QCOMPARE(totalAfter, 0);
+}
+
+// ===========================================================================
+// test_persistence_all_columns
+// Verifies that ALL ServiceSalesBooksTable column values survive a
+// close/re-open cycle (i.e. createSale followed by load() in a new instance).
+// Known regression: Account 1 (bookkeeping account code) was not restored
+// by load() — it was hardcoded to "".
+// Columns checked: Date, Amount (TTC), Currency, Label, Account1,
+//                  VAT amount, VAT Country.
+// ===========================================================================
+void TestServiceSales::test_persistence_all_columns()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    const QDate    saleDate   = QDate(2025, 4, 20);
+    const double   totalTTC   = 1200.0;
+    const QString  currency   = "EUR";
+    const QString  orderId    = "SVC-PERSIST-001";
+    const QString  title      = "Software Development";
+    const int      qty        = 4;
+    const QString  account1   = "706000"; // bookkeeping account code
+
+    // -----------------------------------------------------------------------
+    // Phase 1: create the sale
+    // -----------------------------------------------------------------------
+    {
+        OrderManager orderManager(tempDir.path());
+        orderManager.deleteDatabase();
+
+        ServiceClientManager clientManager(tempDir.path());
+        // FR client — instant payment (default)
+        clientManager.addClient("ClientX", "Dev", "FR", "FR99999", currency);
+
+        VatResolver vatResolver(tempDir.path());
+        TaxResolver taxResolver(tempDir.path());
+        vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+        ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+        table.createSale(&clientManager, 0, saleDate, totalTTC, currency,
+                         orderId, title, qty, account1, vatResolver, taxResolver);
+
+        // Sanity: sale is in table right after creation
+        QCOMPARE(table.rowCount(), 1);
+
+        // Account1 is correct immediately after createSale
+        QCOMPARE(table.getAccount1(0), account1);
+    }
+
+    // -----------------------------------------------------------------------
+    // Phase 2: reload — simulates reopening the application
+    // -----------------------------------------------------------------------
+    {
+        OrderManager orderManager(tempDir.path()); // loads from same DB
+
+        ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+        // Table starts empty until load() is called (matches existing test_persistence)
+        QCOMPARE(table.rowCount(), 0);
+
+        table.load(saleDate.year());
+
+        QCOMPARE(table.rowCount(), 1);
+
+        // --- Date ---
+        QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_DATE)).toDate(), saleDate);
+
+        // --- Amount (TTC gross) ---
+        QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_AMOUNT)).toDouble(), totalTTC);
+
+        // --- Currency ---
+        QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_CURRENCY)).toString(), currency);
+
+        // --- Label ---
+        // The service LABEL comes from clientManager->getServiceLabel(), not the title parameter.
+        // In createSale the subActivityId stores clientManager->getServiceLabel(clientRow) = "Dev"
+        QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_LABEL)).toString(), QString("Dev"));
+
+        // --- Account 1 (the bookkeeping account code) ---
+        QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_ACCOUNT1)).toString(), account1);
+
+        // --- VAT amount: 20% of net = totalTTC * 0.20 / 1.20 ---
+        const double expectedVat = totalTTC * 0.20 / 1.20;
+        QCOMPARE(table.data(table.index(0, 6)).toDouble(), expectedVat); // col 6 = Original VAT
+
+        // --- VAT Country: the client's country ---
+        QCOMPARE(table.data(table.index(0, 7)).toString(), QString("FR")); // col 7 = VAT Country
+
+        // --- Row ID must match orderId ---
+        QCOMPARE(table.getRowId(table.index(0, 0)), orderId);
+    }
+}
+
+// ===========================================================================
+// test_deleteWithInvoice
+// Full lifecycle: create → generate invoice → delete → recreate → generate
+// again and verify the second invoice number is identical to the first.
+//
+//   1. Create a sale with ServiceSalesBooksTable (generator linked via
+//      setInvoiceGenerator so that remove() cleans the CSV registry too).
+//   2. Generate the invoice (getBaseInvoiceNumber + generateInvoice).
+//   3. Delete the sale — ServiceSalesBooksTable::remove() calls
+//      m_invoiceGenerator->removeInvoiceByNumber() before removeOrder().
+//   4. Confirm order + InvoicingInfo are gone from OrderManager.
+//   5. Recreate the sale with the same orderId.
+//   6. Generate the invoice again — must produce the SAME invoice number.
+// ===========================================================================
+void TestServiceSales::test_deleteWithInvoice()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("Acme Corp", "Software Dev", "FR", "FR12345", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    // Set up InvoiceGenerator and link it to the table
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    companyAddress.insertRows(0, 1);
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    VatNumbersTable vatNumbers(tempDir.path());
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress, &currencyRates, &vatNumbers);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+    table.setInvoiceGenerator(&generator);
+
+    const QDate   date    = QDate(2025, 7, 10);
+    const QString orderId = "SVC-DEL-001";
+
+    // -------------------------------------------------------------------
+    // Step 1: Create the sale
+    // -------------------------------------------------------------------
+    table.createSale(&clientManager, 0, date, 600.0, "EUR",
+                     orderId, "Software Dev", 1, "706000", vatResolver, taxResolver);
+
+    // VERIFY 1: sale is present in the table
+    QCOMPARE(table.rowCount(), 1);
+
+    // VERIFY 2: order is present in OrderManager
+    QVERIFY(orderManager.containsOrder(orderId));
+
+    // -------------------------------------------------------------------
+    // Step 2: Generate the invoice number and produce the PDF
+    // -------------------------------------------------------------------
+    TaxResolver::TaxContext taxCtx;
+    taxCtx.taxScheme           = TaxScheme::DomesticVat;
+    taxCtx.taxDeclaringCountryCode = "FR";
+    taxCtx.taxJurisdictionLevel    = TaxJurisdictionLevel::Country;
+    taxCtx.countryCodeVatPaidTo    = "FR";
+
+    QString inv1 = generator.getBaseInvoiceNumber(
+        date, taxCtx, QString(ServiceSalesBooksTable::CHANNEL_SALE), "", orderId);
+    QVERIFY(!inv1.isEmpty());
+
+    // Build a minimal InvoicingInfo with the generated number
+    auto lineItemRes = LineItem::create("SVC", "Software Dev", 600.0, 0.20, 1);
+    QVERIFY(lineItemRes.ok());
+    QList<LineItem> items = {*lineItemRes.value};
+    auto resInfo = InvoicingInfo::create(nullptr, items, inv1);
+    QVERIFY(resInfo.ok());
+    InvoicingInfo invInfo = *resInfo.value;
+    Address addr("Acme Corp", "1 Rue de la Paix", "", "", "Paris", "75000", "FR", "", "", "", "", "");
+
+    const QString pdfPath1 = tempDir.filePath("inv1.pdf");
+    generator.generateInvoice(inv1, "", pdfPath1, addr, invInfo, orderId, orderManager);
+
+    // VERIFY 3: PDF was created → CSV and OrderManager were updated
+    QVERIFY(QFile::exists(pdfPath1));
+
+    // VERIFY 4: invoice number is stored in OrderManager
+    {
+        auto storedInfo = orderManager.getInvoicingInfo(orderId);
+        QVERIFY(!storedInfo.isNull());
+        QVERIFY(storedInfo->getInvoiceNumber().has_value());
+        QCOMPARE(storedInfo->getInvoiceNumber().value(), inv1);
+    }
+
+    // VERIFY 5: generator holds one record
+    QCOMPARE(generator.rowCount(), 1);
+
+    // -------------------------------------------------------------------
+    // Step 3: Delete the sale
+    //   ServiceSalesBooksTable::remove() will:
+    //     a) call generator.removeInvoiceByNumber(inv1)  (CSV registry)
+    //     b) call orderManager.removeOrder(orderId)        (DB)
+    //     c) call AbstractBooksTable::remove()             (table row)
+    // -------------------------------------------------------------------
+    bool removed = table.remove(orderId);
+
+    // VERIFY 6: remove() reported success
+    QVERIFY(removed);
+
+    // VERIFY 7: sale is gone from the table
+    QCOMPARE(table.rowCount(), 0);
+
+    // VERIFY 8: order is gone from OrderManager
+    QVERIFY(!orderManager.containsOrder(orderId));
+
+    // VERIFY 9: InvoicingInfo (including invoice number) deleted from DB
+    {
+        auto infoAfterDelete = orderManager.getInvoicingInfo(orderId);
+        QVERIFY(infoAfterDelete.isNull());
+    }
+
+    // VERIFY 10: invoice record removed from the generator's CSV registry
+    QCOMPARE(generator.rowCount(), 0);
+
+    // -------------------------------------------------------------------
+    // Step 4: Recreate the sale with the same orderId
+    // -------------------------------------------------------------------
+    table.createSale(&clientManager, 0, date, 600.0, "EUR",
+                     orderId, "Software Dev", 1, "706000", vatResolver, taxResolver);
+
+    // VERIFY 11: sale is back in the table
+    QCOMPARE(table.rowCount(), 1);
+    QVERIFY(orderManager.containsOrder(orderId));
+
+    // -------------------------------------------------------------------
+    // Step 5: Generate the invoice again
+    // -------------------------------------------------------------------
+    QString inv2 = generator.getBaseInvoiceNumber(
+        date, taxCtx, QString(ServiceSalesBooksTable::CHANNEL_SALE), "", orderId);
+
+    // VERIFY 12: the regenerated invoice number is IDENTICAL to the original
+    QCOMPARE(inv2, inv1);
+
+    // Generate the second PDF to complete the round-trip
+    auto resInfo2 = InvoicingInfo::create(nullptr, items, inv2);
+    QVERIFY(resInfo2.ok());
+    InvoicingInfo invInfo2 = *resInfo2.value;
+    const QString pdfPath2 = tempDir.filePath("inv2.pdf");
+    generator.generateInvoice(inv2, "", pdfPath2, addr, invInfo2, orderId, orderManager);
+
+    // VERIFY 13: second PDF was also created
+    QVERIFY(QFile::exists(pdfPath2));
+}
+
+// ===========================================================================
+// test_vatOnPayment_true
+// When a service client has vatOnPayment = true, createSale must propagate
+// that flag to the stored InvoicingInfo (both in memory and after JSON
+// round-trip via the DB).
+// ===========================================================================
+void TestServiceSales::test_vatOnPayment_true()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    // vatOnPayment = true is the last parameter of addClient
+    clientManager.addClient("VopClient", "Audit", "FR", "FR11111", "EUR",
+                            PaymentType::Instant, 0,
+                            QString(), QString(), QString(), QString(),
+                            QString(), QString(), QString(),
+                            /*vatOnPayment=*/true);
+
+    QVERIFY(clientManager.getVatOnPayment(0));
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate date(2025, 9, 1);
+    const QString orderId = "SVC-VOP-001";
+    table.createSale(&clientManager, 0, date, 600.0, "EUR",
+                     orderId, "Audit", 1, "706000", vatResolver, taxResolver);
+
+    QCOMPARE(table.rowCount(), 1);
+
+    // InvoicingInfo retrieved from DB must have vatOnPayment = true
+    auto info = orderManager.getInvoicingInfo(orderId);
+    QVERIFY(!info.isNull());
+    QVERIFY(info->getVatOnPayment());
 }
 
 QTEST_MAIN(TestServiceSales)

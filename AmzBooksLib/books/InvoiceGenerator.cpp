@@ -12,6 +12,8 @@
 #include "CompanyInfosTable.h"
 #include "CompanyAddressTable.h"
 #include "CurrencyRateManager.h"
+#include "VatNumbersTable.h"
+#include "CountriesEu.h"
 #include "orders/InvoicingInfo.h"
 #include "orders/Address.h"
 
@@ -50,6 +52,7 @@ const QHash<QString, QString> InvoiceGenerator::CHANNEL_SHORTCUTS = {
     {"Shopify", "SHO"},
     {"Website", "WEB"},
     {"Service", "SVC"},
+    {"Sale service", "SAL"},
     {"Etsy", "ETS"},
     {"Cdiscount", "CDI"}
 };
@@ -79,7 +82,8 @@ const QStringList InvoiceGenerator::HEADER_IDS = {
     "CountryVatPaidTo",
     "Channel",
     "Store",
-    "InvoiceNumber"
+    "InvoiceNumber",
+    "ShipmentId"
 };
 
 // Static helper methods
@@ -133,11 +137,13 @@ InvoiceGenerator::InvoiceGenerator(
     const CompanyInfosTable *companyInfos,
     const CompanyAddressTable *companyAddress,
     const CurrencyRateManager *currencyRates,
+    const VatNumbersTable *vatNumbers,
     QObject *parent)
     : QAbstractTableModel(parent)
     , m_companyInfos(companyInfos)
     , m_companyAddress(companyAddress)
     , m_currencyRates(currencyRates)
+    , m_vatNumbers(vatNumbers)
 {
     m_filePath = workingDir.absoluteFilePath("invoices.csv");
     _load();
@@ -199,16 +205,28 @@ QString InvoiceGenerator::getBaseInvoiceNumber(
     const QDate &date,
     const TaxResolver::TaxContext &taxContext,
     const QString &channel,
-    const QString &store)
+    const QString &store,
+    const QString &shipmentId)
 {
+    // Idempotent: look up m_data for an existing record bound to this shipmentId.
+    // Using m_data (rather than an in-memory cache) ensures the mapping survives
+    // across InvoiceGenerator instances and is consistent with removeInvoiceRecord.
+    if (!shipmentId.isEmpty()) {
+        for (const auto &record : m_data) {
+            if (record.shipmentId == shipmentId) {
+                return record.invoiceNumber;
+            }
+        }
+    }
+
     QString contextKey = _buildContextKey(date, taxContext, channel, store);
     int sequence = _getNextSequenceForContext(contextKey);
-    
+
     QString invoiceNumber = QString("%1-%2")
         .arg(contextKey)
         .arg(sequence, 3, 10, QChar('0'));
-    
-    // Record this invoice
+
+    // Record this invoice (with the shipmentId for future idempotent lookups)
     InvoiceRecord record;
     record.date = date;
     record.taxDeclaringCountry = taxContext.taxDeclaringCountryCode;
@@ -218,13 +236,14 @@ QString InvoiceGenerator::getBaseInvoiceNumber(
     record.channel = channel;
     record.store = store;
     record.invoiceNumber = invoiceNumber;
-    
+    record.shipmentId = shipmentId;
+
     beginInsertRows(QModelIndex(), m_data.size(), m_data.size());
     m_data.append(record);
     endInsertRows();
-    
+
     // NO SAVE HERE - Defer to generateInvoice
-    
+
     return invoiceNumber;
 }
 
@@ -234,60 +253,54 @@ QStringList InvoiceGenerator::getNextInvoiceNumbers(
     const QString &channel,
     const QString &store,
     const QList<bool> &invoicesToDo,
-    const std::optional<QString> &existingInvoiceNumber)
+    const std::optional<QString> &existingInvoiceNumber,
+    const QStringList &shipmentIds)
 {
     QStringList result;
-    
+
     if (invoicesToDo.isEmpty()) {
         return result;
     }
-    
-    QString baseNumber;
-    int revisionCounter = 0;
-    
-    // Determine base number
+
+    // Per-shipment state: the base invoice number, revision counter, and whether the
+    // base number has already been appended to the result.
+    struct ShipmentState {
+        QString baseNumber;
+        int revCounter = 0;
+        bool baseAppended = false;
+    };
+    QHash<QString, ShipmentState> shipmentStates;
+
+    // If an existing invoice number is provided, pre-map it to the first invoiceable
+    // shipment so that subsequent entries with the same shipmentId become revisions.
     if (existingInvoiceNumber.has_value() && !existingInvoiceNumber->isEmpty()) {
-        // Use marketplace-generated or existing invoice number
-        baseNumber = existingInvoiceNumber.value();
-        
-        // Extract any existing revision counter from the base number
-        int lastR = baseNumber.lastIndexOf("-R");
-        if (lastR != -1) {
-            QString revPart = baseNumber.mid(lastR + 2);
-            bool ok;
-            int existingRev = revPart.toInt(&ok);
-            if (ok) {
-                revisionCounter = existingRev;
-                baseNumber = baseNumber.left(lastR);
+        for (int i = 0; i < invoicesToDo.size(); ++i) {
+            if (!invoicesToDo[i]) continue;
+
+            const QString sid = shipmentIds.value(i);
+            ShipmentState &state = shipmentStates[sid];
+            state.baseNumber = existingInvoiceNumber.value();
+
+            // Strip any revision suffix already present in the existing number
+            int lastR = state.baseNumber.lastIndexOf("-R");
+            if (lastR != -1) {
+                QString revPart = state.baseNumber.mid(lastR + 2);
+                bool ok;
+                int existingRev = revPart.toInt(&ok);
+                if (ok) {
+                    state.revCounter = existingRev;
+                    state.baseNumber = state.baseNumber.left(lastR);
+                }
             }
-        }
-    }
-    
-    // Process each shipment/refund
-    bool firstInvoice = true;
-    for (int i = 0; i < invoicesToDo.size(); ++i) {
-        if (!invoicesToDo[i]) {
-            // No invoice needed for this one
-            result.append(QString());
-            continue;
-        }
-        
-        if (baseNumber.isEmpty()) {
-            // First invoice, generate new base number
-            baseNumber = getBaseInvoiceNumber(date, taxContext, channel, store);
-            result.append(baseNumber);
-            firstInvoice = false;
-        } else if (firstInvoice) {
-            // First entry uses base number (original invoice)
-            // Record this in our data if it's a marketplace number we haven't seen
+
+            // Record the existing number in our data if it is not yet tracked
             bool found = false;
             for (const auto &record : m_data) {
-                if (record.invoiceNumber == baseNumber) {
+                if (record.invoiceNumber == existingInvoiceNumber.value()) {
                     found = true;
                     break;
                 }
             }
-            
             if (!found) {
                 InvoiceRecord record;
                 record.date = date;
@@ -297,43 +310,69 @@ QStringList InvoiceGenerator::getNextInvoiceNumbers(
                 record.countryVatPaidTo = taxContext.countryCodeVatPaidTo;
                 record.channel = channel;
                 record.store = store;
-                record.invoiceNumber = baseNumber;
-                
+                record.invoiceNumber = existingInvoiceNumber.value();
+                record.shipmentId = sid;
+
                 beginInsertRows(QModelIndex(), m_data.size(), m_data.size());
                 m_data.append(record);
                 endInsertRows();
             }
-            
-            result.append(baseNumber);
-            firstInvoice = false;
-        } else {
-            // Subsequent entries get revision numbers
-            revisionCounter++;
-            QString revisionNumber = QString("%1-R%2")
-                .arg(baseNumber)
-                .arg(revisionCounter, 2, 10, QChar('0'));
-            
-            // Record revision
-            InvoiceRecord record;
-            record.date = date;
-            record.taxDeclaringCountry = taxContext.taxDeclaringCountryCode;
-            record.taxScheme = taxSchemeToString(taxContext.taxScheme);
-            record.taxJurisdiction = taxJurisdictionLevelToString(taxContext.taxJurisdictionLevel);
-            record.countryVatPaidTo = taxContext.countryCodeVatPaidTo;
-            record.channel = channel;
-            record.store = store;
-            record.invoiceNumber = revisionNumber;
-            
-            beginInsertRows(QModelIndex(), m_data.size(), m_data.size());
-            m_data.append(record);
-            endInsertRows();
-            
-            result.append(revisionNumber);
+
+            break; // Only pre-populate the first invoiceable entry
         }
     }
-    
+
+    // Process each entry
+    for (int i = 0; i < invoicesToDo.size(); ++i) {
+        if (!invoicesToDo[i]) {
+            result.append(QString());
+            continue;
+        }
+
+        const QString sid = shipmentIds.value(i);
+
+        if (!shipmentStates.contains(sid)) {
+            // New shipment: generate a fresh sequential base number
+            ShipmentState state;
+            state.baseNumber = getBaseInvoiceNumber(date, taxContext, channel, store, sid);
+            state.baseAppended = true;
+            shipmentStates[sid] = state;
+            result.append(state.baseNumber);
+        } else {
+            ShipmentState &state = shipmentStates[sid];
+            if (!state.baseAppended) {
+                // First occurrence of a pre-populated existing number
+                state.baseAppended = true;
+                result.append(state.baseNumber);
+            } else {
+                // Subsequent entry for the same shipment: generate a revision
+                state.revCounter++;
+                QString revisionNumber = QString("%1-R%2")
+                    .arg(state.baseNumber)
+                    .arg(state.revCounter, 2, 10, QChar('0'));
+
+                InvoiceRecord record;
+                record.date = date;
+                record.taxDeclaringCountry = taxContext.taxDeclaringCountryCode;
+                record.taxScheme = taxSchemeToString(taxContext.taxScheme);
+                record.taxJurisdiction = taxJurisdictionLevelToString(taxContext.taxJurisdictionLevel);
+                record.countryVatPaidTo = taxContext.countryCodeVatPaidTo;
+                record.channel = channel;
+                record.store = store;
+                record.invoiceNumber = revisionNumber;
+                record.shipmentId = sid;
+
+                beginInsertRows(QModelIndex(), m_data.size(), m_data.size());
+                m_data.append(record);
+                endInsertRows();
+
+                result.append(revisionNumber);
+            }
+        }
+    }
+
     // NO SAVE HERE - Defer to generateInvoice
-    
+
     return result;
 }
 
@@ -349,8 +388,7 @@ void InvoiceGenerator::generateInvoice(
     // 1. Gather Data
     QString companyName = "Your Company Name"; // Default
     QString companyAddress = "";
-    int rowId = m_companyInfos->getRowById(CompanyInfosTable::ID_COUNTRY); // Using country just to access stored address logic if any
-    
+
     // Use CompanyAddressTable for current address
     QDate invoiceDate = QDate::currentDate(); // Or use payment date?
     if (m_companyAddress) {
@@ -359,40 +397,28 @@ void InvoiceGenerator::generateInvoice(
         QString street2 = m_companyAddress->getStreet2(invoiceDate);
         QString postal = m_companyAddress->getPostalCode(invoiceDate);
         QString city = m_companyAddress->getCity(invoiceDate);
-        QString country = m_companyAddress->getCompanyAddress(invoiceDate); // This actually returns full country name or code
 
         companyAddress += street1 + "<br>";
         if (!street2.isEmpty()) companyAddress += street2 + "<br>";
         companyAddress += postal + " " + city + "<br>";
-        // companyAddress += country; // Country might be redundant if in standard address format
+    }
+
+    // Company VAT number (from VatNumbersTable, keyed by company country)
+    QString companyCountryCode = m_companyInfos->getCompanyCountryCode();
+    QString companyVatNumber;
+    if (m_vatNumbers) {
+        companyVatNumber = m_vatNumbers->getVatNumber(companyCountryCode);
     }
 
     // Get legal footer info
     QString shareCapital = "";
-    QString siret = "";
-    QString rcs = "";
-    QString vatIntra = "";
-    
     int rowShare = m_companyInfos->getRowById(CompanyInfosTable::ID_LEGAL_SHARE_CAPITAL);
     if (rowShare != -1) {
         shareCapital = m_companyInfos->data(m_companyInfos->index(rowShare, 1)).toString();
     }
-    
-    int rowSiret = m_companyInfos->getRowById(CompanyInfosTable::ID_LEGAL_SIRET);
-    if (rowSiret != -1) {
-        siret = m_companyInfos->data(m_companyInfos->index(rowSiret, 1)).toString();
-    }
-
-    
-    int rowRcs = m_companyInfos->getRowById(CompanyInfosTable::ID_LEGAL_RCS);
-    if (rowRcs != -1) {
-        rcs = m_companyInfos->data(m_companyInfos->index(rowRcs, 1)).toString();
-    }
-
-    int rowVat = m_companyInfos->getRowById(CompanyInfosTable::ID_LEGAL_VAT_INTRACOMMUNITY);
-    if (rowVat != -1) {
-        vatIntra = m_companyInfos->data(m_companyInfos->index(rowVat, 1)).toString();
-    }
+    QString siret    = m_companyInfos->getLegalID();
+    QString rcs      = m_companyInfos->getLegalRCS();
+    QString vatIntra = m_companyInfos->getLegalVatIntracommunity();
 
     // 2. Build HTML
     QString html = R"(
@@ -400,17 +426,17 @@ void InvoiceGenerator::generateInvoice(
     <head>
     <style>
         body { font-family: sans-serif; }
-        .header { display: flex; justify-content: space-between; margin-bottom: 50px; }
+        .header { display: flex; justify-content: space-between; margin-bottom: 15px; }
         .sender { float: left; }
         .recipient { float: right; text-align: right; }
-        .details { margin-top: 150px; margin-bottom: 30px; clear: both; }
-        .table-container { margin-top: 20px; }
+        .details { margin-top: 20px; margin-bottom: 10px; clear: both; }
+        .table-container { margin-top: 10px; }
         table { width: 100%; border-collapse: collapse; }
-        th { background-color: #d0e0f0; padding: 10px; text-align: left; }
-        td { padding: 10px; border-bottom: 1px solid #eee; }
-        .totals { margin-top: 20px; float: right; width: 300px; }
+        th { background-color: #d0e0f0; padding: 6px; text-align: left; }
+        td { padding: 6px; border-bottom: 1px solid #eee; }
+        .totals { margin-top: 10px; float: right; width: 300px; }
         .totals-row { display: flex; justify-content: space-between; margin-bottom: 5px; }
-        .footer { position: fixed; bottom: 30px; width: 100%; text-align: center; font-size: 10px; color: #555; }
+        .footer { position: fixed; bottom: 30px; width: 100%; text-align: center; font-size: 16px; color: #555; }
         .clear { clear: both; }
     </style>
     </head>
@@ -438,6 +464,9 @@ void InvoiceGenerator::generateInvoice(
         Date du paiement: %14<br>
     </div>
     
+    %25
+    %24
+
     <div class="table-container">
         <table>
             <tr>
@@ -446,6 +475,7 @@ void InvoiceGenerator::generateInvoice(
                 <th>Taux de TVA</th>
                 <th>Prix HT</th>
                 <th>TVA</th>
+                <th>Prix TTC</th>
                 <th>Monnaie</th>
             </tr>
             %15
@@ -531,9 +561,8 @@ void InvoiceGenerator::generateInvoice(
     QString currency = "EUR"; // Default, should come from InvoicingInfo/Amount
 
     for (const auto &item : invoicingInfo.getItems()) {
-        double ht = item.getAmountTaxed();
+        double ht = item.getAmountUntaxed();
         double tax = item.getTaxes();
-        double ttc = item.getTotalTaxes() + item.getTotalTaxed(); // Or simpler calc
         
         // Wait, LineItem uses Amount structure? No, getAmountTaxed returns double.
         // Assuming single currency for all items.
@@ -545,32 +574,84 @@ void InvoiceGenerator::generateInvoice(
         totalTax += tax;
         totalTTC += ht + tax;
 
+        double vatRate = (ht > 0) ? (tax / ht * 100.0) : 0.0;
+        double ttc = ht + tax;
         rowsHtml += QString(R"(
             <tr>
                 <td>%1</td>
                 <td>%2</td>
-                <td>%3</td>
+                <td>%3 %</td>
                 <td>%4</td>
                 <td>%5</td>
                 <td>%6</td>
+                <td>%7</td>
             </tr>
         )")
         .arg(item.getName(),
              QString::number(item.getQuantity()),
-             QString::number(ht > 0 ? (tax / ht) : 0.0, 'f', 2), // Rate approximation
+             QString::number(vatRate, 'f', 2),
              QString::number(ht, 'f', 2),
              QString::number(tax, 'f', 2),
-             currency); // TODO: Get actual currency
+             QString::number(ttc, 'f', 2),
+             currency);
     }
 
-    QString legalFooter = "Toute somme non payée à échéance est susceptible de porter intérêts à un taux égal à une fois et demi le taux d'intérêt légal.<br>"
-                          "Tout retard de paiement entraine de plein droit et sans qu'un rappel ne soit nécessaire, outre les pénalités de retard, une obligation pour le débiteur de payer une indemnité forfaitaire pour frais de recouvrement de 40 EUR.";
+    // EU-to-EU without VAT: both company and destination are EU members and no VAT was charged
+    // (reverse charge / autoliquidation). In this case, append the intracommunity VAT mention.
+    const QString &destCountryCode = addressTo.getCountryCode();
+    bool isEuToEuNoVat = CountriesEu::all().contains(companyCountryCode)
+                      && CountriesEu::all().contains(destCountryCode)
+                      && qFuzzyIsNull(totalTax);
+
+    QString legalFooter = m_companyInfos->getInvoiceLegalBottom();
+    if (isEuToEuNoVat && !vatIntra.isEmpty()) {
+        legalFooter = vatIntra + "<br>" + legalFooter;
+    }
+
+    QString vatOnPaymentHtml;
+    if (invoicingInfo.getVatOnPayment()) {
+        vatOnPaymentHtml = QString("<p><i>%1</i></p>").arg(m_companyInfos->getVatOnPaymentText());
+    }
+
+    // Human-readable tax context line — look up the invoice record for channel + scheme
+    QString taxContextHtml;
+    {
+        static const QHash<QString, QString> SCHEME_LABELS = {
+            {"DomesticVat",                "Régime Normal"},
+            {"EuOssUnion",                 "OSS Union"},
+            {"EuOssNonUnion",              "OSS Non-Union"},
+            {"EuIoss",                     "IOSS"},
+            {"ImportVat",                  "TVA à l'import"},
+            {"ReverseChargeImport",        "Autoliquidation Import"},
+            {"ReverseChargeDomestic",      "Autoliquidation"},
+            {"MarketplaceDeemedSupplier",  "Marketplace Fournisseur Présumé"},
+            {"Exempt",                     "Exonéré"},
+            {"OutOfScope",                 "Hors Champ"},
+            {"Unknown",                    "Inconnu"},
+        };
+
+        QString channel;
+        QString taxSchemeStr;
+        for (const auto &record : m_data) {
+            if (record.invoiceNumber == invoiceNumber) {
+                channel      = record.channel;
+                taxSchemeStr = record.taxScheme;
+                break;
+            }
+        }
+        if (channel == "Sale service") channel = "Service";
+        const QString regimeLabel = SCHEME_LABELS.value(taxSchemeStr, taxSchemeStr);
+        taxContextHtml = QString("<p>%1 %2 =&gt; %3 (%4)</p>")
+            .arg(channel, companyCountryCode, destCountryCode, regimeLabel);
+    }
 
     QString finalHtml = html
-        .arg(companyName, companyAddress, vatIntra, destName, destAddr1, destAddr2, destPostal, destCity, destCountry)
+        .arg(companyName, companyAddress, companyVatNumber, destName, destAddr1, destAddr2, destPostal, destCity, destCountry)
         .arg(invoiceNumber, prevInvLine, orderId, invDateStr, payDateStr)
         .arg(rowsHtml, QString::number(totalHT, 'f', 2), QString::number(totalTax, 'f', 2), currency, QString::number(totalTTC, 'f', 2))
-        .arg(shareCapital, rcs, siret, legalFooter);
+        .arg(shareCapital, rcs, siret, legalFooter)
+        .arg(vatOnPaymentHtml)
+        .arg(taxContextHtml);
 
 
     // 3. Print to PDF
@@ -580,7 +661,7 @@ void InvoiceGenerator::generateInvoice(
     QPdfWriter writer(destinationPath);
     writer.setPageSize(QPageSize(QPageSize::A4));
     writer.setResolution(300); // High res for text
-    writer.setPageMargins(QMarginsF(15, 15, 15, 15)); // mm
+    writer.setPageMargins(QMarginsF(3.0, 3.0, 3.0, 3.0)); // mm
 
     document.print(&writer);
 
@@ -736,7 +817,8 @@ void InvoiceGenerator::_load()
         int idxChannel = colMap.value("Channel", -1);
         int idxStore = colMap.value("Store", -1);
         int idxInvoice = colMap.value("InvoiceNumber", -1);
-        
+        int idxShipmentId = colMap.value("ShipmentId", -1);
+
         if (idxDate != -1 && idxDate < parts.size()) {
             record.date = QDate::fromString(parts[idxDate], Qt::ISODate);
         }
@@ -760,6 +842,9 @@ void InvoiceGenerator::_load()
         }
         if (idxInvoice != -1 && idxInvoice < parts.size()) {
             record.invoiceNumber = parts[idxInvoice];
+        }
+        if (idxShipmentId != -1 && idxShipmentId < parts.size()) {
+            record.shipmentId = parts[idxShipmentId];
         }
         
         if (!record.invoiceNumber.isEmpty()) {
@@ -786,6 +871,53 @@ void InvoiceGenerator::_save()
             << record.countryVatPaidTo << ";"
             << record.channel << ";"
             << record.store << ";"
-            << record.invoiceNumber << "\n";
+            << record.invoiceNumber << ";"
+            << record.shipmentId << "\n";
+    }
+}
+
+void InvoiceGenerator::removeInvoiceByNumber(const QString &invoiceNumber)
+{
+    if (invoiceNumber.isEmpty())
+        return;
+
+    // Match the base record and any revision records (e.g. "INV-001-R01", "INV-001-R02")
+    const QString revisionPrefix = invoiceNumber + "-R";
+    int removed = 0;
+    for (int i = m_data.size() - 1; i >= 0; --i) {
+        const QString &num = m_data[i].invoiceNumber;
+        if (num == invoiceNumber || num.startsWith(revisionPrefix)) {
+            beginRemoveRows(QModelIndex(), i, i);
+            m_data.removeAt(i);
+            endRemoveRows();
+            ++removed;
+        }
+    }
+
+    if (removed > 0) {
+        m_sequenceCache.clear();
+        _save();
+    }
+}
+
+void InvoiceGenerator::removeInvoiceRecord(const QString &shipmentId)
+{
+    if (shipmentId.isEmpty())
+        return;
+
+    int removed = 0;
+    for (int i = m_data.size() - 1; i >= 0; --i) {
+        if (m_data[i].shipmentId == shipmentId) {
+            beginRemoveRows(QModelIndex(), i, i);
+            m_data.removeAt(i);
+            endRemoveRows();
+            ++removed;
+        }
+    }
+
+    if (removed > 0) {
+        // Invalidate the sequence cache so sequences are recalculated from the updated m_data
+        m_sequenceCache.clear();
+        _save();
     }
 }

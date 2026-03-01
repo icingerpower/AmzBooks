@@ -9,20 +9,26 @@ class ServiceClientManager;
 class OrderManager;
 class VatResolver;
 class TaxResolver;
+class InvoiceGenerator;
 
 class ServiceSalesBooksTable : public AbstractBooksTable
 {
     Q_OBJECT
 
 public:
-    static constexpr QLatin1StringView CHANNEL_SALE{"Sale service"};
+    static constexpr QLatin1StringView CHANNEL_SALE{"Service"};
     explicit ServiceSalesBooksTable(
             const BooksConnections *bookConnections
             , OrderManager *orderManager
             , const QDir &workingDir
             , QObject *parent = nullptr);
 
-    QString getId() const override { return "ServiceSales"; }
+    QString getId() const override;
+
+    // Provide an InvoiceGenerator so that remove() can also clean up the
+    // invoice CSV registry when a generated invoice exists.  Optional — if
+    // nullptr (the default) the CSV is left untouched.
+    void setInvoiceGenerator(InvoiceGenerator *generator) { m_invoiceGenerator = generator; }
 
     // Custom Methods
     void createSale(const ServiceClientManager *clientManager
@@ -41,6 +47,7 @@ public:
 
 private:
     OrderManager *m_orderManager;
+    InvoiceGenerator *m_invoiceGenerator = nullptr;
 };
 
 #endif // SERVICESALESBOOKSTABLE_H

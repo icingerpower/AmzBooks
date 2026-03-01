@@ -70,6 +70,7 @@ private:
     BooksConnections *m_booksConnections;
     class OrderManager *m_orderManager;
     QCoro::Task<> generateBookKeepingAsync();
+    void generateInvoices();
 };
 
 #endif // PANEBOOKKEEPING_H

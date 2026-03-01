@@ -50,9 +50,13 @@
 #include "books/VatResolver.h"
 #include "books/TaxResolver.h"
 #include "books/CompanyInfosTable.h"
+#include "books/CompanyAddressTable.h"
 #include "books/BookAccountPurchaseTable.h"
+#include "books/InvoiceGenerator.h"
+#include "books/VatNumbersTable.h"
 #include "orders/OrderManager.h"
 #include "orders/Shipment.h"
+#include "orders/InvoicingInfo.h"
 
 // For confirmation message box
 #include <QMessageBox>
@@ -340,6 +344,26 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         saver.save(journal_date_entries, outDir);
         qDebug() << "[PaneBookKeeping] Saved successfully.";
         QMessageBox::information(this, tr("Success"), tr("Bookkeeping generated successfully in %1").arg(outDir.absolutePath()));
+
+        // Check if there are orders without invoices in the period
+        auto noInvoicesList = m_orderManager->getShipmentAndRefundsNoInvoices(from, to);
+        if (noInvoicesList && !noInvoicesList->isEmpty()) {
+            int count = 0;
+            for (const auto &entry : *noInvoicesList)
+                for (bool needed : entry.invoicesToDo)
+                    if (needed) count++;
+            if (count > 0) {
+                auto answer = QMessageBox::question(
+                    this,
+                    tr("Generate Invoices"),
+                    tr("%1 order(s) in %2 do not have invoices yet. Do you want to generate them now?")
+                        .arg(count).arg(year),
+                    QMessageBox::Yes | QMessageBox::No,
+                    QMessageBox::Yes);
+                if (answer == QMessageBox::Yes)
+                    generateInvoices();
+            }
+        }
     } catch (const std::exception &e) {
         qDebug() << "[PaneBookKeeping] Exception during saving:" << e.what();
         QMessageBox::critical(this, tr("Error"), tr("Failed to save documents: %1").arg(e.what()));
@@ -355,6 +379,165 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         qDebug() << "[PaneBookKeeping] Unknown exception catching in loop!";
         QMessageBox::critical(this, tr("Error"), tr("An unknown error occurred during generation."));
     }
+}
+
+void PaneBookKeeping::generateInvoices()
+{
+    // 1. Ask for output directory (persist last used path in QSettings)
+    QSettings settings;
+    QString lastDir = settings.value("lastInvoicesDir", QDir::homePath()).toString();
+    QString dir = QFileDialog::getExistingDirectory(this, tr("Select Invoices Output Folder"), lastDir);
+    if (dir.isEmpty()) return;
+    settings.setValue("lastInvoicesDir", dir);
+    QDir outDir(dir);
+
+    // 2. Get the period from the UI year selector
+    int year = ui->comboBoxYear->currentText().toInt();
+    QDate from(year, 1, 1);
+    QDate to(year, 12, 31);
+
+    // 3. Retrieve orders without invoices for the period
+    auto noInvoicesMap = m_orderManager->get_channel_site_ShipmentAndRefundsNoInvoices(from, to);
+    if (!noInvoicesMap || noInvoicesMap->isEmpty()) {
+        QMessageBox::information(this, tr("No Invoices to Generate"),
+            tr("All orders for %1 already have invoices.").arg(year));
+        return;
+    }
+
+    // 4. Count total invoices to generate (for the progress dialog)
+    int totalSteps = 0;
+    for (auto chanIt = noInvoicesMap->cbegin(); chanIt != noInvoicesMap->cend(); ++chanIt)
+        for (auto storeIt = chanIt.value().cbegin(); storeIt != chanIt.value().cend(); ++storeIt)
+            for (auto ctxIt = storeIt.value().cbegin(); ctxIt != storeIt.value().cend(); ++ctxIt)
+                for (bool needed : ctxIt.value().invoicesToDo)
+                    if (needed) totalSteps++;
+
+    // 5. Set up the InvoiceGenerator with company info and currency rates
+    QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
+    CompanyInfosTable companyInfos(workingDir);
+    CompanyAddressTable companyAddress(workingDir);
+    const QString apiKey = companyInfos.getApiKeyFixer();
+    CurrencyRateManager currencyRates(workingDir, apiKey);
+    VatNumbersTable vatNumbers(workingDir);
+    InvoiceGenerator generator(workingDir, &companyInfos, &companyAddress, &currencyRates, &vatNumbers);
+
+    // 6. Progress dialog
+    QProgressDialog progress(tr("Generating Invoices..."), tr("Cancel"), 0, totalSteps, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    int currentStep = 0;
+    int generated = 0;
+    int errors = 0;
+
+    // 7. Iterate channel → store → tax context → group of shipments
+    bool cancelled = false;
+    for (auto chanIt = noInvoicesMap->cbegin(); chanIt != noInvoicesMap->cend() && !cancelled; ++chanIt) {
+        const QString &channel = chanIt.key();
+        for (auto storeIt = chanIt.value().cbegin(); storeIt != chanIt.value().cend() && !cancelled; ++storeIt) {
+            const QString &store = storeIt.key();
+            for (auto ctxIt = storeIt.value().cbegin(); ctxIt != storeIt.value().cend() && !cancelled; ++ctxIt) {
+                if (progress.wasCanceled()) { cancelled = true; break; }
+
+                const TaxResolver::TaxContext &taxContext = ctxIt.key();
+                const OrderManager::ShipmentRefundsWithUpdates &entry = ctxIt.value();
+
+                if (entry.shipmentsRefundsSameActivity.isEmpty()) continue;
+
+                // Date: use first shipment's first activity date
+                QDate date;
+                const auto &firstShipment = entry.shipmentsRefundsSameActivity.first();
+                if (firstShipment && !firstShipment->getActivities().isEmpty())
+                    date = firstShipment->getActivities().first().getDateTime().date();
+                if (!date.isValid()) date = from;
+
+                // Preserve existing invoice number as base (for revisions)
+                std::optional<QString> existingNumber;
+                if (entry.invoicingInfo) {
+                    auto optNum = entry.invoicingInfo->getInvoiceNumber();
+                    if (optNum.has_value() && !optNum->isEmpty())
+                        existingNumber = optNum;
+                }
+
+                // Build per-entry shipment IDs so that entries from the same order
+                // share a base number while entries from different orders each get
+                // their own sequential number.
+                QStringList shipmentIds;
+                shipmentIds.reserve(entry.shipmentsRefundsSameActivity.size());
+                for (const auto &shipment : entry.shipmentsRefundsSameActivity) {
+                    if (shipment && !shipment->getActivities().isEmpty())
+                        shipmentIds.append(shipment->getActivities().first().getEventId());
+                    else
+                        shipmentIds.append(QString());
+                }
+
+                // Generate invoice numbers for all shipments/refunds in this group
+                QStringList invoiceNumbers = generator.getNextInvoiceNumbers(
+                    date, taxContext, channel, store, entry.invoicesToDo, existingNumber, shipmentIds);
+
+                // Fallback address when none is recorded (e.g. manual service sales)
+                const Address emptyAddr("", "", "", "", "", "", "", "", "", "", "", "");
+
+                for (int i = 0; i < entry.shipmentsRefundsSameActivity.size() && !cancelled; ++i) {
+                    if (!entry.invoicesToDo.value(i, false)) continue;
+                    if (progress.wasCanceled()) { cancelled = true; break; }
+                    progress.setValue(currentStep++);
+
+                    const QString &invoiceNumber = invoiceNumbers.value(i);
+                    if (invoiceNumber.isEmpty()) continue;
+
+                    const auto &shipment = entry.shipmentsRefundsSameActivity[i];
+                    if (!shipment || shipment->getActivities().isEmpty()) { errors++; continue; }
+
+                    const QString orderId = shipment->getActivities().first().getEventId();
+                    if (orderId.isEmpty()) { errors++; continue; }
+
+                    // Get InvoicingInfo per order (most precise), fallback to group-level info.
+                    // The existing info already contains line items and payment date; we only
+                    // add the invoice number — preserving all other recorded information.
+                    QSharedPointer<InvoicingInfo> info = m_orderManager->getInvoicingInfo(orderId);
+                    if (!info) info = entry.invoicingInfo;
+                    if (!info) { errors++; continue; }
+
+                    const Address &addressTo = entry.addressTo ? *entry.addressTo : emptyAddr;
+
+                    // Sanitize invoice number for use as a filename
+                    QString sanitized = invoiceNumber;
+                    sanitized.replace('/', '-').replace('\\', '-');
+                    QDir yearDir(outDir.filePath(QString::number(date.year())));
+                    yearDir.mkpath(".");
+                    const QString pdfPath = yearDir.absoluteFilePath(sanitized + ".pdf");
+
+                    // Set prevNumber only for actual revision invoices (suffix -R\d+),
+                    // not simply because this is the second shipment in the group.
+                    QString prevNumber;
+                    {
+                        const int rIdx = invoiceNumber.lastIndexOf("-R");
+                        if (rIdx != -1) {
+                            const QString suffix = invoiceNumber.mid(rIdx + 2);
+                            bool ok;
+                            suffix.toInt(&ok);
+                            if (ok) prevNumber = invoiceNumber.left(rIdx);
+                        }
+                    }
+
+                    try {
+                        generator.generateInvoice(invoiceNumber, prevNumber, pdfPath,
+                                                   addressTo, *info, orderId, *m_orderManager);
+                        generated++;
+                    } catch (const std::exception &ex) {
+                        qWarning() << "[generateInvoices] Failed for" << orderId << ":" << ex.what();
+                        errors++;
+                    }
+                }
+            }
+        }
+    }
+
+    progress.setValue(totalSteps);
+
+    QString msg = tr("Generated %1 invoice(s).").arg(generated);
+    if (errors > 0) msg += tr("\n%1 error(s) occurred.").arg(errors);
+    QMessageBox::information(this, tr("Invoice Generation Complete"), msg);
 }
 
 void PaneBookKeeping::unselectAll()
@@ -970,20 +1153,26 @@ void PaneBookKeeping::serviceAddSale()
 
     DialogAddSaleService dialog(&clientManager, this);
     if (dialog.exec() == QDialog::Accepted) {
-        serviceTable->createSale(
-            &clientManager,
-            dialog.getSelectedClientRow(),
-            dialog.getDate(),
-            dialog.getUnitPrice() * dialog.getQuantity(),
-            dialog.getCurrency(),
-            dialog.getInvoiceId(),
-            dialog.getServiceTitle(),
-            dialog.getQuantity(),
-            dialog.getAccount(),
-            vatResolver,
-            taxResolver,
-            onMissingVatRate
-        );
+        try {
+            serviceTable->createSale(
+                &clientManager,
+                dialog.getSelectedClientRow(),
+                dialog.getDate(),
+                dialog.getUnitPrice() * dialog.getQuantity(),
+                dialog.getCurrency(),
+                dialog.getInvoiceId(),
+                dialog.getServiceTitle(),
+                dialog.getQuantity(),
+                dialog.getAccount(),
+                vatResolver,
+                taxResolver,
+                onMissingVatRate
+            );
+        } catch (const ExceptionWithTitleText &e) {
+            QMessageBox::warning(this, e.errorTitle(), e.errorText());
+        } catch (const std::exception &e) {
+            QMessageBox::warning(this, tr("Error"), tr("An error occurred: %1").arg(e.what()));
+        }
     }
 }
 
@@ -1016,10 +1205,23 @@ void PaneBookKeeping::serviceRemoveSale()
     for(int row : rows) {
         ids << serviceTable->getRowId(serviceTable->index(row, 0));
     }
-    
+
+    // Provide an InvoiceGenerator so that remove() can clean up the CSV registry
+    // for any sale that already had an invoice generated.
+    QDir workingDir{WorkingDirectoryManager::instance()->workingDir()};
+    CompanyInfosTable companyInfos(workingDir);
+    CompanyAddressTable companyAddress(workingDir);
+    const QString apiKey = companyInfos.getApiKeyFixer();
+    CurrencyRateManager currencyRates(workingDir, apiKey);
+    VatNumbersTable vatNumbers(workingDir);
+    InvoiceGenerator generator(workingDir, &companyInfos, &companyAddress, &currencyRates, &vatNumbers);
+    serviceTable->setInvoiceGenerator(&generator);
+
     for(const QString &id : ids) {
         serviceTable->remove(id);
     }
+
+    serviceTable->setInvoiceGenerator(nullptr);
 }
 
 void PaneBookKeeping::serviceEditClients()
@@ -1364,6 +1566,10 @@ void PaneBookKeeping::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneBookKeeping::generateBookKeeping);
+    connect(ui->buttonGenerateInvoices,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::generateInvoices);
     connect(ui->buttonUnselectAll,
             &QPushButton::clicked,
             this,
