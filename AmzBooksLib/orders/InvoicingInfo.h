@@ -27,6 +27,12 @@ public:
     bool getVatOnPayment() const { return m_vatOnPayment; }
     void setVatOnPayment(bool vatOnPayment) { m_vatOnPayment = vatOnPayment; }
 
+    /// Renames the line item at position index without touching its amounts.
+    void setItemName(int index, const QString &name);
+
+    /// Replaces the optional payment date (nullopt = instant / no deferral).
+    void setPaymentDate(const std::optional<QDate> &date);
+
     /// Returns the payment date. If not set, returns the orderDate as default (instant payment).
     QDate getPaymentDate(const QDate &orderDate) const;
 

@@ -86,6 +86,13 @@ public:
     /// Calculate payment date based on client's payment type and order date
     QDate calculatePaymentDate(int row, const QDate &orderDate) const;
 
+    /// Canonical human-readable label for a PaymentType value (translated).
+    static QString paymentTypeLabel(PaymentType type);
+    /// Ordered list of labels matching the PaymentType enum values (Instant, AfterXDays, EndOfNextMonth).
+    static QStringList paymentTypeLabels();
+    /// Reverse lookup: returns the PaymentType for a canonical label, defaults to Instant.
+    static PaymentType paymentTypeFromLabel(const QString &label);
+
 private:
     void _load();
     void _save();

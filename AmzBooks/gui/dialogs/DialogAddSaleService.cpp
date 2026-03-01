@@ -1,6 +1,5 @@
 #include "DialogAddSaleService.h"
 #include "ui_DialogAddSaleService.h"
-#include "books/ServiceClientManager.h"
 #include <QDialogButtonBox>
 #include <QPushButton>
 
@@ -13,6 +12,10 @@ DialogAddSaleService::DialogAddSaleService(ServiceClientManager *clientManager, 
 
     ui->comboBoxClient->setModel(m_clientManager);
     ui->comboBoxClient->setModelColumn(ServiceClientManager::ColClientName);
+
+    // Populate payment term combo from the canonical labels defined in ServiceClientManager
+    ui->comboBoxPaymentTerm->addItems(ServiceClientManager::paymentTypeLabels());
+    ui->comboBoxPaymentTerm->setCurrentIndex(static_cast<int>(PaymentType::EndOfNextMonth));
 
     ui->dateEdit->setDate(QDate::currentDate());
 
@@ -44,6 +47,15 @@ void DialogAddSaleService::_setupConnections()
             this, &DialogAddSaleService::_updateOkButton);
     connect(ui->spinBoxQuantity, QOverload<int>::of(&QSpinBox::valueChanged),
             this, &DialogAddSaleService::_updateOkButton);
+
+    connect(ui->comboBoxPaymentTerm, QOverload<int>::of(&QComboBox::currentIndexChanged),
+            this, &DialogAddSaleService::_updatePaymentDays);
+}
+
+void DialogAddSaleService::_updatePaymentDays()
+{
+    bool afterXDays = (ui->comboBoxPaymentTerm->currentIndex() == static_cast<int>(PaymentType::AfterXDays));
+    ui->spinBoxPaymentDays->setEnabled(afterXDays);
 }
 
 void DialogAddSaleService::_updateCurrency()
@@ -126,4 +138,19 @@ QString DialogAddSaleService::getAccount() const
     if (row >= 0)
         return m_clientManager->getAccount(row);
     return QString();
+}
+
+PaymentType DialogAddSaleService::getPaymentType() const
+{
+    return static_cast<PaymentType>(ui->comboBoxPaymentTerm->currentIndex());
+}
+
+int DialogAddSaleService::getPaymentDays() const
+{
+    return ui->spinBoxPaymentDays->value();
+}
+
+bool DialogAddSaleService::getVatOnPayment() const
+{
+    return ui->checkBoxVatOnPayment->isChecked();
 }

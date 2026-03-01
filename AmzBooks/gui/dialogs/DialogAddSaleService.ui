@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>400</width>
-    <height>310</height>
+    <height>400</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -102,6 +102,48 @@
        </property>
        <property name="value">
         <number>1</number>
+       </property>
+      </widget>
+     </item>
+     <item row="6" column="0">
+      <widget class="QLabel" name="labelPaymentTerm">
+       <property name="text">
+        <string>Payment Term:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="6" column="1">
+      <widget class="QComboBox" name="comboBoxPaymentTerm"/>
+
+     </item>
+     <item row="7" column="0">
+      <widget class="QLabel" name="labelPaymentDays">
+       <property name="text">
+        <string>Payment Days:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="7" column="1">
+      <widget class="QSpinBox" name="spinBoxPaymentDays">
+       <property name="enabled">
+        <bool>false</bool>
+       </property>
+       <property name="maximum">
+        <number>365</number>
+       </property>
+      </widget>
+     </item>
+     <item row="8" column="0">
+      <widget class="QLabel" name="labelVatOnPayment">
+       <property name="text">
+        <string>VAT on Payment:</string>
+       </property>
+      </widget>
+     </item>
+     <item row="8" column="1">
+      <widget class="QCheckBox" name="checkBoxVatOnPayment">
+       <property name="checked">
+        <bool>true</bool>
        </property>
       </widget>
      </item>

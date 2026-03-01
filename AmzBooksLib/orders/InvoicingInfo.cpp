@@ -119,6 +119,17 @@ std::optional<QString> InvoicingInfo::getInvoiceLink() const
     return m_invoiceLink;
 }
 
+void InvoicingInfo::setItemName(int index, const QString &name)
+{
+    if (index >= 0 && index < m_items.size())
+        m_items[index].setName(name);
+}
+
+void InvoicingInfo::setPaymentDate(const std::optional<QDate> &date)
+{
+    m_paymentDate = date;
+}
+
 QDate InvoicingInfo::getPaymentDate(const QDate &orderDate) const
 {
     return m_paymentDate.value_or(orderDate);

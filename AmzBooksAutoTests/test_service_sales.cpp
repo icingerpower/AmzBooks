@@ -138,6 +138,9 @@ private slots:
     void test_persistence_all_columns();
     void test_deleteWithInvoice();
     void test_vatOnPayment_true();
+    void test_vatOnPayment_false();
+    void test_createSale_paymentTerm();
+    void test_serviceSalesTable_extraColumns();
 };
 
 void TestServiceSales::test_InvoicingInfo_paymentDate()
@@ -643,7 +646,8 @@ void TestServiceSales::test_noInvoices_and_recordInfo()
     const double  totalTTC = 600.0;   // 2 × 300 TTC
 
     serviceTable.createSale(&clientManager, 0, saleDate, totalTTC, "EUR",
-                            orderId, title, qty, "", vatResolver, taxResolver);
+                            orderId, title, qty, "", vatResolver, taxResolver,
+                            PaymentType::AfterXDays, 30);
 
     QCOMPARE(serviceTable.rowCount(), 1);
     QVERIFY(orderManager.containsOrder(orderId));
@@ -990,9 +994,8 @@ void TestServiceSales::test_deleteWithInvoice()
 
 // ===========================================================================
 // test_vatOnPayment_true
-// When a service client has vatOnPayment = true, createSale must propagate
-// that flag to the stored InvoicingInfo (both in memory and after JSON
-// round-trip via the DB).
+// When createSale is called with vatOnPayment = true, that flag must be
+// propagated to the stored InvoicingInfo.
 // ===========================================================================
 void TestServiceSales::test_vatOnPayment_true()
 {
@@ -1003,14 +1006,11 @@ void TestServiceSales::test_vatOnPayment_true()
     orderManager.deleteDatabase();
 
     ServiceClientManager clientManager(tempDir.path());
-    // vatOnPayment = true is the last parameter of addClient
     clientManager.addClient("VopClient", "Audit", "FR", "FR11111", "EUR",
                             PaymentType::Instant, 0,
                             QString(), QString(), QString(), QString(),
                             QString(), QString(), QString(),
-                            /*vatOnPayment=*/true);
-
-    QVERIFY(clientManager.getVatOnPayment(0));
+                            /*vatOnPayment=*/false); // client default is false; param must override
 
     VatResolver vatResolver(tempDir.path());
     TaxResolver taxResolver(tempDir.path());
@@ -1021,7 +1021,9 @@ void TestServiceSales::test_vatOnPayment_true()
     const QDate date(2025, 9, 1);
     const QString orderId = "SVC-VOP-001";
     table.createSale(&clientManager, 0, date, 600.0, "EUR",
-                     orderId, "Audit", 1, "706000", vatResolver, taxResolver);
+                     orderId, "Audit", 1, "706000", vatResolver, taxResolver,
+                     /*paymentType=*/PaymentType::EndOfNextMonth, /*paymentDays=*/0,
+                     /*vatOnPayment=*/true);
 
     QCOMPARE(table.rowCount(), 1);
 
@@ -1029,6 +1031,269 @@ void TestServiceSales::test_vatOnPayment_true()
     auto info = orderManager.getInvoicingInfo(orderId);
     QVERIFY(!info.isNull());
     QVERIFY(info->getVatOnPayment());
+}
+
+// ===========================================================================
+// test_vatOnPayment_false
+// When createSale is called with vatOnPayment = false, that flag must be
+// propagated to the stored InvoicingInfo.
+// ===========================================================================
+void TestServiceSales::test_vatOnPayment_false()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("VopClient", "Audit", "FR", "FR11111", "EUR",
+                            PaymentType::Instant, 0,
+                            QString(), QString(), QString(), QString(),
+                            QString(), QString(), QString(),
+                            /*vatOnPayment=*/true); // client default is true; param must override
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate date(2025, 9, 1);
+    const QString orderId = "SVC-VOP-002";
+    table.createSale(&clientManager, 0, date, 600.0, "EUR",
+                     orderId, "Audit", 1, "706000", vatResolver, taxResolver,
+                     /*paymentType=*/PaymentType::EndOfNextMonth, /*paymentDays=*/0,
+                     /*vatOnPayment=*/false);
+
+    QCOMPARE(table.rowCount(), 1);
+
+    // InvoicingInfo retrieved from DB must have vatOnPayment = false
+    auto info = orderManager.getInvoicingInfo(orderId);
+    QVERIFY(!info.isNull());
+    QVERIFY(!info->getVatOnPayment());
+}
+
+// ===========================================================================
+// test_createSale_paymentTerm
+// Verifies that the explicit paymentType/paymentDays parameters control the
+// payment date stored in InvoicingInfo, independently of the client's own
+// payment type setting.
+//   - Instant       → payment date == order date (no stored date)
+//   - AfterXDays    → payment date == order date + N days
+//   - EndOfNextMonth→ payment date == end of next calendar month
+// ===========================================================================
+void TestServiceSales::test_createSale_paymentTerm()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    // Client itself has Instant payment — the explicit param must override it
+    clientManager.addClient("TermClient", "Dev", "FR", "FR99999", "EUR",
+                            PaymentType::Instant, 0,
+                            QString(), QString(), QString(), QString(),
+                            QString(), QString(), QString(),
+                            /*vatOnPayment=*/false);
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    const QDate date(2025, 3, 15);
+
+    // --- 1. Instant: payment date equals the order date → no separate date stored ---
+    {
+        ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+        const QString orderId = "TERM-INSTANT-001";
+        table.createSale(&clientManager, 0, date, 600.0, "EUR",
+                         orderId, "Dev", 1, "706000", vatResolver, taxResolver,
+                         /*paymentType=*/PaymentType::Instant,
+                         /*paymentDays=*/0);
+
+        QCOMPARE(table.rowCount(), 1);
+        auto info = orderManager.getInvoicingInfo(orderId);
+        QVERIFY(!info.isNull());
+        // Instant → no explicit payment date stored; getPaymentDate falls back to order date
+        QCOMPARE(info->getPaymentDate(date), date);
+    }
+
+    // --- 2. AfterXDays (30): payment date == order date + 30 days ---
+    {
+        ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+        const QString orderId = "TERM-30DAYS-001";
+        table.createSale(&clientManager, 0, date, 600.0, "EUR",
+                         orderId, "Dev", 1, "706000", vatResolver, taxResolver,
+                         /*paymentType=*/PaymentType::AfterXDays,
+                         /*paymentDays=*/30);
+
+        QCOMPARE(table.rowCount(), 1);
+        auto info = orderManager.getInvoicingInfo(orderId);
+        QVERIFY(!info.isNull());
+        const QDate expected = date.addDays(30); // 2025-04-14
+        QCOMPARE(info->getPaymentDate(date), expected);
+    }
+
+    // --- 3. EndOfNextMonth: payment date == last day of April 2025 ---
+    {
+        ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+        const QString orderId = "TERM-EOM-001";
+        table.createSale(&clientManager, 0, date, 600.0, "EUR",
+                         orderId, "Dev", 1, "706000", vatResolver, taxResolver,
+                         /*paymentType=*/PaymentType::EndOfNextMonth,
+                         /*paymentDays=*/0);
+
+        QCOMPARE(table.rowCount(), 1);
+        auto info = orderManager.getInvoicingInfo(orderId);
+        QVERIFY(!info.isNull());
+        const QDate expected(2025, 4, 30); // end of April
+        QCOMPARE(info->getPaymentDate(date), expected);
+    }
+}
+
+// ===========================================================================
+// test_serviceSalesTable_extraColumns
+// Verifies that ServiceSalesBooksTable exposes Title, VAT on Payment and
+// Payment Term as readable/editable extra columns (indices 9, 10, 11).
+// ===========================================================================
+void TestServiceSales::test_serviceSalesTable_extraColumns()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("ColClient", "Consulting", "FR", "FR12345", "EUR",
+                            PaymentType::Instant, 0,
+                            QString(), QString(), QString(), QString(),
+                            QString(), QString(), QString(),
+                            /*vatOnPayment=*/false);
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate date(2025, 6, 10);
+    const QString orderId = "COL-TEST-001";
+    table.createSale(&clientManager, 0, date, 1200.0, "EUR",
+                     orderId, "My Service Title", 1, "706000",
+                     vatResolver, taxResolver,
+                     /*paymentType=*/PaymentType::EndOfNextMonth,
+                     /*paymentDays=*/0,
+                     /*vatOnPayment=*/true);
+
+    QCOMPARE(table.rowCount(), 1);
+
+    // VERIFY 1: column count includes the 3 extra columns (9 base + 3)
+    QCOMPARE(table.columnCount(), 12);
+
+    // VERIFY 2: header for Title column
+    QCOMPARE(table.headerData(ServiceSalesBooksTable::IND_TITLE,
+                              Qt::Horizontal, Qt::DisplayRole).toString(),
+             QString("Title"));
+
+    // VERIFY 3: header for VAT on Payment column
+    QCOMPARE(table.headerData(ServiceSalesBooksTable::IND_VAT_ON_PAYMENT,
+                              Qt::Horizontal, Qt::DisplayRole).toString(),
+             QString("VAT on Payment"));
+
+    // VERIFY 4: header for Payment Term column
+    QCOMPARE(table.headerData(ServiceSalesBooksTable::IND_PAYMENT_TERM,
+                              Qt::Horizontal, Qt::DisplayRole).toString(),
+             QString("Payment Term"));
+
+    const QModelIndex idxTitle   = table.index(0, ServiceSalesBooksTable::IND_TITLE);
+    const QModelIndex idxVop     = table.index(0, ServiceSalesBooksTable::IND_VAT_ON_PAYMENT);
+    const QModelIndex idxTerm    = table.index(0, ServiceSalesBooksTable::IND_PAYMENT_TERM);
+
+    // VERIFY 5: Title column shows the service title passed to createSale
+    QCOMPARE(table.data(idxTitle, Qt::DisplayRole).toString(),
+             QString("My Service Title"));
+
+    // VERIFY 6: VAT on Payment column EditRole returns the bool true
+    QCOMPARE(table.data(idxVop, Qt::EditRole).toBool(), true);
+
+    // VERIFY 7: VAT on Payment DisplayRole shows "Yes"
+    QCOMPARE(table.data(idxVop, Qt::DisplayRole).toString(), QString("Yes"));
+
+    // VERIFY 8: Payment Term shows the canonical "End of Next Month" label
+    QCOMPARE(table.data(idxTerm, Qt::DisplayRole).toString(),
+             ServiceClientManager::paymentTypeLabel(PaymentType::EndOfNextMonth));
+
+    // VERIFY 9: Title is editable (flag check)
+    QVERIFY(table.flags(idxTitle) & Qt::ItemIsEditable);
+
+    // VERIFY 10: setData for Title updates both in-memory value and InvoicingInfo
+    QVERIFY(table.setData(idxTitle, QVariant("Updated Title"), Qt::EditRole));
+    QCOMPARE(table.data(idxTitle, Qt::DisplayRole).toString(),
+             QString("Updated Title"));
+
+    // VERIFY 11: Persisted InvoicingInfo reflects the new title
+    {
+        auto info = orderManager.getInvoicingInfo(orderId);
+        QVERIFY(!info.isNull());
+        QVERIFY(!info->getItems().isEmpty());
+        QCOMPARE(info->getItems().first().getName(), QString("Updated Title"));
+    }
+
+    // VERIFY 12: setData for VAT on Payment toggles the value to false
+    QVERIFY(table.setData(idxVop, QVariant(false), Qt::EditRole));
+    QCOMPARE(table.data(idxVop, Qt::EditRole).toBool(), false);
+    QCOMPARE(table.data(idxVop, Qt::DisplayRole).toString(), QString("No"));
+
+    // VERIFY 13: Persisted InvoicingInfo reflects vatOnPayment = false
+    {
+        auto info = orderManager.getInvoicingInfo(orderId);
+        QVERIFY(!info.isNull());
+        QVERIFY(!info->getVatOnPayment());
+    }
+
+    // VERIFY 14: setData for Payment Term changes to the canonical "Instant" label
+    QVERIFY(table.setData(idxTerm,
+                          QVariant(ServiceClientManager::paymentTypeLabel(PaymentType::Instant)),
+                          Qt::EditRole));
+    QCOMPARE(table.data(idxTerm, Qt::DisplayRole).toString(),
+             ServiceClientManager::paymentTypeLabel(PaymentType::Instant));
+
+    // VERIFY 15: Persisted InvoicingInfo now has no deferred payment date
+    {
+        auto info = orderManager.getInvoicingInfo(orderId);
+        QVERIFY(!info.isNull());
+        // Instant → getPaymentDate returns the order date itself
+        QCOMPARE(info->getPaymentDate(date), date);
+    }
+
+    // VERIFY 16: setData for Payment Term to "After 30 days"
+    QVERIFY(table.setData(idxTerm, QVariant("After 30 days"), Qt::EditRole));
+    QCOMPARE(table.data(idxTerm, Qt::DisplayRole).toString(),
+             QString("After 30 days"));
+
+    // VERIFY 17: Persisted payment date is order date + 30 days
+    {
+        auto info = orderManager.getInvoicingInfo(orderId);
+        QVERIFY(!info.isNull());
+        QCOMPARE(info->getPaymentDate(date), date.addDays(30));
+    }
+
+    // VERIFY 18: After reload, extra columns are restored from persisted InvoicingInfo
+    {
+        ServiceSalesBooksTable table2(nullptr, &orderManager, tempDir.path());
+        table2.load(2025);
+        QCOMPARE(table2.rowCount(), 1);
+        const QModelIndex t2Title = table2.index(0, ServiceSalesBooksTable::IND_TITLE);
+        const QModelIndex t2Term  = table2.index(0, ServiceSalesBooksTable::IND_PAYMENT_TERM);
+        const QModelIndex t2Vop   = table2.index(0, ServiceSalesBooksTable::IND_VAT_ON_PAYMENT);
+        QCOMPARE(table2.data(t2Title,  Qt::DisplayRole).toString(), QString("Updated Title"));
+        QCOMPARE(table2.data(t2Term,   Qt::DisplayRole).toString(), QString("After 30 days"));
+        QCOMPARE(table2.data(t2Vop,    Qt::EditRole).toBool(), false);
+    }
 }
 
 QTEST_MAIN(TestServiceSales)

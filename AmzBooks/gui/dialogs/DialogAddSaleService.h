@@ -1,10 +1,9 @@
 #ifndef DIALOGADDSALESERVICE_H
 #define DIALOGADDSALESERVICE_H
 
+#include "books/ServiceClientManager.h"
 #include <QDialog>
 #include <QDate>
-
-class ServiceClientManager;
 
 namespace Ui {
 class DialogAddSaleService;
@@ -32,11 +31,15 @@ public:
     QString getServiceTitle() const;
     QString getCurrency() const;
     QString getAccount() const;
+    PaymentType getPaymentType() const;
+    int getPaymentDays() const;
+    bool getVatOnPayment() const;
     int getSelectedClientRow() const;
 
 private slots:
     void _updateCurrency();
     void _updateOkButton();
+    void _updatePaymentDays();
 
 private:
     Ui::DialogAddSaleService *ui;

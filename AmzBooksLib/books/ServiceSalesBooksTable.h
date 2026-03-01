@@ -2,10 +2,11 @@
 #define SERVICESALESBOOKSTABLE_H
 
 #include "AbstractBooksTable.h"
+#include "ServiceClientManager.h"
 #include <QObject>
+#include <QHash>
 #include <functional>
 
-class ServiceClientManager;
 class OrderManager;
 class VatResolver;
 class TaxResolver;
@@ -17,6 +18,11 @@ class ServiceSalesBooksTable : public AbstractBooksTable
 
 public:
     static constexpr QLatin1StringView CHANNEL_SALE{"Service"};
+
+    // Extra column indices (appended after the 9 base columns)
+    static const int IND_TITLE         = 9;
+    static const int IND_VAT_ON_PAYMENT = 10;
+    static const int IND_PAYMENT_TERM  = 11;
     explicit ServiceSalesBooksTable(
             const BooksConnections *bookConnections
             , OrderManager *orderManager
@@ -40,14 +46,30 @@ public:
                     , const QString &serviceTitle, int quantity, const QString &account
                     , const VatResolver &vatResolver
                     , const TaxResolver &taxResolver
+                    , PaymentType paymentType = PaymentType::EndOfNextMonth
+                    , int paymentDays = 0
+                    , bool vatOnPayment = true
                     , const std::function<bool()> &onMissingVatRate = nullptr);
     void load(int year) override;
 
     bool remove(const QString &rowId) override;
 
+    // QAbstractTableModel overrides for the 3 extra columns
+    int columnCount(const QModelIndex &parent = QModelIndex()) const override;
+    QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
+    QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
+    Qt::ItemFlags flags(const QModelIndex &index) const override;
+    bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
+
 private:
     OrderManager *m_orderManager;
     InvoiceGenerator *m_invoiceGenerator = nullptr;
+
+    // rowId → {title, vatOnPayment (bool), paymentTerm (QString)}
+    QHash<QString, QVariantList> m_extraData;
+
+    void _setExtra(const QString &rowId, const QString &title, bool vatOnPayment, const QString &paymentTerm);
+    static QString _paymentTermStr(const QDate &orderDate, const QDate &paymentDate);
 };
 
 #endif // SERVICESALESBOOKSTABLE_H

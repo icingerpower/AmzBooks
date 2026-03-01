@@ -1231,6 +1231,9 @@ void PaneBookKeeping::serviceAddSale()
                 dialog.getAccount(),
                 vatResolver,
                 taxResolver,
+                dialog.getPaymentType(),
+                dialog.getPaymentDays(),
+                dialog.getVatOnPayment(),
                 onMissingVatRate
             );
         } catch (const ExceptionWithTitleText &e) {
@@ -1381,6 +1384,9 @@ void PaneBookKeeping::serviceCreateFromSelection()
                 dialog.getAccount(),
                 vatResolver,
                 taxResolver,
+                dialog.getPaymentType(),
+                dialog.getPaymentDays(),
+                dialog.getVatOnPayment(),
                 onMissingVatRate
             );
         }

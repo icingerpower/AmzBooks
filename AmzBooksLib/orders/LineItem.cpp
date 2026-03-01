@@ -52,6 +52,11 @@ const QString& LineItem::getName() const noexcept
     return m_name;
 }
 
+void LineItem::setName(const QString &name)
+{
+    m_name = name;
+}
+
 int LineItem::getQuantity() const noexcept
 {
     return m_quantity;

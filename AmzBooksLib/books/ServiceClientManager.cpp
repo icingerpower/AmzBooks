@@ -255,6 +255,32 @@ QDate ServiceClientManager::calculatePaymentDate(int row, const QDate &orderDate
     return orderDate;
 }
 
+QString ServiceClientManager::paymentTypeLabel(PaymentType type)
+{
+    switch (type) {
+    case PaymentType::Instant:        return tr("Instant");
+    case PaymentType::AfterXDays:     return tr("After X Days");
+    case PaymentType::EndOfNextMonth: return tr("End of Next Month");
+    }
+    return tr("Instant");
+}
+
+QStringList ServiceClientManager::paymentTypeLabels()
+{
+    return {
+        paymentTypeLabel(PaymentType::Instant),
+        paymentTypeLabel(PaymentType::AfterXDays),
+        paymentTypeLabel(PaymentType::EndOfNextMonth)
+    };
+}
+
+PaymentType ServiceClientManager::paymentTypeFromLabel(const QString &label)
+{
+    if (label == paymentTypeLabel(PaymentType::AfterXDays))     return PaymentType::AfterXDays;
+    if (label == paymentTypeLabel(PaymentType::EndOfNextMonth)) return PaymentType::EndOfNextMonth;
+    return PaymentType::Instant;
+}
+
 void ServiceClientManager::_load()
 {
     m_clients.clear();

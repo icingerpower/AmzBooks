@@ -23,6 +23,7 @@ public:
 
     const QString& getSku() const noexcept;
     const QString& getName() const noexcept;
+    void setName(const QString &name);
     int getQuantity() const noexcept;
     double getAmountUntaxed() const noexcept;
     double getAmountTaxed() const noexcept;
