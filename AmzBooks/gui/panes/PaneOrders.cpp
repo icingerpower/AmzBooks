@@ -1,6 +1,8 @@
 #include <QCoroTask>
 #include <QDate>
 #include <QMessageBox>
+#include <QSettings>
+#include <QFileDialog>
 
 #include "../../common/workingdirectory/WorkingDirectoryManager.h"
 
@@ -306,8 +308,51 @@ void PaneOrders::editRegradedSkus()
         m_inventoryMoveTree->rebuild();
 }
 
+void PaneOrders::exportReports()
+{
+    if (!m_inventoryMoveTree) {
+        QMessageBox::information(this, tr("No data"), tr("Please load orders first."));
+        return;
+    }
+
+    QSettings settings;
+    QString lastDir = settings.value("lastReportsDir", QDir::homePath()).toString();
+    QString dir = QFileDialog::getExistingDirectory(this, tr("Select Reports Output Folder"), lastDir);
+    if (dir.isEmpty()) {
+        return;
+    }
+
+    settings.setValue("lastReportsDir", dir);
+    QDir outDir(dir);
+
+    QDate startDate = m_lastLoadedStartDate;
+    QDate endDate = m_lastLoadedEndDate;
+
+    QString subDirName = QString("%1/%2").arg(endDate.year()).arg(endDate.month(), 2, 10, QChar('0'));
+    outDir.mkpath(subDirName);
+    QDir targetDir(outDir.absoluteFilePath(subDirName));
+
+    QString filePrefix;
+    if (startDate.day() == 1 && endDate == startDate.addMonths(1).addDays(-1)) {
+        // Exactly one full month
+        filePrefix = startDate.toString("yyyy-MM");
+    } else {
+        filePrefix = startDate.toString("yyyy-MM-dd") + "__" + endDate.toString("yyyy-MM-dd");
+    }
+
+    QString basePath = targetDir.absoluteFilePath(filePrefix + "__inventory-move");
+    m_inventoryMoveTree->saveAsCsv(basePath);
+    m_inventoryMoveTree->saveAsPdf(basePath, startDate, endDate);
+
+    QMessageBox::information(this, tr("Export Complete"), 
+        tr("Reports have been exported to:\n%1").arg(targetDir.absolutePath()));
+}
+
 void PaneOrders::_loadInventoryMoveTree(const QDate &dateStart, const QDate &dateEnd)
 {
+    m_lastLoadedStartDate = dateStart;
+    m_lastLoadedEndDate = dateEnd;
+
     QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
     OrderManager orderManager(workingDir);
 
@@ -410,4 +455,8 @@ void PaneOrders::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneOrders::editRegradedSkus);
+    connect(ui->buttonExportReport,
+            &QPushButton::clicked,
+            this,
+            &PaneOrders::exportReports);
 }

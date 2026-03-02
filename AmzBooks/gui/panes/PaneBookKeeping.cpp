@@ -47,6 +47,7 @@
 #include "gui/dialogs/DialogVatParams.h"
 #include "books/ServiceSalesBooksTable.h"
 #include "books/ServiceClientManager.h"
+#include "gui/delegates/ComboBoxDelegate.h"
 #include "books/VatResolver.h"
 #include "books/TaxResolver.h"
 #include "books/CompanyInfosTable.h"
@@ -428,6 +429,7 @@ void PaneBookKeeping::generateInvoices()
     int currentStep = 0;
     int generated = 0;
     int errors = 0;
+    QStringList errorMsgs;
 
     // 7. Iterate channel → store → tax context → group of shipments
     bool cancelled = false;
@@ -486,26 +488,27 @@ void PaneBookKeeping::generateInvoices()
                     if (invoiceNumber.isEmpty()) continue;
 
                     const auto &shipment = entry.shipmentsRefundsSameActivity[i];
-                    if (!shipment || shipment->getActivities().isEmpty()) { errors++; continue; }
+                    if (!shipment || shipment->getActivities().isEmpty()) { errors++; errorMsgs << tr("Empty activities"); continue; }
 
                     const QString orderId = shipment->getActivities().first().getEventId();
-                    if (orderId.isEmpty()) { errors++; continue; }
+                    if (orderId.isEmpty()) { errors++; errorMsgs << tr("Empty orderId"); continue; }
 
                     // Get InvoicingInfo per order (most precise), fallback to group-level info.
                     // The existing info already contains line items and payment date; we only
                     // add the invoice number — preserving all other recorded information.
                     QSharedPointer<InvoicingInfo> info = m_orderManager->getInvoicingInfo(orderId);
                     if (!info) info = entry.invoicingInfo;
-                    if (!info) { errors++; continue; }
+                    if (!info) { errors++; errorMsgs << tr("Missing invoicing info for %1").arg(orderId); continue; }
 
                     const Address &addressTo = entry.addressTo ? *entry.addressTo : emptyAddr;
 
                     // Sanitize invoice number for use as a filename
                     QString sanitized = invoiceNumber;
                     sanitized.replace('/', '-').replace('\\', '-');
-                    QDir yearDir(outDir.filePath(QString::number(date.year())));
-                    yearDir.mkpath(".");
-                    const QString pdfPath = yearDir.absoluteFilePath(sanitized + ".pdf");
+                    QString subDirName = QString("%1/%2").arg(date.year()).arg(date.month(), 2, 10, QChar('0'));
+                    QDir subDir(outDir.filePath(subDirName));
+                    subDir.mkpath(".");
+                    const QString pdfPath = subDir.absoluteFilePath(sanitized + ".pdf");
 
                     // Set prevNumber only for actual revision invoices (suffix -R\d+),
                     // not simply because this is the second shipment in the group.
@@ -527,6 +530,7 @@ void PaneBookKeeping::generateInvoices()
                     } catch (const std::exception &ex) {
                         qWarning() << "[generateInvoices] Failed for" << orderId << ":" << ex.what();
                         errors++;
+                        errorMsgs << tr("Failed for %1: %2").arg(orderId, ex.what());
                     }
                 }
             }
@@ -536,7 +540,16 @@ void PaneBookKeeping::generateInvoices()
     progress.setValue(totalSteps);
 
     QString msg = tr("Generated %1 invoice(s).").arg(generated);
-    if (errors > 0) msg += tr("\n%1 error(s) occurred.").arg(errors);
+    if (errors > 0) {
+        msg += tr("\n%1 error(s) occurred:\n").arg(errors);
+        int displayCount = qMin(10, errorMsgs.size());
+        for (int i = 0; i < displayCount; ++i) {
+            msg += "- " + errorMsgs[i] + "\n";
+        }
+        if (errorMsgs.size() > 10) {
+            msg += tr("... and %1 more error(s)").arg(errorMsgs.size() - 10);
+        }
+    }
     QMessageBox::information(this, tr("Invoice Generation Complete"), msg);
 }
 
@@ -546,8 +559,9 @@ void PaneBookKeeping::regenerateInvoices()
     QSettings settings;
     QString lastDir = settings.value("lastInvoicesDir", QDir::homePath()).toString();
     QString dir = QFileDialog::getExistingDirectory(this, tr("Select Invoices Output Folder"), lastDir);
-    if (dir.isEmpty())
+    if (dir.isEmpty()) {
         return;
+    }
     settings.setValue("lastInvoicesDir", dir);
     QDir outDir(dir);
 
@@ -587,22 +601,27 @@ void PaneBookKeeping::regenerateInvoices()
                 continue;
             QString sanitized = invoiceNumber;
             sanitized.replace('/', '-').replace('\\', '-');
-            QDir yearDir(outDir.filePath(QString::number(recDate.year())));
-            const QString pdfPath = yearDir.absoluteFilePath(sanitized + ".pdf");
+            QString subDirName = QString("%1/%2").arg(recDate.year()).arg(recDate.month(), 2, 10, QChar('0'));
+            QDir subDir(outDir.filePath(subDirName));
+            const QString pdfPath = subDir.absoluteFilePath(sanitized + ".pdf");
             if (QFile::exists(pdfPath))
                 QFile::remove(pdfPath);
         }
     }
 
     // 5. Regenerate
-    generator.regenerateInvoices(outDir, from, to, *m_orderManager);
+    try {
+        generator.regenerateInvoices(outDir, from, to, *m_orderManager);
 
-    QMessageBox::information(
-        this,
-        tr("Regeneration Complete"),
-        tr("Invoices for %1 have been regenerated in:\n%2")
-            .arg(year)
-            .arg(outDir.absolutePath()));
+        QMessageBox::information(
+            this,
+            tr("Regeneration Complete"),
+            tr("Invoices for %1 have been regenerated in:\n%2")
+                .arg(year)
+                .arg(outDir.absolutePath()));
+    } catch (const ExceptionWithTitleText &e) {
+        QMessageBox::warning(this, e.errorTitle(), e.errorText());
+    }
 }
 
 void PaneBookKeeping::unselectAll()
@@ -1611,6 +1630,9 @@ void PaneBookKeeping::_createBooksTables()
     ui->tableServices->setModel(serviceTable);
     ui->tableServices->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui->tableServices->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    ui->tableServices->setItemDelegateForColumn(
+        ServiceSalesBooksTable::IND_PAYMENT_TERM,
+        new ComboBoxDelegate(ServiceClientManager::paymentTypeLabels(), ui->tableServices));
 
     // Amazon Payments
     auto amzPaymentsTable = new PurchaseAmzPaymentsTable(m_booksConnections, workingDir, ui->tableAmzPayments);

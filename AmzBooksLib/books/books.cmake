@@ -83,6 +83,8 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/BookSaverFull.cpp
     ${CMAKE_CURRENT_LIST_DIR}/InvoiceGenerator.h
     ${CMAKE_CURRENT_LIST_DIR}/InvoiceGenerator.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ReportGenerator.h
+    ${CMAKE_CURRENT_LIST_DIR}/ReportGenerator.cpp
     ${CMAKE_CURRENT_LIST_DIR}/SkuRegradedTable.h
     ${CMAKE_CURRENT_LIST_DIR}/SkuRegradedTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PurchaseAmzPaymentsManager.h

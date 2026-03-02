@@ -237,6 +237,11 @@ add_executable(TestProfit test_profit.cpp)
 add_test(NAME TestProfit COMMAND TestProfit)
 target_link_libraries(TestProfit PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
 
+add_executable(TestReportGenerator test_report_generator.cpp)
+add_test(NAME TestReportGenerator COMMAND TestReportGenerator)
+target_link_libraries(TestReportGenerator PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
+target_include_directories(TestReportGenerator PRIVATE ../AmzBooksLib)
+
 add_executable(testInventory test_inventory.cpp)
 add_test(NAME testInventory COMMAND testInventory)
 target_link_libraries(testInventory PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)

@@ -15,6 +15,9 @@ public:
 
     QString getAccountVatDeductible(const QString &countryFrom, const QString &countryTo) const;
     QString getAccountVatDue(const QString &countryFrom, const QString &countryTo) const;
+    QString getAccountSale7(const QString &countryFrom, const QString &countryTo) const;
+    QString getAccountPurchase7(const QString &countryFrom, const QString &countryTo) const;
+    QString getAccountStock4(const QString &countryFrom, const QString &countryTo) const;
 
     // Header:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;

@@ -22,7 +22,13 @@ CompanyAddressTable::CompanyAddressTable(const QDir &workingDir, QObject *parent
     }
 }
 
-// Helper
+// Returns the most recent entry whose effective start date is on or before 'date'.
+// m_data is kept sorted descending (newest first), so the first matching entry
+// is always the most recent applicable one.
+// Example with entries [01/2015, 01/2025]:
+//   date >= 2025-01-01                      → entry 01/2025
+//   2015-01-01 <= date < 2025-01-01         → entry 01/2015
+//   date < 2015-01-01                       → exception
 const CompanyAddressTable::AddressItem &CompanyAddressTable::_getItemForDate(const QDate &date) const
 {
     for (const auto &entry : m_data) {
@@ -30,8 +36,11 @@ const CompanyAddressTable::AddressItem &CompanyAddressTable::_getItemForDate(con
             return entry;
         }
     }
-    ExceptionWithTitleText exception(tr("Missing Address"), tr("No company address found for date %1").arg(date.toString(Qt::ISODate)));
+    ExceptionWithTitleText exception(
+        tr("Missing Address"),
+        tr("No company address found for date %1").arg(date.toString(Qt::ISODate)));
     exception.raise();
+    Q_UNREACHABLE();
 }
 
 QString CompanyAddressTable::getCompanyAddress(const QDate &date) const

@@ -306,7 +306,7 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
 QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntryGrouped(
     ActivitySource *source,
     const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
-    std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing)
+    std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing) const
 {
     if (shipmentAndRefunds.isEmpty()) {
         co_return nullptr;
@@ -458,7 +458,7 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntryGroupe
 QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
     QSharedPointer<Shipment> shipmentOrRefund
     , const QString &customerAccount
-    , std::function<QCoro::Task<bool> (const QString &, const QString &)> callbackAddIfMissing)
+    , std::function<QCoro::Task<bool> (const QString &, const QString &)> callbackAddIfMissing) const
 {
     if (!shipmentOrRefund) {
         co_return nullptr;
@@ -572,7 +572,7 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
 QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
         const AbstractBooksTableBank *bankTable
         , const QString &nonBankAccount
-        , int row)
+    , int row) const
 {
     if (!bankTable || row < 0) {
         return nullptr;

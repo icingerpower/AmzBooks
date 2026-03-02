@@ -46,17 +46,17 @@ public:
     QCoro::Task<QSharedPointer<JournalEntry>> createEntryGrouped(
             ActivitySource *source,
             const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
-            std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr);
+            std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
 
     QCoro::Task<QSharedPointer<JournalEntry>> createEntry(// Create entry for one sale only with one shipment
         QSharedPointer<Shipment> shipmentOrRefund
         , const QString &customerAccount,
-        std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr);
+        std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
 
     QSharedPointer<JournalEntry> createEntry(// Create entry for one sale only with one shipment
             const AbstractBooksTableBank *bankTable,
             const QString &nonBankAccount,
-            int row);
+            int row) const;
 
 private:
     const CurrencyRateManager *m_currencyRateManager;

@@ -11,7 +11,10 @@
 #include <QSet>
 #include <QStringList>
 #include <QTimer>
+#include <QFile>
+#include <QTextStream>
 #include <algorithm>
+#include "books/ReportGenerator.h"
 
 // ---------------------------------------------------------------------------
 // SKU resolution: Amazon regraded SKUs
@@ -94,6 +97,171 @@ InventoryMoveTree::InventoryMoveTree(const QDir &purchaseDir,
 InventoryMoveTree::~InventoryMoveTree()
 {
     delete m_rootItem;
+}
+
+void InventoryMoveTree::saveAsCsv(const QString &baseFilePath, bool multipleFile)
+{
+    QStringList headers;
+    for (int c = 0; c < COL_COUNT; ++c) {
+        headers << headerData(c, Qt::Horizontal).toString();
+    }
+    const QString headerLine = headers.join(";") + "\n";
+
+    if (!multipleFile) {
+        double totalValue = 0.0;
+        for (int i = 0; i < m_rootItem->childCount(); ++i) {
+            totalValue += m_rootItem->child(i)->data(COL_TOTAL_PRICE).toDouble();
+        }
+        QString path = baseFilePath + "__" + QString::number(totalValue, 'f', 2) + m_companyCurrency + ".csv";
+        QFile file(path);
+        if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            QTextStream out(&file);
+            out << headerLine;
+            for (int i = 0; i < m_rootItem->childCount(); ++i) {
+                InventoryMoveTreeItem *parentItem = m_rootItem->child(i);
+                for (int j = 0; j < parentItem->childCount(); ++j) {
+                    InventoryMoveTreeItem *childItem = parentItem->child(j);
+                    QStringList rowData;
+                    for (int c = 0; c < COL_COUNT; ++c) {
+                        QString val;
+                        if (c == COL_UNIT_PRICE || c == COL_TOTAL_PRICE) {
+                            val = QString::number(childItem->data(c).toDouble(), 'f', 2);
+                        } else {
+                            val = childItem->data(c).toString();
+                        }
+                        val.replace("\"", "\"\"");
+                        if (val.contains(";") || val.contains("\"") || val.contains("\n")) {
+                            val = "\"" + val + "\"";
+                        }
+                        rowData << val;
+                    }
+                    out << rowData.join(";") << "\n";
+                }
+            }
+        }
+    } else {
+        for (int i = 0; i < m_rootItem->childCount(); ++i) {
+            InventoryMoveTreeItem *parentItem = m_rootItem->child(i);
+            double value = parentItem->data(COL_TOTAL_PRICE).toDouble();
+            QString from = parentItem->data(COL_FROM).toString();
+            QString to = parentItem->data(COL_TO).toString();
+            QString path = baseFilePath + "-" + from + "-" + to + "__" + QString::number(value, 'f', 2) + m_companyCurrency + ".csv";
+
+            QFile file(path);
+            if (file.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                QTextStream out(&file);
+                out << headerLine;
+                for (int j = 0; j < parentItem->childCount(); ++j) {
+                    InventoryMoveTreeItem *childItem = parentItem->child(j);
+                    QStringList rowData;
+                    for (int c = 0; c < COL_COUNT; ++c) {
+                        QString val;
+                        if (c == COL_UNIT_PRICE || c == COL_TOTAL_PRICE) {
+                            val = QString::number(childItem->data(c).toDouble(), 'f', 2);
+                        } else {
+                            val = childItem->data(c).toString();
+                        }
+                        val.replace("\"", "\"\"");
+                        if (val.contains(";") || val.contains("\"") || val.contains("\n")) {
+                            val = "\"" + val + "\"";
+                        }
+                        rowData << val;
+                    }
+                    out << rowData.join(";") << "\n";
+                }
+            }
+        }
+    }
+}
+
+void InventoryMoveTree::saveAsPdf(const QString &baseFilePath, const QDate &startDate, const QDate &endDate, bool multipleFile)
+{
+    QStringList headers;
+    int startCol = multipleFile ? COL_SKU : COL_FROM;
+    for (int c = startCol; c < COL_COUNT; ++c) {
+        headers << headerData(c, Qt::Horizontal).toString();
+    }
+
+    QString dateStr;
+    if (startDate.isValid() && endDate.isValid()) {
+        if (startDate.day() == 1 && endDate == startDate.addMonths(1).addDays(-1)) {
+            dateStr = startDate.toString("yyyy-MM");
+        } else {
+            dateStr = startDate.toString("yyyy-MM-dd") + " to " + endDate.toString("yyyy-MM-dd");
+        }
+    }
+
+    if (!multipleFile) {
+        double totalValue = 0.0;
+        for (int i = 0; i < m_rootItem->childCount(); ++i) {
+            totalValue += m_rootItem->child(i)->data(COL_TOTAL_PRICE).toDouble();
+        }
+        QString path = baseFilePath + "__" + QString::number(totalValue, 'f', 2) + m_companyCurrency + ".pdf";
+
+        ReportGenerator rep;
+        QString title = tr("Inventory Moves");
+        if (!dateStr.isEmpty()) {
+            title += " - " + dateStr;
+        }
+        rep.addTitle(title);
+        rep.startTable(headers);
+        for (int i = 0; i < m_rootItem->childCount(); ++i) {
+            InventoryMoveTreeItem *parentItem = m_rootItem->child(i);
+            for (int j = 0; j < parentItem->childCount(); ++j) {
+                InventoryMoveTreeItem *childItem = parentItem->child(j);
+                double unitPrice = childItem->data(COL_UNIT_PRICE).toDouble();
+                if (unitPrice == 0.0)
+                    continue; // Remove lines with unit price to 0
+
+                QStringList rowData;
+                for (int c = startCol; c < COL_COUNT; ++c) {
+                    if (c == COL_UNIT_PRICE || c == COL_TOTAL_PRICE) {
+                        rowData << QString::number(childItem->data(c).toDouble(), 'f', 2);
+                    } else {
+                        rowData << childItem->data(c).toString();
+                    }
+                }
+                rep.addRow(rowData);
+            }
+        }
+        rep.endTable();
+        rep.save(path);
+    } else {
+        for (int i = 0; i < m_rootItem->childCount(); ++i) {
+            InventoryMoveTreeItem *parentItem = m_rootItem->child(i);
+            double value = parentItem->data(COL_TOTAL_PRICE).toDouble();
+            QString from = parentItem->data(COL_FROM).toString();
+            QString to = parentItem->data(COL_TO).toString();
+            QString path = baseFilePath + "-" + from + "-" + to + "__" + QString::number(value, 'f', 2) + m_companyCurrency + ".pdf";
+
+            ReportGenerator rep;
+            rep.setLandscape(true);
+            QString title = tr("Inventory Moves - %1 to %2").arg(from, to);
+            if (!dateStr.isEmpty()) {
+                title += " (" + dateStr + ")";
+            }
+            rep.addTitle(title);
+            rep.startTable(headers);
+            for (int j = 0; j < parentItem->childCount(); ++j) {
+                InventoryMoveTreeItem *childItem = parentItem->child(j);
+                double unitPrice = childItem->data(COL_UNIT_PRICE).toDouble();
+                if (unitPrice == 0.0)
+                    continue; // Remove lines with unit price to 0
+
+                QStringList rowData;
+                for (int c = startCol; c < COL_COUNT; ++c) {
+                    if (c == COL_UNIT_PRICE || c == COL_TOTAL_PRICE) {
+                        rowData << QString::number(childItem->data(c).toDouble(), 'f', 2);
+                    } else {
+                        rowData << childItem->data(c).toString();
+                    }
+                }
+                rep.addRow(rowData);
+            }
+            rep.endTable();
+            rep.save(path);
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

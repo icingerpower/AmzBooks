@@ -486,6 +486,7 @@ void InvoiceGenerator::generateInvoice(
                 <td></td>
                 <td>%16</td>
                 <td>%17</td>
+                <td>%19</td>
                 <td>%18</td>
             </tr>
         </table>
@@ -564,6 +565,7 @@ void InvoiceGenerator::generateInvoice(
     for (const auto &item : invoicingInfo.getItems()) {
         double ht = item.getAmountUntaxed();
         double tax = item.getTaxes();
+        int quantity = item.getQuantity();
         
         // Wait, LineItem uses Amount structure? No, getAmountTaxed returns double.
         // Assuming single currency for all items.
@@ -571,12 +573,13 @@ void InvoiceGenerator::generateInvoice(
         // but OrderManager usually works with a currency. Let's assume order currency.
         // For display, we need formatting.
         
-        totalHT += ht;
-        totalTax += tax;
-        totalTTC += ht + tax;
-
         double vatRate = (ht > 0) ? (tax / ht * 100.0) : 0.0;
         double ttc = ht + tax;
+
+        totalHT += quantity * ht;
+        totalTax += quantity * tax;
+        totalTTC += quantity * ttc;
+
         rowsHtml += QString(R"(
             <tr>
                 <td>%1</td>
@@ -921,8 +924,9 @@ void InvoiceGenerator::regenerateInvoices(
 
         // Retrieve InvoicingInfo and address from the OrderManager
         QSharedPointer<InvoicingInfo> info = orderManager.getInvoicingInfo(record.shipmentId);
-        if (!info)
+        if (!info) {
             continue;
+        }
 
         QSharedPointer<Address> addrPtr = orderManager.getAddressTo(record.shipmentId);
         const Address &addr = addrPtr ? *addrPtr : emptyAddr;
@@ -941,18 +945,14 @@ void InvoiceGenerator::regenerateInvoices(
         // Build output path mirroring the layout used by generateInvoices()
         QString sanitized = record.invoiceNumber;
         sanitized.replace('/', '-').replace('\\', '-');
-        QDir yearDir(folderTo.filePath(QString::number(record.date.year())));
-        yearDir.mkpath(".");
-        const QString pdfPath = yearDir.absoluteFilePath(sanitized + ".pdf");
+        QString subDirName = QString("%1/%2").arg(record.date.year()).arg(record.date.month(), 2, 10, QChar('0'));
+        QDir subDir(folderTo.filePath(subDirName));
+        subDir.mkpath(".");
+        const QString pdfPath = subDir.absoluteFilePath(sanitized + ".pdf");
 
-        try {
-            generateInvoice(record.invoiceNumber, prevNumber, pdfPath,
-                            addr, *info, record.shipmentId, orderManager,
-                            record.date);
-        } catch (const std::exception &ex) {
-            qWarning() << "[InvoiceGenerator::regenerateInvoices] Failed for"
-                       << record.shipmentId << ":" << ex.what();
-        }
+        generateInvoice(record.invoiceNumber, prevNumber, pdfPath,
+                        addr, *info, record.shipmentId, orderManager,
+                        record.date);
     }
 }
 

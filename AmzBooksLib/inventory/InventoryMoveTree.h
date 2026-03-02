@@ -172,6 +172,9 @@ public:
                                QObject *parent = nullptr);
     ~InventoryMoveTree() override;
 
+    void saveAsCsv(const QString &baseFilePath, bool multipleFile = true); // Full data including lines with unit price to 0
+    void saveAsPdf(const QString &baseFilePath, const QDate &startDate, const QDate &endDate, bool multipleFile = true); // Remove lines with unit price to 0
+
     // Returns unique SKUs for all child items whose unit price is 0.0
     // (i.e., no purchase invoice was found). Each SKU appears at most once.
     QStringList getSkusWithNoPrice() const;

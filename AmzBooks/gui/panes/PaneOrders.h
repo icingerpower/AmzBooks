@@ -31,6 +31,7 @@ public slots:
     void filterReset();
     void displayNoPriceSkus();
     void editRegradedSkus();
+    void exportReports();
 
 private:
     Ui::PaneOrders *ui;
@@ -46,6 +47,9 @@ private:
     // Persistent mapping from Amazon-regraded SKUs to their canonical SKUs.
     // Created once at construction; lives for the pane's lifetime.
     SkuRegradedTable   *m_skuRegradedTable;
+
+    QDate m_lastLoadedStartDate;
+    QDate m_lastLoadedEndDate;
 };
 
 #endif // PANEORDERS_H
