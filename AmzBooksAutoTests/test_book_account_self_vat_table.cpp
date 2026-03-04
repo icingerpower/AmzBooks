@@ -53,17 +53,23 @@ private slots:
         BookAccountSelfVatTable table(QDir(tempDir.path()), "FR");
 
         QCOMPARE(table.rowCount(), 2);
-        QCOMPARE(table.columnCount(), 3);
+        QCOMPARE(table.columnCount(), 6);
 
         // EU row (index 0)
         QCOMPARE(table.data(table.index(0, 0)).toString(), QString("EU"));
         QCOMPARE(table.data(table.index(0, 1)).toString(), QString("445662"));
         QCOMPARE(table.data(table.index(0, 2)).toString(), QString("445200"));
+        QVERIFY(table.data(table.index(0, 3)).toString().isEmpty()); // Sale 7
+        QVERIFY(table.data(table.index(0, 4)).toString().isEmpty()); // Purchase 6
+        QVERIFY(table.data(table.index(0, 5)).toString().isEmpty()); // Stock 4
 
         // non-EU row (index 1)
         QCOMPARE(table.data(table.index(1, 0)).toString(), QString("non-EU"));
         QCOMPARE(table.data(table.index(1, 1)).toString(), QString("445663"));
         QCOMPARE(table.data(table.index(1, 2)).toString(), QString("445300"));
+        QVERIFY(table.data(table.index(1, 3)).toString().isEmpty()); // Sale 7
+        QVERIFY(table.data(table.index(1, 4)).toString().isEmpty()); // Purchase 6
+        QVERIFY(table.data(table.index(1, 5)).toString().isEmpty()); // Stock 4
 
         // CSV file must be created on construction
         QVERIFY(QFile::exists(QDir(tempDir.path()).filePath("selfVatPurchaseAccount.csv")));
@@ -77,9 +83,12 @@ private slots:
         QCOMPARE(table.headerData(0, Qt::Horizontal).toString(), QString("Country"));
         QCOMPARE(table.headerData(1, Qt::Horizontal).toString(), QString("Deductible VAT"));
         QCOMPARE(table.headerData(2, Qt::Horizontal).toString(), QString("Due VAT"));
+        QCOMPARE(table.headerData(3, Qt::Horizontal).toString(), QString("Sale 7"));
+        QCOMPARE(table.headerData(4, Qt::Horizontal).toString(), QString("Purchase 6"));
+        QCOMPARE(table.headerData(5, Qt::Horizontal).toString(), QString("Stock 4"));
 
         // Out-of-range column returns invalid variant
-        QVERIFY(!table.headerData(3, Qt::Horizontal).isValid());
+        QVERIFY(!table.headerData(6, Qt::Horizontal).isValid());
 
         // Vertical orientation not provided → invalid
         QVERIFY(!table.headerData(0, Qt::Vertical).isValid());
@@ -101,7 +110,7 @@ private slots:
         QVERIFY(!table.data(table.index(-1, 0)).isValid());
 
         // Column out of range
-        QVERIFY(!table.data(table.index(0, 3)).isValid());
+        QVERIFY(!table.data(table.index(0, 6)).isValid());
     }
 
     void test_rowColumnCountWithParent()
@@ -127,11 +136,17 @@ private slots:
         QVERIFY(!(table.flags(table.index(0, 0)) & Qt::ItemIsEditable));
         QVERIFY(!(table.flags(table.index(1, 0)) & Qt::ItemIsEditable));
 
-        // Columns 1 and 2 MUST be editable for both rows
+        // Columns 1–5 MUST be editable for both rows
         QVERIFY(table.flags(table.index(0, 1)) & Qt::ItemIsEditable);
         QVERIFY(table.flags(table.index(0, 2)) & Qt::ItemIsEditable);
+        QVERIFY(table.flags(table.index(0, 3)) & Qt::ItemIsEditable);
+        QVERIFY(table.flags(table.index(0, 4)) & Qt::ItemIsEditable);
+        QVERIFY(table.flags(table.index(0, 5)) & Qt::ItemIsEditable);
         QVERIFY(table.flags(table.index(1, 1)) & Qt::ItemIsEditable);
         QVERIFY(table.flags(table.index(1, 2)) & Qt::ItemIsEditable);
+        QVERIFY(table.flags(table.index(1, 3)) & Qt::ItemIsEditable);
+        QVERIFY(table.flags(table.index(1, 4)) & Qt::ItemIsEditable);
+        QVERIFY(table.flags(table.index(1, 5)) & Qt::ItemIsEditable);
 
         // Invalid index returns NoItemFlags
         QCOMPARE(table.flags(QModelIndex()), Qt::NoItemFlags);
@@ -433,10 +448,139 @@ private slots:
         QTextStream in(&file);
         const QString header = in.readLine();
 
-        // All three column IDs must be present in the header
+        // All six column IDs must be present in the header
         QVERIFY(header.contains("Country"));
         QVERIFY(header.contains("DeductibleVat"));
         QVERIFY(header.contains("DueVat"));
+        QVERIFY(header.contains("Sale7"));
+        QVERIFY(header.contains("Purchase7"));
+        QVERIFY(header.contains("Stock4"));
+    }
+    // -------------------------------------------------------------------------
+    // getAccountSale7 / getAccountPurchase7 / getAccountStock4 — routing
+    // -------------------------------------------------------------------------
+
+    void test_newColumns_routing_intracom()
+    {
+        QTemporaryDir tempDir;
+        BookAccountSelfVatTable table(QDir(tempDir.path()), "FR");
+
+        // Set recognisable values on the EU row
+        table.setData(table.index(0, 3), "SALE7_EU",    Qt::EditRole);
+        table.setData(table.index(0, 4), "PURCH7_EU",   Qt::EditRole);
+        table.setData(table.index(0, 5), "STOCK4_EU",   Qt::EditRole);
+
+        // EU member → FR must return the EU-row values
+        QCOMPARE(table.getAccountSale7("DE",    "FR"), QString("SALE7_EU"));
+        QCOMPARE(table.getAccountPurchase7("DE","FR"), QString("PURCH7_EU"));
+        QCOMPARE(table.getAccountStock4("DE",   "FR"), QString("STOCK4_EU"));
+
+        QCOMPARE(table.getAccountSale7("IT",    "FR"), QString("SALE7_EU"));
+        QCOMPARE(table.getAccountPurchase7("ES","FR"), QString("PURCH7_EU"));
+        QCOMPARE(table.getAccountStock4("PL",   "FR"), QString("STOCK4_EU"));
+    }
+
+    void test_newColumns_routing_extracom()
+    {
+        QTemporaryDir tempDir;
+        BookAccountSelfVatTable table(QDir(tempDir.path()), "FR");
+
+        // Set recognisable values on the non-EU row
+        table.setData(table.index(1, 3), "SALE7_NONEU",  Qt::EditRole);
+        table.setData(table.index(1, 4), "PURCH7_NONEU", Qt::EditRole);
+        table.setData(table.index(1, 5), "STOCK4_NONEU", Qt::EditRole);
+
+        // Non-EU → FR must return the non-EU-row values
+        QCOMPARE(table.getAccountSale7("CN",    "FR"), QString("SALE7_NONEU"));
+        QCOMPARE(table.getAccountPurchase7("US","FR"), QString("PURCH7_NONEU"));
+        QCOMPARE(table.getAccountStock4("GB",   "FR"), QString("STOCK4_NONEU")); // GB post-Brexit
+
+        QCOMPARE(table.getAccountSale7("CH",    "FR"), QString("SALE7_NONEU")); // Switzerland not EU
+    }
+
+    void test_newColumns_routing_none()
+    {
+        QTemporaryDir tempDir;
+        BookAccountSelfVatTable table(QDir(tempDir.path()), "FR");
+
+        table.setData(table.index(0, 3), "SALE7_EU",  Qt::EditRole);
+        table.setData(table.index(1, 3), "SALE7_NONEU", Qt::EditRole);
+
+        // Domestic: FR → FR → empty
+        QVERIFY(table.getAccountSale7("FR",    "FR").isEmpty());
+        QVERIFY(table.getAccountPurchase7("FR","FR").isEmpty());
+        QVERIFY(table.getAccountStock4("FR",   "FR").isEmpty());
+
+        // Third-party: countryTo != company country → empty
+        QVERIFY(table.getAccountSale7("DE",    "DE").isEmpty());
+        QVERIFY(table.getAccountPurchase7("CN","DE").isEmpty());
+        QVERIFY(table.getAccountStock4("IT",   "US").isEmpty());
+    }
+
+    // -------------------------------------------------------------------------
+    // Custom accounts / persistence for new columns
+    // -------------------------------------------------------------------------
+
+    void test_customAccounts_newColumns()
+    {
+        QTemporaryDir tempDir;
+        BookAccountSelfVatTable table(QDir(tempDir.path()), "FR");
+
+        table.setData(table.index(0, 3), "S7_EU",  Qt::EditRole);
+        table.setData(table.index(0, 4), "P7_EU",  Qt::EditRole);
+        table.setData(table.index(0, 5), "ST4_EU", Qt::EditRole);
+        table.setData(table.index(1, 3), "S7_NON",  Qt::EditRole);
+        table.setData(table.index(1, 4), "P7_NON",  Qt::EditRole);
+        table.setData(table.index(1, 5), "ST4_NON", Qt::EditRole);
+
+        // Intracom uses EU row
+        QCOMPARE(table.getAccountSale7("DE",     "FR"), QString("S7_EU"));
+        QCOMPARE(table.getAccountPurchase7("IT",  "FR"), QString("P7_EU"));
+        QCOMPARE(table.getAccountStock4("NL",    "FR"), QString("ST4_EU"));
+
+        // Extracom uses non-EU row
+        QCOMPARE(table.getAccountSale7("US",     "FR"), QString("S7_NON"));
+        QCOMPARE(table.getAccountPurchase7("CN",  "FR"), QString("P7_NON"));
+        QCOMPARE(table.getAccountStock4("JP",    "FR"), QString("ST4_NON"));
+
+        // Third-party still empty regardless of custom values
+        QVERIFY(table.getAccountSale7("DE",     "DE").isEmpty());
+        QVERIFY(table.getAccountPurchase7("CN",  "DE").isEmpty());
+        QVERIFY(table.getAccountStock4("IT",    "US").isEmpty());
+    }
+
+    void test_persistence_newColumns()
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        QDir dir(tempDir.path());
+
+        // 1. Write custom values for all three new columns
+        {
+            BookAccountSelfVatTable table(dir, "FR");
+            QVERIFY(table.setData(table.index(0, 3), "SAVE_S7_EU",   Qt::EditRole));
+            QVERIFY(table.setData(table.index(0, 4), "SAVE_P7_EU",   Qt::EditRole));
+            QVERIFY(table.setData(table.index(0, 5), "SAVE_ST4_EU",  Qt::EditRole));
+            QVERIFY(table.setData(table.index(1, 3), "SAVE_S7_NON",  Qt::EditRole));
+            QVERIFY(table.setData(table.index(1, 4), "SAVE_P7_NON",  Qt::EditRole));
+            QVERIFY(table.setData(table.index(1, 5), "SAVE_ST4_NON", Qt::EditRole));
+        }
+
+        // 2. Reload and verify all new-column values survived
+        {
+            BookAccountSelfVatTable table(dir, "FR");
+            QCOMPARE(table.data(table.index(0, 3)).toString(), QString("SAVE_S7_EU"));
+            QCOMPARE(table.data(table.index(0, 4)).toString(), QString("SAVE_P7_EU"));
+            QCOMPARE(table.data(table.index(0, 5)).toString(), QString("SAVE_ST4_EU"));
+            QCOMPARE(table.data(table.index(1, 3)).toString(), QString("SAVE_S7_NON"));
+            QCOMPARE(table.data(table.index(1, 4)).toString(), QString("SAVE_P7_NON"));
+            QCOMPARE(table.data(table.index(1, 5)).toString(), QString("SAVE_ST4_NON"));
+
+            // Routing also uses the reloaded values
+            QCOMPARE(table.getAccountSale7("DE",    "FR"), QString("SAVE_S7_EU"));
+            QCOMPARE(table.getAccountPurchase7("CN","FR"), QString("SAVE_P7_NON"));
+            QCOMPARE(table.getAccountStock4("IT",   "FR"), QString("SAVE_ST4_EU"));
+        }
     }
 };
 

@@ -1,6 +1,7 @@
 #include <QtTest>
 #include <QCoreApplication>
 #include <QTemporaryDir>
+#include <QDirIterator>
 
 #include "books/BooksAccountsSalesTable.h"
 #include "books/TaxScheme.h"
@@ -17,6 +18,16 @@
 #include "books/BookAccountAmzBalanceTable.h"
 #include "books/AmzPaymentSettings.h"
 #include "ExceptionWithTitleText.h"
+
+#include "books/JournalEntryFactory.h"
+#include "CurrencyRateManager.h"
+#include "books/JournalTable.h"
+#include "orders/ActivitySource.h"
+#include "orders/Shipment.h"
+#include "books/Activity.h"
+#include "books/TaxResolver.h"
+#include "books/VatResolver.h"
+#include "utils/CsvReader.h"
 
 // Helper to synchronously wait for QCoro::Task
 template <typename T>
@@ -869,6 +880,195 @@ private slots:
                 QVERIFY(table.removeRow(marsRow)); // Should succeed
             }
         }
+    }
+
+    // Test that createEntryGrouped handles all shipment combinations present in the
+    // previous complete year of Amazon VAT reports without missing any account entry.
+    // Uses the same data files as TestVatRateResolver::test_AmazonReportsRates but
+    // only reads the 2025 files (previous complete year as of early 2026).
+    // For each SALE row we derive the expected TaxScheme via TaxResolver and the
+    // expected VAT rate via VatResolver, then create a synthetic Activity and feed
+    // it to JournalEntryFactory::createEntryGrouped. The test fails if any account
+    // is missing from BooksAccountsSalesTable::_fillIfEmpty.
+    void test_createEntryGrouped_fullYear()
+    {
+        QDir appDir(QCoreApplication::applicationDirPath());
+        QString reportsPath = appDir.absoluteFilePath("data/amazon-vat-reports/2025");
+        if (!QDir(reportsPath).exists()) {
+            QSKIP("2025 Amazon VAT report directory not found. Skipping.");
+        }
+
+        // ── Environment ────────────────────────────────────────────────────────
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        QDir dir(tempDir.path());
+
+        // Write a minimal company.csv (FR company, EUR currency)
+        {
+            QFile f(dir.filePath("company.csv"));
+            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+            QTextStream out(&f);
+            out << "Id;Parameter;Value\n";
+            out << "Country;Country Code;FR\n";
+            out << "Currency;Currency;EUR\n";
+        }
+
+        CompanyInfosTable      companyInfos(dir);
+        CurrencyRateManager    currencyManager(dir, "");
+        BooksAccountsSalesTable saleAccounts(dir);
+        BookAccountPurchaseTable purchaseAccounts(dir, "FR");
+        JournalTable           journalTable(dir);
+
+        JournalEntryFactory factory(&currencyManager, &companyInfos,
+                                    &saleAccounts, &purchaseAccounts, &journalTable);
+
+        // Resolvers (in-memory, use hardcoded defaults – same as _fillIfEmpty)
+        TaxResolver taxResolver(appDir.absoluteFilePath("data"));
+        VatResolver vatResolver(QDir(), nullptr, false);
+
+        ActivitySource source;
+        source.channel    = "Amazon";
+        source.subchannel = "EU";
+        source.type       = ActivitySourceType::Report;
+
+        // ── Parse all 2025 CSV files ───────────────────────────────────────────
+        QMultiMap<QDateTime, QSharedPointer<Shipment>> allShipments;
+
+        QDirIterator it(reportsPath, QStringList() << "*.csv", QDir::Files);
+        while (it.hasNext()) {
+            it.next();
+            const QString fname = it.fileInfo().fileName();
+            if (fname.contains("FIXING-OLD-REFUND")) continue;
+
+            CsvReader reader(it.fileInfo().absoluteFilePath(), ",", "\"", true, "\n", 0, "UTF-8");
+            if (!reader.readAll()) continue;
+
+            const DataFromCsv *data = reader.dataRode();
+
+            // Require the columns we need
+            if (!data->header.contains("TRANSACTION_TYPE")
+                || (!data->header.contains("SALE_DEPART_COUNTRY")
+                    && !data->header.contains("DEPARTURE_COUNTRY"))
+                || (!data->header.contains("SALE_ARRIVAL_COUNTRY")
+                    && !data->header.contains("ARRIVAL_COUNTRY")))
+            {
+                continue;
+            }
+
+            const int idxType    = data->header.pos("TRANSACTION_TYPE");
+            const int idxDepart  = data->header.contains("SALE_DEPART_COUNTRY")
+                                   ? data->header.pos("SALE_DEPART_COUNTRY")
+                                   : data->header.pos("DEPARTURE_COUNTRY");
+            const int idxArrival = data->header.contains("SALE_ARRIVAL_COUNTRY")
+                                   ? data->header.pos("SALE_ARRIVAL_COUNTRY")
+                                   : data->header.pos("ARRIVAL_COUNTRY");
+            const int idxDate    = data->header.contains("TAX_CALCULATION_DATE")
+                                   ? data->header.pos("TAX_CALCULATION_DATE")
+                                   : data->header.pos("TRANSACTION_COMPLETE_DATE");
+            const int idxBuyerVat = data->header.contains("BUYER_VAT_NUMBER")
+                                    ? data->header.pos("BUYER_VAT_NUMBER") : -1;
+            const int idxEventId  = data->header.contains("TRANSACTION_EVENT_ID")
+                                    ? data->header.pos("TRANSACTION_EVENT_ID") : -1;
+
+            for (const QStringList &row : data->lines) {
+                if (row.value(idxType) != "SALE") continue;
+
+                const QString dep = row.value(idxDepart).trimmed();
+                const QString arr = row.value(idxArrival).trimmed();
+                if (dep.isEmpty() || arr.isEmpty()) continue;
+
+                // Parse date
+                const QString dateStr = row.value(idxDate).trimmed();
+                QDateTime dt = QDateTime::fromString(dateStr, "dd-MM-yyyy");
+                if (!dt.isValid()) dt = QDateTime::fromString(dateStr, "dd/MM/yyyy");
+                if (!dt.isValid()) dt = QDateTime::fromString(dateStr, "yyyy-MM-dd");
+                if (!dt.isValid()) continue;
+
+                const bool isB2B = (idxBuyerVat != -1
+                                    && !row.value(idxBuyerVat).trimmed().isEmpty());
+
+                // Determine TaxScheme via TaxResolver (same logic as production)
+                TaxResolver::TaxContext ctx = taxResolver.getTaxContext(
+                    dt, dep, arr, SaleType::Products, isB2B);
+
+                // Skip schemes that resolveVatCountries does not support
+                // (ReverseChargeImport, ReverseChargeDomestic, ImportVat, Unknown)
+                switch (ctx.taxScheme) {
+                case TaxScheme::DomesticVat:
+                case TaxScheme::EuOssUnion:
+                case TaxScheme::EuOssNonUnion:
+                case TaxScheme::EuIoss:
+                case TaxScheme::Exempt:
+                case TaxScheme::OutOfScope:
+                case TaxScheme::MarketplaceDeemedSupplier:
+                    break;
+                default:
+                    continue;
+                }
+
+                // Derive expected VAT rate: use VatResolver for taxable schemes,
+                // 0 % for exempt / out-of-scope (matching what resolveVatCountries
+                // will compute on the account-lookup side).
+                double expectedRate = 0.0;
+                switch (ctx.taxScheme) {
+                case TaxScheme::DomesticVat:
+                case TaxScheme::EuOssUnion:
+                case TaxScheme::EuOssNonUnion:
+                case TaxScheme::EuIoss: {
+                    const QString rateCountry = ctx.countryCodeVatPaidTo.isEmpty()
+                                                ? arr : ctx.countryCodeVatPaidTo;
+                    const double r = vatResolver.getRate(dt.date(), rateCountry, SaleType::Products);
+                    expectedRate = (r >= 0.0) ? r : 0.0;
+                    break;
+                }
+                default:
+                    expectedRate = 0.0;
+                    break;
+                }
+
+                // Build an Amount that yields the expected VAT rate:
+                // Amount(amountTaxed, taxes) with rate = taxes / (amountTaxed - taxes)
+                // For rate R: amountTaxed = 1 + R, taxes = R  (on a 1 € base)
+                const double amountTaxed = 1.0 + expectedRate;
+                const double amountVat   = expectedRate;
+
+                const QString eventId = (idxEventId != -1 && !row.value(idxEventId).isEmpty())
+                                        ? row.value(idxEventId) : "EVT";
+
+                auto actResult = Activity::create(
+                    eventId, eventId, "",
+                    dt, dt,
+                    "EUR",   // always EUR – avoids any currency-rate lookup
+                    dep, arr,
+                    isB2B,
+                    ctx.countryCodeVatPaidTo,
+                    Amount{amountTaxed, amountVat},
+                    TaxSource::MarketplaceProvided,
+                    ctx.taxDeclaringCountryCode,
+                    ctx.taxScheme,
+                    ctx.taxJurisdictionLevel,
+                    SaleType::Products
+                );
+                if (!actResult.ok()) continue;
+
+                QList<Activity> acts;
+                acts.append(actResult.value.value());
+                auto shipment = QSharedPointer<Shipment>::create(acts, "", true);
+                allShipments.insert(dt, shipment);
+            }
+        }
+
+        if (allShipments.isEmpty()) {
+            QSKIP("No valid 2025 SALE transactions found in report files.");
+        }
+        
+        qInfo() << "Found and included" << allShipments.size() << "shipments from 2025 reports.";
+
+        // ── Call the factory – must not throw ──────────────────────────────────
+        // If any (TaxScheme, countryFrom, countryTo, vatRate) combination is missing
+        // from BooksAccountsSalesTable::_fillIfEmpty this will throw and the test fails.
+        auto entries = syncWait(factory.createEntryGrouped(&source, allShipments));
+        QVERIFY(!entries.isEmpty());
     }
 
 };

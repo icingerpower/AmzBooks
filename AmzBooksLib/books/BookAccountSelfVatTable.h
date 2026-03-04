@@ -41,9 +41,12 @@ private:
     static const int COL_COUNTRY = 0;
     static const int COL_DEDUCTIBLE = 1;
     static const int COL_DUE = 2;
+    static const int COL_SALE7 = 3;
+    static const int COL_PURCHASE7 = 4;
+    static const int COL_STOCK4 = 5;
 
-    // m_rows[ROW_EU]     = { label, deductibleAccount, dueAccount }
-    // m_rows[ROW_NON_EU] = { label, deductibleAccount, dueAccount }
+    // m_rows[ROW_EU]     = { label, deductibleAccount, dueAccount, sale7, purchase7, stock4 }
+    // m_rows[ROW_NON_EU] = { label, deductibleAccount, dueAccount, sale7, purchase7, stock4 }
     QList<QStringList> m_rows;
 
     QString m_filePath;

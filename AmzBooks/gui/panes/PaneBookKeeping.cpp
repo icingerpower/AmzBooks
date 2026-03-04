@@ -32,6 +32,8 @@
 #include <QFileDialog>
 #include <QMessageBox>
 #include <QSettings>
+#include <QTimer>
+#include <QShowEvent>
 #include <QFileInfo>
 #include <QSet>
 
@@ -58,6 +60,8 @@
 #include "orders/OrderManager.h"
 #include "orders/Shipment.h"
 #include "orders/InvoicingInfo.h"
+#include "inventory/InventoryMoveTree.h"
+#include "CountriesEu.h"
 
 // For confirmation message box
 #include <QMessageBox>
@@ -83,6 +87,18 @@ PaneBookKeeping::~PaneBookKeeping()
     delete ui;
     delete m_booksConnections;
     delete m_orderManager;
+}
+
+void PaneBookKeeping::showEvent(QShowEvent *event)
+{
+    QWidget::showEvent(event);
+    if (!m_splitterInitialized) {
+        m_splitterInitialized = true;
+        QTimer::singleShot(0, this, [this]() {
+            int total = ui->splitterMain->height();
+            ui->splitterMain->setSizes({100, total - 100});
+        });
+    }
 }
 
 void PaneBookKeeping::loadYearSelected()
@@ -208,7 +224,7 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     // 4.3 Banks Data (Count only)
     QList<AbstractBooksTableBank *> bankTables = getAllBankTables();
     int bankRowsToProcess = 0;
-    for (const AbstractBooksTableBank *bankTable : bankTables) {
+    for (const AbstractBooksTableBank *bankTable : std::as_const(bankTables)) {
          int rowCount = bankTable->rowCount();
          for (int i=0; i<rowCount; ++i) {
              if (bankTable->getDate(i).year() == year) {
@@ -222,8 +238,23 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     for (auto it = sourceMapUngrouped.begin(); it != sourceMapUngrouped.end(); ++it)
         ungroupedShipmentCount += it.value().size();
 
+    // Count complete months across all grouped sources
+    QDate currentDate = QDate::currentDate();
+    int groupedMonthCount = 0;
+    for (auto it = sourceMapGrouped.cbegin(); it != sourceMapGrouped.cend(); ++it) {
+        QSet<QPair<int,int>> months;
+        for (auto jt = it.value().cbegin(); jt != it.value().cend(); ++jt) {
+            const QDate d = jt.key().date();
+            if (d.year() < currentDate.year()
+                    || (d.year() == currentDate.year() && d.month() < currentDate.month())) {
+                months.insert({d.year(), d.month()});
+            }
+        }
+        groupedMonthCount += months.size();
+    }
+
     int totalSteps = 0;
-    totalSteps += sourceMapGrouped.size();
+    totalSteps += groupedMonthCount;
     totalSteps += ungroupedShipmentCount;
     totalSteps += invoices.size();
     totalSteps += bankRowsToProcess;
@@ -239,20 +270,42 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     // -------------------
 
     try {
-        // 5.1 Sales — grouped orders
+        // 5.1 Sales — grouped orders: one createEntryGrouped call per complete month per source
         for (auto it = sourceMapGrouped.begin(); it != sourceMapGrouped.end(); ++it) {
-            if (progress.wasCanceled()) {
-                qDebug() << "[PaneBookKeeping] Progress was canceled (Sales grouped)";
-                co_return;
-            }
-            progress.setValue(currentStep++);
-
             ActivitySource source = it.key();
-            const auto &shipments = it.value();
+            const auto &allShipments = it.value();
+            const QString journalId = journalTable.getJournal(&source);
 
-            QSharedPointer<JournalEntry> entry = co_await factory.createEntryGrouped(&source, shipments, callbackAddIfMissing);
-            QString journalId = journalTable.getJournal(&source);
-            addEntry(entry, journalId);
+            // Group shipments by (year, month)
+            QMap<QPair<int,int>, QMultiMap<QDateTime, QSharedPointer<Shipment>>> monthlyShipments;
+            for (auto jt = allShipments.cbegin(); jt != allShipments.cend(); ++jt) {
+                const QDate d = jt.key().date();
+                monthlyShipments[{d.year(), d.month()}].insert(jt.key(), jt.value());
+            }
+
+            // Process only complete months
+            for (auto mt = monthlyShipments.begin(); mt != monthlyShipments.end(); ++mt) {
+                const int mYear  = mt.key().first;
+                const int mMonth = mt.key().second;
+
+                // Skip current or future months
+                if (mYear > currentDate.year()
+                        || (mYear == currentDate.year() && mMonth >= currentDate.month())) {
+                    continue;
+                }
+
+                if (progress.wasCanceled()) {
+                    qDebug() << "[PaneBookKeeping] Progress was canceled (Sales grouped)";
+                    co_return;
+                }
+                progress.setValue(currentStep++);
+
+                const QList<QSharedPointer<JournalEntry>> entries = co_await factory.createEntryGrouped(
+                    &source, mt.value(), callbackAddIfMissing);
+                for (const auto &entry : entries) {
+                    addEntry(entry, journalId);
+                }
+            }
         }
 
         // 5.1b Sales — ungrouped orders: one entry per shipment, customer account from OrderInfo
@@ -269,31 +322,32 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
 
                 QSharedPointer<Shipment> shipment = jt.value();
                 // customerAccount is stored in the Shipment, loaded via the orders JOIN
-                QSharedPointer<JournalEntry> entry = co_await factory.createEntry(shipment, shipment->customerAccount(), callbackAddIfMissing);
+                QSharedPointer<JournalEntry> entry = co_await factory.createEntry(
+                    shipment, shipment->customerAccount(), callbackAddIfMissing);
                 addEntry(entry, journalId);
             }
         }
 
         qDebug() << "[PaneBookKeeping] Sales completed. Starting purchases...";
         // 5.2 Purchases
-        for (const auto &info : invoices) {
-             if (progress.wasCanceled()) {
-                 qDebug() << "[PaneBookKeeping] Progress was canceled (Purchases)";
-                 co_return;
-             }
-             progress.setValue(currentStep++);
+        for (const auto &info : std::as_const(invoices)) {
+            if (progress.wasCanceled()) {
+                qDebug() << "[PaneBookKeeping] Progress was canceled (Purchases)";
+                co_return;
+            }
+            progress.setValue(currentStep++);
 
-             QSharedPointer<JournalEntry> entry = factory.createEntry(info);
-             // Determine Journal ID for Purchases (usually "AC")
-             QString journalId = journalTable.getJournalPurchaseInvoice().code;
-             addEntry(entry, journalId);
+            QSharedPointer<JournalEntry> entry = factory.createEntry(info);
+            // Determine Journal ID for Purchases (usually "AC")
+            QString journalId = journalTable.getJournalPurchaseInvoice().code;
+            addEntry(entry, journalId);
         }
 
         qDebug() << "[PaneBookKeeping] Purchases completed. Starting Banks...";
         // 5.3 Banks
-        for (const AbstractBooksTableBank *bankTable : bankTables) {
+        for (const AbstractBooksTableBank *bankTable : std::as_const(bankTables)) {
             int rowCount = bankTable->rowCount();
-            QString journalId = bankTable->getBankStatement() ? bankTable->getBankStatement()->defaultJournal() : "BQ"; // Default to BQ
+            const auto &journal = journalTable.getJournal(bankTable->getBankStatement()->getId());
             
             for (int i = 0; i < rowCount; ++i) {
                 
@@ -306,41 +360,91 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
                 }
                 progress.setValue(currentStep++);
 
-            QString account2 = m_booksConnections->getAccount2(const_cast<AbstractBooksTableBank*>(bankTable), i);
-            if (account2.isEmpty())
-            {
-                account2 = "TODO"; //TODOCEDRIC
-            }
-            if (account2.isEmpty())
-            {
-                QMessageBox::warning(
-                            this,
-                            tr("Bank connection missing"),
-                            tr("The bank connection is not done for the bank %1 on date %2").arg(
-                                bankTable->getBankStatement()->getName(),
-                                date.toString("yyyy/MM/dd")));
-                co_return;
-            }
+                QString account2 = m_booksConnections->getAccount2(const_cast<AbstractBooksTableBank*>(bankTable), i);
+                if (account2.isEmpty())
+                {
+                    account2 = "TODO"; //TODOCEDRIC
+                }
+                if (account2.isEmpty())
+                {
+                    QMessageBox::warning(
+                        this,
+                        tr("Bank connection missing"),
+                        tr("The bank connection is not done for the bank %1 on date %2").arg(
+                            bankTable->getBankStatement()->getName(),
+                            date.toString("yyyy/MM/dd")));
+                    co_return;
+                }
 
-            QSharedPointer<JournalEntry> entry = factory.createEntry(bankTable, account2, i);
-            addEntry(entry, journalId);
+                QSharedPointer<JournalEntry> entry = factory.createEntry(bankTable, account2, i);
+                addEntry(entry, journal);
+            }
         }
-    }
-    
-    progress.setValue(totalSteps);
 
-    // Warn if any journal ended up with no entries
-    if (journal_date_entries.contains(QString{})) {
-        QMessageBox::warning(this, tr("Empty Journals"),
-            tr("No bookkeeping entries were generated for year %1. "
-               "Make sure to have the journal in settings.")
-                .arg(year));
-        co_return;
-    }
+        // 5.4 Inventory moves (EU → company country intracom stock acquisitions)
+        {
+            const QStringList &countryCodes = CountriesEu::getAmazonPanEuCountryCodes();
 
-    qDebug() << "[PaneBookKeeping] Generating complete. Saving...";
-    // 6. Save
-    try {
+            // Build per-country shipping costs from the WidgetPurchases configuration
+            QHash<QString, double> country_pricePerKilo;
+            for (const QString &cc : countryCodes) {
+                country_pricePerKilo[cc] = ui->widgetPurchases->getShippingPrice(cc);
+            }
+            country_pricePerKilo[""] = ui->widgetPurchases->getShippingPrice(""); // catch-all default
+
+            QDate currentDate = QDate::currentDate();
+
+            for (QDate m(from.year(), from.month(), 1); m <= to; m = m.addMonths(1)) {
+                if (m.year() > currentDate.year() || (m.year() == currentDate.year() && m.month() >= currentDate.month())) {
+                    continue; // Skip incomplete month (current or future)
+                }
+
+                QHash<QString, QHash<QString, int>> countryCode_sku_unitImported;
+                QHash<QString, QHash<QString, int>> countryCode_sku_unitExported;
+                for (const QString &cc : countryCodes) {
+                    const auto imported = m_orderManager->getInventoryImported(m.year(), m.month(), cc);
+                    for (auto it = imported.constBegin(); it != imported.constEnd(); ++it)
+                        countryCode_sku_unitImported[cc][it.key()] += it.value();
+                    const auto exported = m_orderManager->getInventoryExported(m.year(), m.month(), cc);
+                    for (auto it = exported.constBegin(); it != exported.constEnd(); ++it) {
+                        countryCode_sku_unitExported[cc][it.key()] += it.value();
+                    }
+                }
+
+                InventoryMoveTree inventoryTree(ui->widgetPurchases->getPurchaseDir(),
+                                                countryCode_sku_unitImported,
+                                                countryCode_sku_unitExported,
+                                                country_pricePerKilo,
+                                                companyInfo.getCurrency(),
+                                                &currencyRateManager,
+                                                workingDir,
+                                                companyInfo.getCompanyCountryCode(),
+                                                nullptr);
+                                                
+                QSharedPointer<JournalEntry> inventoryEntry
+                    = factory.createEntry(&inventoryTree, companyInfo.getCompanyCountryCode());
+                    
+                if (inventoryEntry) {
+                    QDate endOfMonth(m.year(), m.month(), m.daysInMonth());
+                    inventoryEntry->setDate(endOfMonth);
+                    addEntry(inventoryEntry, journalTable.getJournalVariousOperations().code);
+                }
+            }
+        }
+
+        progress.setValue(totalSteps);
+
+        // Warn if any journal ended up with no entries
+        if (journal_date_entries.contains(QString{})) {
+            QMessageBox::warning(this, tr("Empty Journals"),
+                                 tr("No bookkeeping entries were generated for year %1. "
+                                    "Make sure to have the journal in settings.")
+                                     .arg(year));
+            co_return;
+        }
+
+        qDebug() << "[PaneBookKeeping] Generating complete. Saving...";
+        // 6. Save
         BookSaverFull saver;
         saver.save(journal_date_entries, outDir);
         qDebug() << "[PaneBookKeeping] Saved successfully.";
@@ -350,9 +454,13 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         auto noInvoicesList = m_orderManager->getShipmentAndRefundsNoInvoices(from, to);
         if (noInvoicesList && !noInvoicesList->isEmpty()) {
             int count = 0;
-            for (const auto &entry : *noInvoicesList)
-                for (bool needed : entry.invoicesToDo)
-                    if (needed) count++;
+            for (const auto &entry : *noInvoicesList) {
+                for (bool needed : entry.invoicesToDo) {
+                    if (needed) {
+                        count++;
+                    }
+                }
+            }
             if (count > 0) {
                 auto answer = QMessageBox::question(
                     this,
@@ -361,15 +469,11 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
                         .arg(count).arg(year),
                     QMessageBox::Yes | QMessageBox::No,
                     QMessageBox::Yes);
-                if (answer == QMessageBox::Yes)
+                if (answer == QMessageBox::Yes) {
                     generateInvoices();
+                }
             }
         }
-    } catch (const std::exception &e) {
-        qDebug() << "[PaneBookKeeping] Exception during saving:" << e.what();
-        QMessageBox::critical(this, tr("Error"), tr("Failed to save documents: %1").arg(e.what()));
-    }
-
     } catch (const ExceptionWithTitleText &e) {
         qDebug() << "[PaneBookKeeping] ExceptionWithTitleText catching in loop:" << e.errorTitle() << "-" << e.errorText();
         QMessageBox::critical(this, e.errorTitle(), e.errorText());
@@ -497,8 +601,14 @@ void PaneBookKeeping::generateInvoices()
                     // The existing info already contains line items and payment date; we only
                     // add the invoice number — preserving all other recorded information.
                     QSharedPointer<InvoicingInfo> info = m_orderManager->getInvoicingInfo(orderId);
-                    if (!info) info = entry.invoicingInfo;
-                    if (!info) { errors++; errorMsgs << tr("Missing invoicing info for %1").arg(orderId); continue; }
+                    if (!info) {
+                        info = entry.invoicingInfo;
+                    }
+                    if (!info) {
+                        errors++;
+                        errorMsgs << tr("Missing invoicing info for %1").arg(orderId);
+                        continue;
+                    }
 
                     const Address &addressTo = entry.addressTo ? *entry.addressTo : emptyAddr;
 

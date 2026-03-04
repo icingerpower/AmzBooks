@@ -125,26 +125,16 @@ QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccou
 
         // Run callback (e.g. UI dialog to add account)
         // Default callback usually returns false unless user implements one that adds it.
+        // Default callback usually returns false unless user implements one that adds it.
         bool retry = co_await callbackAddIfMissing(errorTitle, errorText);
-        if (auto acc = lookup(vatCountries, vatRate)) {
-            co_return *acc;
+        if (retry) {
+            if (auto acc = lookup(vatCountries, vatRate)) {
+                co_return *acc;
+            }
         }
-        if (!retry) {
-             ExceptionWithTitleText exception(errorTitle, errorText);
-             exception.raise();
-        }
-        
-        // If we got here, retry is true but lookup STILL failed.
-        // It means the callback didn't actually add the account to our table/cache.
-        // To prevent an infinite loop, we should throw an exception.
-        ExceptionWithTitleText exception(errorTitle, tr("The account was not added properly. Still missing for TaxScheme %1, From %2, To %3, Rate %4")
-                                  .arg(taxSchemeToString(vatCountries.taxScheme), 
-                                       vatCountries.countryCodeFrom, 
-                                       vatCountries.countryCodeTo, 
-                                       QString::number(vatRate)));
-        exception.raise();
+        break;
+        break;
     }
-    
     // Should not reach here if loop breaks only on !callback or handled inside, 
     // but if !callbackAddIfMissing break:
     QString errorTitle = tr("Missing Account");
@@ -155,6 +145,7 @@ QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccou
                                    QString::number(vatRate));
     ExceptionWithTitleText exception(errorTitle, errorText);
     exception.raise();
+    co_return {};
 }
 
 
@@ -263,121 +254,108 @@ Qt::ItemFlags BooksAccountsSalesTable::flags(const QModelIndex &index) const
 }
 
 #include "books/VatResolver.h"
+#include <QSet>
 
 void BooksAccountsSalesTable::_fillIfEmpty()
 {
     if (m_listOfStringList.isEmpty()) {
-        // Use VatResolver for default rates (today's rates)
-        // Since we are in the library, we assume data/amazon-vat-reports or similar might optionally exist, 
-        // but VatResolver has defaults if persistence is false/empty? 
-        // Actually VatResolver usually loads from a file. If empty, we might not get rates.
-        // However, VatResolver constructor logic populates some defaults if file missing? 
-        // Let's assume for now valid workingDir allows it to work or we rely on its internal defaults/behavior.
-        // If it returns -1, we might fallback to 20 or similar? 
-        // User request: "Incude the different defaut vat rates of VatResolver"
-        
-        VatResolver vatResolver(m_filePath.isEmpty() ? QDir::current() : QFileInfo(m_filePath).dir(), nullptr);
-        QDate today = QDate::currentDate();
+        // Use in-memory VatResolver (no file dependency) for deterministic defaults.
+        // This ensures the same rates are used regardless of the working directory state,
+        // and covers countries with multiple rates across time (e.g. RO: 19% until Jul 2025,
+        // then 21% from Aug 2025).
+        VatResolver vatResolver(QDir(), nullptr, false);
 
-        // Helper to format account strings
+        // Helper: format a decimal rate as a percentage string ("0.20" → "20", "0.255" → "25.5")
         auto getRateStr = [](double rate) {
-            // "20" for 20%, "5.5" for 5.5%? 
-            // Examples: "20".
-            // If rate is 0.20 -> 20.
             double pct = rate * 100.0;
             if (qAbs(pct - qRound(pct)) < 0.001) return QString::number(qRound(pct));
             return QString::number(pct);
         };
-        
-        auto createRow = [&](TaxScheme scheme, const QString &from, const QString &to, double rate, 
+
+        auto createRow = [&](TaxScheme scheme, const QString &from, const QString &to, double rate,
                              const QString &saleAcc, const QString &vatAcc, const QString &vatPayAcc = "") {
-             QStringList row;
-             row << taxSchemeToString(scheme)
-                 << from
-                 << to
-                 << QString::number(rate) // Display as percent? getAccounts takes 20.0 usually. 
-                 // Wait, addAccount takes rate as double (e.g. 20.0). 
-                 // Stored string in m_listOfStringList should be compatible with data() / setData()
-                 // In addAccount: row << QString::number(vatRate) ...
-                 // So we store "20".
-                 << saleAcc
-                 << vatAcc
-                 << vatPayAcc // Accounts struct has 3 fields now
-                 << QString("411%1").arg(to.isEmpty() ? from : to); // Default Customer Account: 411 + Country Code
-             m_listOfStringList.append(row);
+            QStringList row;
+            row << taxSchemeToString(scheme)
+                << from
+                << to
+                << QString::number(rate)
+                << saleAcc
+                << vatAcc
+                << vatPayAcc
+                << QString("411%1").arg(to.isEmpty() ? from : to);
+            m_listOfStringList.append(row);
         };
 
-        // 1. Domestic (Pan-EU Countries)
+        // Collect every unique standard-product rate per country from VatResolver.
+        // VatResolver column layout: 0=country, 1=dateFrom, 2=dateTo, 3=saleType,
+        //                            4=productType, 5=territory, 6=rate
+        QMap<QString, QSet<double>> countryRates;
+        for (int i = 0; i < vatResolver.rowCount(); ++i) {
+            if (vatResolver.data(vatResolver.index(i, 3)).toString().toInt()
+                    != static_cast<int>(SaleType::Products))
+                continue;
+            if (!vatResolver.data(vatResolver.index(i, 4)).toString().isEmpty())
+                continue; // skip special product types
+            if (!vatResolver.data(vatResolver.index(i, 5)).toString().isEmpty())
+                continue; // skip territory-specific rates
+            const QString country = vatResolver.data(vatResolver.index(i, 0)).toString();
+            const double  rate    = vatResolver.data(vatResolver.index(i, 6)).toString().toDouble();
+            countryRates[country].insert(rate);
+        }
+
         const QStringList panEu = CountriesEu::getAmazonPanEuCountryCodes();
 
-        // Helper above:
-        auto addSchemeRows = [&](double rateVal, const QString &cCode) {
-             QString rStr = getRateStr(rateVal);
-             double ratePct = rateVal * 100.0;
-             
-             // 1. Domestic (Only if in PanEU list, but we are inside loop)
-             if (panEu.contains(cCode)) {
-                 QString sale = QString("7070DOM%1%2").arg(cCode, rStr);
-                 QString vat = QString("4457DOM%1%2").arg(cCode, rStr);
-                 QString pay = QString("4457DOM%1%2_PAY").arg(cCode, rStr);
-                 
-                 // Specific Rate
-                 createRow(TaxScheme::DomesticVat, cCode, "", ratePct, sale, vat, pay);
-             }
-             
-             // 2. OSS (Union)
-             {
-                 QString sale = QString("7070OSS%1%2").arg(cCode, rStr);
-                 QString vat = QString("4457OSS%1%2").arg(cCode, rStr);
-                 QString pay = QString("4457OSS%1%2_PAY").arg(cCode, rStr);
-                 
-                 createRow(TaxScheme::EuOssUnion, "", cCode, ratePct, sale, vat, pay);
-             }
-             
-             // 3. IOSS
-             {
-                 QString sale = QString("7070IOSS%1%2").arg(cCode, rStr);
-                 QString vat = QString("4457IOSS%1%2").arg(cCode, rStr);
-                 QString pay = QString("4457IOSS%1%2_PAY").arg(cCode, rStr);
-                 
-                 createRow(TaxScheme::EuIoss, "", cCode, ratePct, sale, vat, pay);
-             }
-        };
+        // Iterate all EU countries (and associated territories) to populate OSS/IOSS entries,
+        // plus DomesticVat entries for PanEU countries.
+        for (const QString &c : CountriesEu::all()) {
+            if (c == CountriesEu::GB) continue; // GB is not in the OSS scheme
 
-        // Hardcoded fallbacks for major countries to ensure tests pass without external data
-        QMap<QString, double> fallbackRates = {
-            {"DE", 0.19}, {"FR", 0.20}, {"IT", 0.22}, {"ES", 0.21}, 
-            {"GB", 0.20}, {"PL", 0.23}, {"CZ", 0.21}, {"AT", 0.20},
-            {"BE", 0.21}, {"NL", 0.21}
-        };
+            QSet<double> rates = countryRates.value(c);
+            if (rates.isEmpty())
+                rates.insert(0.20); // fallback if the country has no VatResolver entry
 
-        // Iterate ALL EU countries to populate OSS/IOSS
-        for (const auto &c : CountriesEu::all()) {
-            if (c == CountriesEu::GB) continue; // GB not in OSS
-            
-            double rate = vatResolver.getRate(today, c, SaleType::Products);
-            if (rate < 0) {
-                rate = fallbackRates.value(c, 0.20); // Fallback from map or default 0.20
+            // DomesticVat zero-rate entry (PanEU only, once per country)
+            if (panEu.contains(c)) {
+                createRow(TaxScheme::DomesticVat, c, "", 0.0,
+                          QString("7070DOM%1%2").arg(c, "0"),
+                          QString("4457DOM%1%2").arg(c, "0"),
+                          QString("4457DOM%1%2_PAY").arg(c, "0"));
             }
-            
-            addSchemeRows(rate, c);
+
+            for (double rate : std::as_const(rates)) {
+                const double  ratePct = rate * 100.0;
+                const QString rStr    = getRateStr(rate);
+
+                // DomesticVat (PanEU only)
+                if (panEu.contains(c)) {
+                    createRow(TaxScheme::DomesticVat, c, "", ratePct,
+                              QString("7070DOM%1%2").arg(c, rStr),
+                              QString("4457DOM%1%2").arg(c, rStr),
+                              QString("4457DOM%1%2_PAY").arg(c, rStr));
+                }
+
+                // OSS (Union)
+                createRow(TaxScheme::EuOssUnion, "", c, ratePct,
+                          QString("7070OSS%1%2").arg(c, rStr),
+                          QString("4457OSS%1%2").arg(c, rStr),
+                          QString("4457OSS%1%2_PAY").arg(c, rStr));
+
+                // IOSS
+                createRow(TaxScheme::EuIoss, "", c, ratePct,
+                          QString("7070IOSS%1%2").arg(c, rStr),
+                          QString("4457IOSS%1%2").arg(c, rStr),
+                          QString("4457IOSS%1%2_PAY").arg(c, rStr));
+            }
         }
-        
-        // 4. Exempt (Export) - Key by From (Domestic Origin)
-        // User example: 7073EXPFR
-        for (const auto &c : panEu) { // Exempt usually from where we store stock (PanEU)
-             QString sale = QString("7073EXP%1").arg(c);
-             // Exempt has no VAT accounts
-             createRow(TaxScheme::Exempt, c, "", 0.0, sale, "", "");
+
+        // Exempt (Export) — keyed by PanEU origin country
+        for (const QString &c : panEu) {
+            createRow(TaxScheme::Exempt, c, "", 0.0,
+                      QString("7073EXP%1").arg(c), "", "");
         }
-        
-        // 5. OutOfScope - Global?
-        // User example: 7079OUT
-        // Mapped to empty keys in resolveVatCountries
+
+        // OutOfScope — empty key (resolveVatCountries maps to {"", "", ""})
         createRow(TaxScheme::OutOfScope, "", "", 0.0, "7079OUT", "", "");
-        
-        // Default generic OutOfScope (any rate)
-        // Removed as per request (strict matching)
 
         _rebuildCache();
         _save();

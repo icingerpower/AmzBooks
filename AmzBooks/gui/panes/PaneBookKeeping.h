@@ -32,6 +32,7 @@ private:
     void _connectSlots();
     void _setSubButtonsEnabled(bool enable);
     void _updateServiceButtonsEnabled();
+    void showEvent(QShowEvent *event) override;
     EntrySelfTable *getSeflEntryTable() const;
     PurchaseInvoiceTable *getPurchaseInvoiceTable() const;
     PurchaseAmzPaymentsTable *getAmzPaymentsTable() const;
@@ -71,6 +72,7 @@ public slots:
 private:
     BooksConnections *m_booksConnections;
     class OrderManager *m_orderManager;
+    bool m_splitterInitialized = false;
     QCoro::Task<> generateBookKeepingAsync();
 };
 

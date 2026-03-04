@@ -22,6 +22,7 @@ class Shipment;
 class AbstractBooksTableBank;
 class BooksConnections;
 class AmzPaymentSettings;
+class InventoryMoveTree;
 
 class JournalEntryFactory
 {
@@ -43,7 +44,7 @@ public:
     // Each entry needs a French label very well detailed for a French accountant
     // Create journal entry for shipment/sales activities
     // Each entry needs a French label very well detailed for a French accountant
-    QCoro::Task<QSharedPointer<JournalEntry>> createEntryGrouped(
+    QCoro::Task<QList<QSharedPointer<JournalEntry>>> createEntryGrouped(
             ActivitySource *source,
             const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
             std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
@@ -57,6 +58,9 @@ public:
             const AbstractBooksTableBank *bankTable,
             const QString &nonBankAccount,
             int row) const;
+
+    QSharedPointer<JournalEntry> createEntry(
+        const InventoryMoveTree *inventoryMoveTree, const QString &countryCodeCompany) const;
 
 private:
     const CurrencyRateManager *m_currencyRateManager;

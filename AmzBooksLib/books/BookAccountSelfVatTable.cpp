@@ -8,7 +8,10 @@
 const QStringList BookAccountSelfVatTable::HEADER{
     QObject::tr("Country"),
     QObject::tr("Deductible VAT"),
-    QObject::tr("Due VAT")
+    QObject::tr("Due VAT"),
+    QObject::tr("Sale 7"),
+    QObject::tr("Purchase 6"),
+    QObject::tr("Stock 4")
 };
 
 BookAccountSelfVatTable::BookAccountSelfVatTable(const QDir &workingDir,
@@ -25,7 +28,8 @@ BookAccountSelfVatTable::BookAccountSelfVatTable(const QDir &workingDir,
 QString BookAccountSelfVatTable::_resolveCategory(const QString &countryFrom,
                                                    const QString &countryTo) const
 {
-    // Only applicable when the purchase arrives at the company's country
+    // Self-VAT is only applicable for acquisitions arriving in the company's country.
+    // Exports (e.g. FR -> EU) should return empty.
     if (countryTo != m_companyCountryCode)
         return {};
 
@@ -59,6 +63,39 @@ QString BookAccountSelfVatTable::getAccountVatDue(const QString &countryFrom,
 
     int row = (category == QStringLiteral("EU")) ? ROW_EU : ROW_NON_EU;
     return m_rows[row][COL_DUE];
+}
+
+QString BookAccountSelfVatTable::getAccountSale7(const QString &countryFrom,
+                                                  const QString &countryTo) const
+{
+    const QString category = _resolveCategory(countryFrom, countryTo);
+    if (category.isEmpty())
+        return {};
+
+    int row = (category == QStringLiteral("EU")) ? ROW_EU : ROW_NON_EU;
+    return m_rows[row][COL_SALE7];
+}
+
+QString BookAccountSelfVatTable::getAccountPurchase7(const QString &countryFrom,
+                                                      const QString &countryTo) const
+{
+    const QString category = _resolveCategory(countryFrom, countryTo);
+    if (category.isEmpty())
+        return {};
+
+    int row = (category == QStringLiteral("EU")) ? ROW_EU : ROW_NON_EU;
+    return m_rows[row][COL_PURCHASE7];
+}
+
+QString BookAccountSelfVatTable::getAccountStock4(const QString &countryFrom,
+                                                   const QString &countryTo) const
+{
+    const QString category = _resolveCategory(countryFrom, countryTo);
+    if (category.isEmpty())
+        return {};
+
+    int row = (category == QStringLiteral("EU")) ? ROW_EU : ROW_NON_EU;
+    return m_rows[row][COL_STOCK4];
 }
 
 QVariant BookAccountSelfVatTable::headerData(int section, Qt::Orientation orientation, int role) const
@@ -133,15 +170,18 @@ void BookAccountSelfVatTable::_fillIfEmpty()
     if (!m_rows.isEmpty())
         return;
 
-    m_rows.append({tr("EU"),     QStringLiteral("445662"), QStringLiteral("445200")});
-    m_rows.append({tr("non-EU"), QStringLiteral("445663"), QStringLiteral("445300")});
+    m_rows.append({tr("EU"),     QStringLiteral("445662"), QStringLiteral("445200"), QString(), QString(), QString()});
+    m_rows.append({tr("non-EU"), QStringLiteral("445663"), QStringLiteral("445300"), QString(), QString(), QString()});
     _save();
 }
 
 static const QStringList CSV_HEADER_IDS = {
     QStringLiteral("Country"),
     QStringLiteral("DeductibleVat"),
-    QStringLiteral("DueVat")
+    QStringLiteral("DueVat"),
+    QStringLiteral("Sale7"),
+    QStringLiteral("Purchase7"),
+    QStringLiteral("Stock4")
 };
 
 void BookAccountSelfVatTable::_save()
@@ -180,6 +220,9 @@ void BookAccountSelfVatTable::_load()
     const int idxCountry    = colMap.value(QStringLiteral("Country"),      -1);
     const int idxDeductible = colMap.value(QStringLiteral("DeductibleVat"), -1);
     const int idxDue        = colMap.value(QStringLiteral("DueVat"),        -1);
+    const int idxSale7      = colMap.value(QStringLiteral("Sale7"),         -1);
+    const int idxPurchase7  = colMap.value(QStringLiteral("Purchase7"),     -1);
+    const int idxStock4     = colMap.value(QStringLiteral("Stock4"),        -1);
 
     while (!in.atEnd()) {
         const QString line = in.readLine();
@@ -187,10 +230,13 @@ void BookAccountSelfVatTable::_load()
             continue;
         const QStringList parts = line.split(";");
 
-        QStringList row(3);
+        QStringList row(6);
         if (idxCountry    >= 0 && idxCountry    < parts.size()) row[COL_COUNTRY]    = parts[idxCountry];
         if (idxDeductible >= 0 && idxDeductible < parts.size()) row[COL_DEDUCTIBLE] = parts[idxDeductible];
         if (idxDue        >= 0 && idxDue        < parts.size()) row[COL_DUE]        = parts[idxDue];
+        if (idxSale7      >= 0 && idxSale7      < parts.size()) row[COL_SALE7]      = parts[idxSale7];
+        if (idxPurchase7  >= 0 && idxPurchase7  < parts.size()) row[COL_PURCHASE7]  = parts[idxPurchase7];
+        if (idxStock4     >= 0 && idxStock4     < parts.size()) row[COL_STOCK4]     = parts[idxStock4];
 
         m_rows.append(row);
     }

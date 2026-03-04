@@ -505,12 +505,14 @@ void TestServiceSales::test_createSale_withBookKeeping()
         ActivitySource source = it.key();
         const auto &shipments = it.value();
 
-        auto entry = syncWait(factory.createEntryGrouped(&source, shipments, nullptr));
-        QVERIFY(!entry.isNull());
+        auto entries = syncWait(factory.createEntryGrouped(&source, shipments, nullptr));
+        QVERIFY(!entries.isEmpty());
 
         // Service sales belong to the "VTSERVICE" journal
         const QString journalId = journalTable.getJournalServiceSale().code;
-        journal_date_entries[journalId].insert(entry->getDate(), entry);
+        for (const auto &entry : std::as_const(entries)) {
+            journal_date_entries[journalId].insert(entry->getDate(), entry);
+        }
     }
 
     QVERIFY(!journal_date_entries.isEmpty());

@@ -1183,7 +1183,10 @@ void TestInvoicing::test_regenerateInvoices()
         return r;
     };
     auto regenPdf = [&](const QDate &d, const QString &invNum) {
-        return regenDir.filePath(QString("%1/%2.pdf").arg(d.year()).arg(sanitize(invNum)));
+        return regenDir.filePath(QString("%1/%2/%3.pdf")
+            .arg(d.year())
+            .arg(d.month(), 2, 10, QChar('0'))
+            .arg(sanitize(invNum)));
     };
 
     // VERIFY 29: inv1 regenerated (Jan 2025 — in range)

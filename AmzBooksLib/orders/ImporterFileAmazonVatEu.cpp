@@ -224,6 +224,33 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         QString taxResp = line.value(indTaxCollectionResp); // MARKETPLACE or SELLER
         QString schemeStr = line.value(indTaxScheme); // UNION-OSS, REGULAR, etc.
 
+        if (schemeStr == "UNION-OSS") {
+            scheme = TaxScheme::EuOssUnion;
+        } else if (schemeStr == "REGULAR") {
+            scheme = TaxScheme::DomesticVat;
+        } else if (schemeStr == "IMPORT-OSS") {
+            scheme = TaxScheme::EuIoss;
+        } else if (schemeStr == "DEEMED_RESELLER-IOSS") {
+            scheme = TaxScheme::EuIoss;
+        } else if (schemeStr == "UK_VOEC-IMPORT") {
+            scheme = TaxScheme::Exempt; // Export to UK (Tax collected by Amazon)
+        } else if (schemeStr == "UK_VOEC-DOMESTIC") {
+            scheme = TaxScheme::Exempt; // Export to UK (Tax collected by Amazon or domestic UK)
+        } else if (schemeStr == "CH_VOEC") {
+            scheme = TaxScheme::Exempt; // Export to CH (Tax collected by Amazon)
+        } else if (schemeStr == "COMMINGLE_VAT") {
+            scheme = TaxScheme::DomesticVat; // Treat commingling as domestic storage/sale logic usually
+        }
+        if (scheme == TaxScheme::EuOssUnion || scheme == TaxScheme::DomesticVat) {
+            if (qAbs(amountVat) < 0.001
+                && line.value(indInvNumber).isEmpty()
+                && transType == "SALE") {
+                continue; // VINE order not charged
+            }
+        }
+
+        /*
+    if (schemeStr == "NO_VOEC") scheme = TaxScheme::Exempt;
         if (taxResp == "MARKETPLACE") {
             scheme = TaxScheme::MarketplaceDeemedSupplier;
         } else if (schemeStr == "UNION-OSS") {
@@ -239,6 +266,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
                  scheme = TaxScheme::EuOssUnion; // Simplification?
              }
         }
+//*/
 
         TaxSource taxSource = TaxSource::MarketplaceProvided;
         QString ptCode = line.value(indPtCode);

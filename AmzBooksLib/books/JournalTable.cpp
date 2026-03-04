@@ -11,10 +11,12 @@
 
 const QString JournalTable::ID_PURCHASES{"purchase"};
 const QString JournalTable::ID_AMZ_PAYMENTS{"amz_payments"};
+const QString JournalTable::ID_VARIOUS_OPERATIONS{"various_opertions"};
 const QHash<QString, JournalItem> JournalTable::DEFAULT_JOURNALS{
     {JournalTable::ID_PURCHASES, JournalItem{QObject::tr("Purchase"), QObject::tr("AC"), JournalTable::ID_PURCHASES }}
     , {ServiceSalesBooksTable::CHANNEL_SALE, JournalItem{QObject::tr("Sale of service"), QObject::tr("VTSERVICE"), ServiceSalesBooksTable::CHANNEL_SALE}}
     , {JournalTable::ID_AMZ_PAYMENTS, JournalItem{QObject::tr("Amazon Payments"), QObject::tr("AC"), JournalTable::ID_AMZ_PAYMENTS }}
+    , {JournalTable::ID_VARIOUS_OPERATIONS, JournalItem{QObject::tr("Various operatons"), QObject::tr("OD"), JournalTable::ID_VARIOUS_OPERATIONS }}
 };
 
 JournalTable::JournalTable(const QDir &workingDir, QObject *parent)
@@ -165,6 +167,17 @@ JournalItem JournalTable::getJournalAmzPayment() const
     }
     Q_ASSERT(false); // Should not happens
     return { "TODO", "TODOAMZPBUG", "TODO" };
+}
+
+JournalItem JournalTable::getJournalVariousOperations() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == ID_VARIOUS_OPERATIONS) {
+            return item;
+        }
+    }
+    Q_ASSERT(false); // Should not happens
+    return { "TODO", "TODO_OD_BUG", "TODO" };
 }
 
 void JournalTable::_load()

@@ -24,10 +24,11 @@ QList<PurchaseCsvLoader::Record> PurchaseCsvLoader::parseFiles(
             fileDate = QDate::fromString(fileName.left(10), QStringLiteral("yyyy-MM-dd"));
         if (fileName.length() < 12 || !fileDate.isValid()
                 || fileName[10] != QLatin1Char('_') || fileName[11] != QLatin1Char('_')) {
-            throw ExceptionWithTitleText(
+            ExceptionWithTitleText exception(
                     QStringLiteral("Invalid purchase file name"),
                     QStringLiteral("Purchase CSV file \"%1\" must start with a YYYY-MM-DD__ date prefix.")
                             .arg(fileName));
+            exception.raise();
         }
 
         // Title priority from language suffix (case-insensitive).

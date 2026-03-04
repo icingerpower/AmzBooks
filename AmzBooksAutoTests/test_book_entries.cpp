@@ -19,6 +19,7 @@
 #include "books/BankQontoTable.h"
 #include "books/BooksConnections.h"
 #include "books/AmzPaymentSettings.h"
+#include "inventory/InventoryMoveTree.h"
 
 // Helper to synchronously wait for QCoro::Task
 template <typename T>
@@ -165,6 +166,18 @@ private slots:
     void test_factory_amz_entry_title_contains_currency();  // 28
     void test_factory_amz_entry_title_all_lines_same();     // 29
     void test_factory_amz_entry_date_uses_date_to();        // 30
+
+    // ── createEntry(InventoryMoveTree*) ──────────────────────────────────────
+    void test_factory_inventory_null_tree_returns_null();
+    void test_factory_inventory_null_selfvat_returns_null();
+    void test_factory_inventory_eu_to_france_line_count();
+    void test_factory_inventory_eu_to_france_balanced();
+    void test_factory_inventory_eu_to_france_accounts();
+    void test_factory_inventory_eu_to_france_amounts();
+    void test_factory_inventory_eu_to_france_titles();
+    void test_factory_inventory_export_skipped();
+    void test_factory_inventory_missing_accounts_returns_null();
+    void test_factory_inventory_zero_price_skipped();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -1150,16 +1163,18 @@ void TestBookEntries::test_factory_shipment_no_conversion()
     QMultiMap<QDateTime, QSharedPointer<Shipment>> shipments;
     shipments.insert(QDateTime::currentDateTime(), shipment);
     
-    auto entry = syncWait(factory.createEntryGrouped(&source, shipments));
+    auto entries = syncWait(factory.createEntryGrouped(&source, shipments));
 
+    QVERIFY(!entries.isEmpty());
+    auto entry = entries.first();
     QVERIFY(!entry.isNull());
-    
+
     // Should have revenue (credit), VAT (credit), and customer (debit)
     QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
-    
+
     const auto &credits = entry->getCredits();
     QVERIFY(credits.size() >= 1); // At least revenue
-    
+
     // Verify French labels
     bool foundFrenchLabel = false;
     for (const auto &line : credits) {
@@ -1168,7 +1183,7 @@ void TestBookEntries::test_factory_shipment_no_conversion()
         }
     }
     QVERIFY(foundFrenchLabel);
-    
+
     // Verify Uniformity
     // All lines should have "Vente Amazon amazon.fr - " ... something
     // Since JournalTable is empty, code might be empty?
@@ -1199,44 +1214,51 @@ void TestBookEntries::test_factory_shipment_with_conversion()
     
     CompanyInfosTable companyInfos(dir);
     
-    // Setup currency rates
-    
+    // Setup currency rates.
+    // Use a fixed past date so entryDate (last day of the shipment month) is always in the past,
+    // which is required by CurrencyRateManager::retrieveCurrency.
+    const QDate shipmentDate(2025, 1, 15);
+    const QDate entryDate(2025, 1, 31); // last day of January 2025
+    const QDateTime shipmentDateTime(shipmentDate, QTime(12, 0));
+
     CurrencyRateManager currencyManager(dir, "");
-    QString dateStr = QDate::currentDate().toString("yyyy-MM-dd");
-    currencyManager.importRate(dateStr, "USD", "EUR", 0.85);
+    // Import the rate for the exact entryDate the factory will use (last day of the month).
+    currencyManager.importRate(entryDate.toString("yyyy-MM-dd"), "USD", "EUR", 0.85);
     BooksAccountsSalesTable saleAccounts(dir);
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
-    
+
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
-    
+
     ActivitySource source;
     source.channel = "Amazon";
     source.subchannel = "amazon.com";
     source.type = ActivitySourceType::Report;
-    
+
     // Create activity in USD
     auto activityResult = Activity::create(
-        "SHIP-002", "ACT-002", "", QDateTime::currentDateTime(), QDateTime::currentDateTime(),
+        "SHIP-002", "ACT-002", "", shipmentDateTime, shipmentDateTime,
         "USD", "US", "US", false, "US",
         Amount{120.0, 0.0}, TaxSource::MarketplaceProvided,
         "US", TaxScheme::OutOfScope, TaxJurisdictionLevel::Country,
         SaleType::Products
     );
     QVERIFY(activityResult.ok());
-    
+
     QList<Activity> activities;
     activities.append(activityResult.value.value());
-    
-    auto shipment = QSharedPointer<Shipment>::create(activities, "", true);
-    
-    QMultiMap<QDateTime, QSharedPointer<Shipment>> shipments;
-    shipments.insert(QDateTime::currentDateTime(), shipment);
-    
-    auto entry = syncWait(factory.createEntryGrouped(&source, shipments));
 
-    QVERIFY(!entry.isNull());
+    auto shipment = QSharedPointer<Shipment>::create(activities, "", true);
+
+    QMultiMap<QDateTime, QSharedPointer<Shipment>> shipments;
+    shipments.insert(shipmentDateTime, shipment);
     
+    auto entries = syncWait(factory.createEntryGrouped(&source, shipments));
+
+    QVERIFY(!entries.isEmpty());
+    auto entry = entries.first();
+    QVERIFY(!entry.isNull());
+
     // Should have conversion info in titles
     const auto &allLines = entry->getDebits() + entry->getCredits();
     bool foundConversion = false;
@@ -1246,7 +1268,7 @@ void TestBookEntries::test_factory_shipment_with_conversion()
         }
     }
     QVERIFY(foundConversion);
-    
+
     // Entry should balance
     QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
 }
@@ -1267,22 +1289,29 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
     companyFile.close();
     
     CompanyInfosTable companyInfos(dir);
+
+    // Use a fixed past date so entryDate (last day of shipment month) is always in the past,
+    // which is required by CurrencyRateManager::retrieveCurrency.
+    const QDate shipmentDate(2025, 1, 15);
+    const QDate entryDate(2025, 1, 31); // last day of January 2025
+    const QDateTime shipmentDateTime(shipmentDate, QTime(12, 0));
+
     CurrencyRateManager currencyManager(dir, "");
-    currencyManager.importRate(QDate::currentDate().toString("yyyy-MM-dd"), "USD", "EUR", 0.85); // 1 USD = 0.85 EUR
-    
+    currencyManager.importRate(entryDate.toString("yyyy-MM-dd"), "USD", "EUR", 0.85); // 1 USD = 0.85 EUR
+
     BooksAccountsSalesTable saleAccounts(dir); // Will populate defaults (DOM FR 20, OSS DE 19 etc)
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
-    
+
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
-    
+
     ActivitySource source;
     source.channel = "Amazon";
     source.subchannel = "Mixed";
     source.type = ActivitySourceType::Report;
-    
+
     QList<Activity> activities;
-    QDateTime today = QDateTime::currentDateTime();
+    const QDateTime today = shipmentDateTime;
     
     // 1. Domestic FR 20% EUR
     // Net 100, VAT 20
@@ -1328,17 +1357,23 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
 
     auto shipment = QSharedPointer<Shipment>::create(activities, "", true);
     QMultiMap<QDateTime, QSharedPointer<Shipment>> shipments;
-    shipments.insert(today, shipment);
-    
+    shipments.insert(shipmentDateTime, shipment);
+
     // Execute
-    auto entry = syncWait(factory.createEntryGrouped(&source, shipments));
-    QVERIFY(!entry.isNull());
-    
-    // Validate
-    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
-    
-    const auto &credits = entry->getCredits();
-    const auto &debits = entry->getDebits();
+    auto entries = syncWait(factory.createEntryGrouped(&source, shipments));
+    QVERIFY(!entries.isEmpty());
+
+    // Validate each entry is balanced individually
+    for (const auto &e : std::as_const(entries)) {
+        QCOMPARE(e->getDebitSum(), e->getCreditSum());
+    }
+
+    // Aggregate credits and debits across all entries
+    QList<JournalEntry::EntryLine> credits, debits;
+    for (const auto &e : std::as_const(entries)) {
+        credits += e->getCredits();
+        debits  += e->getDebits();
+    }
     
     // Credits:
     // 1. FR 20 EUR Revenue
@@ -1423,6 +1458,26 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
     // Check at least one line exists (implied by non-zero sum, but explicit check good)
     QVERIFY(sumCustomerEUR > 0.0);
     QVERIFY(sumCustomerUSD > 0.0);
+
+    // Verify that no entry title contains the same VAT scheme abbreviation twice.
+    // Each JournalGroup is keyed by (scheme, rate), so the same scheme can appear
+    // at most once per entry by construction.
+    for (const auto &e : std::as_const(entries)) {
+        const QList<JournalEntry::EntryLine> allLines = e->getDebits() + e->getCredits();
+        if (allLines.isEmpty()) continue;
+        const QString &title = allLines.first().title;
+        const int sep = title.indexOf(" | ");
+        QVERIFY2(sep != -1, qPrintable("Entry title missing ' | ' separator: " + title));
+        const QStringList vatParts = title.mid(sep + 3).split(", ");
+        QSet<QString> schemesInEntry;
+        for (const QString &part : vatParts) {
+            const QString scheme = part.split(' ').first();
+            QVERIFY2(!schemesInEntry.contains(scheme),
+                qPrintable(QString("Duplicate VAT scheme '%1' found in entry title: %2")
+                    .arg(scheme, title)));
+            schemesInEntry.insert(scheme);
+        }
+    }
 }
 
 void TestBookEntries::test_factory_single_shipment()
@@ -4323,6 +4378,476 @@ void TestBookEntries::test_factory_amz_entry_date_uses_date_to()
     QCOMPARE(entry->getDate(), QDate(2026, 1, 21)); // dateTo
     QCOMPARE(info.dateFrom,    QDate(2026, 1, 7));
     QCOMPARE(info.dateTo,      QDate(2026, 1, 21));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers for InventoryMoveTree factory tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+// Write a minimal purchase CSV accepted by PurchaseCsvLoader / PurchaseFileSettingsTree.
+// The column IDs ("SKU", "Unit Price", "Currency") match the built-in aliases so no
+// purchaseFileSettings.csv is required in the settings directory.
+static void writeInventoryCsv(const QDir &dir, const QString &sku, double price,
+                               const QString &currency = "EUR",
+                               const QString &filename = "2026-01-31__test-FR.csv")
+{
+    QFile f(dir.filePath(filename));
+    f.open(QIODevice::WriteOnly | QIODevice::Text);
+    QTextStream out(&f);
+    out << "SKU;Unit Price;Currency\n";
+    out << sku << ";" << QString::number(price, 'f', 2) << ";" << currency << "\n";
+}
+
+// Build a minimal InventoryMoveTree with the given import units.
+// purchaseDir doubles as settingsDir for PurchaseFileSettingsTree (see InventoryMoveTree::loadPurchaseData).
+static InventoryMoveTree *makeInventoryTree(
+        const QDir &purchaseDir,
+        const QHash<QString, QHash<QString, int>> &imported,
+        const QHash<QString, QHash<QString, int>> &exported = {},
+        const QString &companyCurrency = "EUR",
+        const QString &companyCountry  = "FR")
+{
+    return new InventoryMoveTree(purchaseDir, imported, exported,
+                                 {{"", 0.0}},       // no shipping cost
+                                 companyCurrency,
+                                 nullptr,            // no currency rate manager needed (EUR=EUR)
+                                 QDir(),             // no invoice lookup
+                                 companyCountry,
+                                 nullptr);           // no regraded SKU table
+}
+
+// Find the first EntryLine in a list whose account matches, or nullptr if absent.
+static const JournalEntry::EntryLine *findLine(const QList<JournalEntry::EntryLine> &lines,
+                                               const QString &account)
+{
+    for (const auto &l : lines)
+        if (l.account == account) return &l;
+    return nullptr;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// createEntry(InventoryMoveTree*) — null-guard tests
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_factory_inventory_null_tree_returns_null()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    // (1) null tree pointer → nullptr
+    QVERIFY(!f.createEntry(static_cast<const InventoryMoveTree *>(nullptr), "FR"));
+}
+
+void TestBookEntries::test_factory_inventory_null_selfvat_returns_null()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    QDir purchaseDir(dir.filePath("purchases"));
+    dir.mkdir("purchases");
+
+    writeInventoryCsv(purchaseDir, "SKU-A", 666.59);
+    QHash<QString, QHash<QString, int>> imported;
+    imported["FR"]["SKU-A"] = 1;
+    auto *tree = makeInventoryTree(purchaseDir, imported);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir);
+    // factory built WITHOUT selfVatBookAccounts → nullptr
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr);
+
+    // (2) no selfVat table → nullptr
+    QVERIFY(!f.createEntry(tree, "FR"));
+    delete tree;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EU → FR: line count
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_factory_inventory_eu_to_france_line_count()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    QDir purchaseDir(dir.filePath("purchases"));
+    dir.mkdir("purchases");
+
+    writeInventoryCsv(purchaseDir, "SKU-A", 666.59);
+    QHash<QString, QHash<QString, int>> imported;
+    imported["FR"]["SKU-A"] = 1;
+    auto *tree = makeInventoryTree(purchaseDir, imported);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    // Configure the three new accounts so they are non-empty
+    sva.setData(sva.index(0, 3), "707016", Qt::EditRole); // Sale7 EU
+    sva.setData(sva.index(0, 4), "607016", Qt::EditRole); // Purchase7 EU
+    sva.setData(sva.index(0, 5), "467800", Qt::EditRole); // Stock4 EU
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    auto entry = f.createEntry(tree, "FR");
+    delete tree;
+
+    // (3) entry is non-null
+    QVERIFY(entry);
+    // (4) exactly 3 debit lines: Stock4 + VatDeductible + Purchase7
+    QCOMPARE(entry->getDebits().size(), 3);
+    // (5) exactly 3 credit lines: Sale7 + Stock4 + VatDue
+    QCOMPARE(entry->getCredits().size(), 3);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EU → FR: debit = credit (balanced)
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_factory_inventory_eu_to_france_balanced()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    QDir purchaseDir(dir.filePath("purchases"));
+    dir.mkdir("purchases");
+
+    writeInventoryCsv(purchaseDir, "SKU-A", 666.59);
+    QHash<QString, QHash<QString, int>> imported;
+    imported["FR"]["SKU-A"] = 1;
+    auto *tree = makeInventoryTree(purchaseDir, imported);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    sva.setData(sva.index(0, 3), "707016", Qt::EditRole);
+    sva.setData(sva.index(0, 4), "607016", Qt::EditRole);
+    sva.setData(sva.index(0, 5), "467800", Qt::EditRole);
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    auto entry = f.createEntry(tree, "FR");
+    delete tree;
+
+    QVERIFY(entry);
+    // (6) balanced: debit sum == credit sum
+    QVERIFY(qAbs(entry->getDebitSum() - entry->getCreditSum()) < 0.005);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EU → FR: account routing
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_factory_inventory_eu_to_france_accounts()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    QDir purchaseDir(dir.filePath("purchases"));
+    dir.mkdir("purchases");
+
+    writeInventoryCsv(purchaseDir, "SKU-A", 666.59);
+    QHash<QString, QHash<QString, int>> imported;
+    imported["FR"]["SKU-A"] = 1;
+    auto *tree = makeInventoryTree(purchaseDir, imported);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    sva.setData(sva.index(0, 3), "707016", Qt::EditRole); // Sale7
+    sva.setData(sva.index(0, 4), "607016", Qt::EditRole); // Purchase7
+    sva.setData(sva.index(0, 5), "467800", Qt::EditRole); // Stock4
+    // VatDeductible (col 1) and VatDue (col 2) keep their defaults: 445662 / 445200
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    auto entry = f.createEntry(tree, "FR");
+    delete tree;
+
+    QVERIFY(entry);
+    const auto &debits  = entry->getDebits();
+    const auto &credits = entry->getCredits();
+
+    // (7) Sale7 (707016) is in credits
+    QVERIFY(findLine(credits, "707016") != nullptr);
+    // (8) VatDue (445200) is in credits
+    QVERIFY(findLine(credits, "445200") != nullptr);
+    // (9) Stock4 (467800) is in credits
+    QVERIFY(findLine(credits, "467800") != nullptr);
+    // (10) Stock4 (467800) is also in debits
+    QVERIFY(findLine(debits, "467800") != nullptr);
+    // (11) VatDeductible (445662) is in debits
+    QVERIFY(findLine(debits, "445662") != nullptr);
+    // (12) Purchase7 (607016) is in debits
+    QVERIFY(findLine(debits, "607016") != nullptr);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EU → FR: amount computation (totalHT=666.59, VAT=133.32, TTC=799.91)
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_factory_inventory_eu_to_france_amounts()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    QDir purchaseDir(dir.filePath("purchases"));
+    dir.mkdir("purchases");
+
+    writeInventoryCsv(purchaseDir, "SKU-A", 666.59);
+    QHash<QString, QHash<QString, int>> imported;
+    imported["FR"]["SKU-A"] = 1;
+    auto *tree = makeInventoryTree(purchaseDir, imported);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    sva.setData(sva.index(0, 3), "707016", Qt::EditRole);
+    sva.setData(sva.index(0, 4), "607016", Qt::EditRole);
+    sva.setData(sva.index(0, 5), "467800", Qt::EditRole);
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    auto entry = f.createEntry(tree, "FR");
+    delete tree;
+
+    QVERIFY(entry);
+    const double totalHT  = 666.59;
+    const double vatAmt   = qRound(totalHT * 0.20 * 100.0) / 100.0; // 133.32
+    const double totalTTC = totalHT + vatAmt;                         // 799.91
+
+    const auto &debits  = entry->getDebits();
+    const auto &credits = entry->getCredits();
+
+    // (13) Sale7 credit amount == totalTTC
+    const auto *sale7 = findLine(credits, "707016");
+    QVERIFY(sale7);
+    QVERIFY(qAbs(sale7->currency_amount.value("EUR") - totalTTC) < 0.005);
+
+    // (14) Stock4 debit amount == totalHT
+    const auto *stock4d = findLine(debits, "467800");
+    QVERIFY(stock4d);
+    QVERIFY(qAbs(stock4d->currency_amount.value("EUR") - totalHT) < 0.005);
+
+    // (15) Stock4 credit amount == totalHT
+    const auto *stock4c = findLine(credits, "467800");
+    QVERIFY(stock4c);
+    QVERIFY(qAbs(stock4c->currency_amount.value("EUR") - totalHT) < 0.005);
+
+    // (16) VatDue credit amount == vatAmt
+    const auto *vatDue = findLine(credits, "445200");
+    QVERIFY(vatDue);
+    QVERIFY(qAbs(vatDue->currency_amount.value("EUR") - vatAmt) < 0.005);
+
+    // (17) VatDeductible debit amount == vatAmt
+    const auto *vatDed = findLine(debits, "445662");
+    QVERIFY(vatDed);
+    QVERIFY(qAbs(vatDed->currency_amount.value("EUR") - vatAmt) < 0.005);
+
+    // (18) Purchase7 debit amount == totalTTC
+    const auto *purch7 = findLine(debits, "607016");
+    QVERIFY(purch7);
+    QVERIFY(qAbs(purch7->currency_amount.value("EUR") - totalTTC) < 0.005);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// EU → FR: title strings
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_factory_inventory_eu_to_france_titles()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    QDir purchaseDir(dir.filePath("purchases"));
+    dir.mkdir("purchases");
+
+    writeInventoryCsv(purchaseDir, "SKU-A", 666.59);
+    QHash<QString, QHash<QString, int>> imported;
+    imported["FR"]["SKU-A"] = 1;
+    auto *tree = makeInventoryTree(purchaseDir, imported);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    sva.setData(sva.index(0, 3), "707016", Qt::EditRole);
+    sva.setData(sva.index(0, 4), "607016", Qt::EditRole);
+    sva.setData(sva.index(0, 5), "467800", Qt::EditRole);
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    auto entry = f.createEntry(tree, "FR");
+    delete tree;
+
+    QVERIFY(entry);
+    const auto &debits  = entry->getDebits();
+    const auto &credits = entry->getCredits();
+
+    const auto *sale7  = findLine(credits, "707016");
+    const auto *purch7 = findLine(debits,  "607016");
+    const auto *vatDue = findLine(credits, "445200");
+    const auto *vatDed = findLine(debits,  "445662");
+    const auto *stock4c = findLine(credits, "467800");
+    const auto *stock4d = findLine(debits,  "467800");
+
+    QVERIFY(sale7 && purch7 && vatDue && vatDed && stock4c && stock4d);
+
+    // (19) Sale7 title contains "Vente intracom"
+    QVERIFY(sale7->title.contains("Vente intracom"));
+    // (20) Sale7 title contains the route "EU > FR"
+    QVERIFY(sale7->title.contains("EU > FR"));
+    // (21) VatDue title contains "Acquisition intracom"
+    QVERIFY(vatDue->title.contains("Acquisition intracom"));
+    // (22) Purchase7 title contains the route "EU > FR"
+    QVERIFY(purch7->title.contains("EU > FR"));
+    // (23) Stock4 debit title contains "Vente intracom"
+    QVERIFY(stock4d->title.contains("Vente intracom"));
+    // (24) Stock4 credit title contains "Acquisition intracom"
+    QVERIFY(stock4c->title.contains("Acquisition intracom"));
+    // (25) VatDeductible title contains "Acquisition intracom"
+    QVERIFY(vatDed->title.contains("Acquisition intracom"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Export (FR → EU): no applicable movement → null
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_factory_inventory_export_skipped()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    QDir purchaseDir(dir.filePath("purchases"));
+    dir.mkdir("purchases");
+
+    writeInventoryCsv(purchaseDir, "SKU-A", 666.59);
+    // Exported from FR to EU pool — countryTo would be "EU", not "FR"
+    QHash<QString, QHash<QString, int>> exported;
+    exported["FR"]["SKU-A"] = 1;
+    auto *tree = makeInventoryTree(purchaseDir, {}, exported);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    sva.setData(sva.index(0, 3), "707016", Qt::EditRole);
+    sva.setData(sva.index(0, 4), "607016", Qt::EditRole);
+    sva.setData(sva.index(0, 5), "467800", Qt::EditRole);
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    auto entry = f.createEntry(tree, "FR");
+    delete tree;
+
+    // (26) Export-only tree produces null (no EU→company movement)
+    QVERIFY(!entry);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Missing new accounts (Sale7 / Purchase7 / Stock4 empty) → null
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_factory_inventory_missing_accounts_returns_null()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    QDir purchaseDir(dir.filePath("purchases"));
+    dir.mkdir("purchases");
+
+    writeInventoryCsv(purchaseDir, "SKU-A", 666.59);
+    QHash<QString, QHash<QString, int>> imported;
+    imported["FR"]["SKU-A"] = 1;
+    auto *tree = makeInventoryTree(purchaseDir, imported);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    // selfVat table created with default empty Sale7 / Purchase7 / Stock4
+    BookAccountSelfVatTable sva(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    // (27) All three new accounts are empty by default → throws ExceptionWithTitleText
+    bool caught = false;
+    try {
+        f.createEntry(tree, "FR");
+    } catch (const ExceptionWithTitleText &e) {
+        caught = true;
+        QCOMPARE(e.errorTitle(), QString("Missing Self-VAT Accounts"));
+    }
+    delete tree;
+
+    QVERIFY(caught);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Zero unit price in CSV → totalPrice == 0.0 → row skipped → null
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_factory_inventory_zero_price_skipped()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    QDir purchaseDir(dir.filePath("purchases"));
+    dir.mkdir("purchases");
+
+    // Write CSV with price = 0 (no valid price → no purchase data)
+    writeInventoryCsv(purchaseDir, "SKU-A", 0.0);
+    QHash<QString, QHash<QString, int>> imported;
+    imported["FR"]["SKU-A"] = 1;
+    auto *tree = makeInventoryTree(purchaseDir, imported);
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    BookAccountSelfVatTable sva(dir, "FR");
+    sva.setData(sva.index(0, 3), "707016", Qt::EditRole);
+    sva.setData(sva.index(0, 4), "607016", Qt::EditRole);
+    sva.setData(sva.index(0, 5), "467800", Qt::EditRole);
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+
+    auto entry = f.createEntry(tree, "FR");
+    delete tree;
+
+    // (28) Zero price → totalPrice == 0.0 → row skipped → null
+    QVERIFY(!entry);
 }
 
 QTEST_MAIN(TestBookEntries)

@@ -21,6 +21,7 @@ class JournalTable : public QAbstractTableModel
 public:
     static const QString ID_PURCHASES;
     static const QString ID_AMZ_PAYMENTS;
+    static const QString ID_VARIOUS_OPERATIONS;
     static const QHash<QString, JournalItem> DEFAULT_JOURNALS;
     explicit JournalTable(const QDir &workingDir, QObject *parent = nullptr);
 
@@ -40,6 +41,7 @@ public:
     JournalItem getJournalPurchaseInvoice() const;
     JournalItem getJournalServiceSale() const;
     JournalItem getJournalAmzPayment() const;
+    JournalItem getJournalVariousOperations() const;
 
 private:
     QDir m_workingDir;

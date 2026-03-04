@@ -213,6 +213,7 @@ void TestTaxResolver::test_AmazonReports()
             }
 
             QString transactionId = line.value(indTransactionEventId);
+
             if (blacklist.contains(transactionId)) {
                 ignoredOrdersPerFile[fileInfo.fileName()]++;
                 continue;
