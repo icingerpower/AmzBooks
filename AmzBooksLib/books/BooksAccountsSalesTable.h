@@ -44,6 +44,8 @@ public:
     VatCountries resolveVatCountries(TaxScheme taxScheme, const QString &companyCountryFrom, const QString &countryFrom, const QString &countryCodeTo) const;
 
     QCoro::Task<BooksAccountsSalesTable::Accounts> getAccounts(const VatCountries &vatCountries, double vatRate, std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
+    // Synchronous best-effort lookup; returns empty Accounts if not found (no user prompt).
+    Accounts getAccountsIfPresent(const VatCountries &vatCountries, double vatRate) const;
     void addAccount(const VatCountries &vatCountries, double vatRate, const BooksAccountsSalesTable::Accounts &accounts);
     
     // Header:

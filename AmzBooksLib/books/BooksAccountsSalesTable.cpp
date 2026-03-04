@@ -149,7 +149,36 @@ QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccou
 }
 
 
-// ... existing code ...
+BooksAccountsSalesTable::Accounts BooksAccountsSalesTable::getAccountsIfPresent(
+        const VatCountries &vatCountries, double vatRate) const
+{
+    const QString rateStr = QString::number(vatRate);
+
+    auto tryMatch = [&](const VatCountries &key) -> std::optional<Accounts> {
+        auto it = m_vatCountries_vatRate_accountsCache.find(key);
+        if (it == m_vatCountries_vatRate_accountsCache.end())
+            return std::nullopt;
+        const auto &rateMap = it.value();
+        if (rateMap.contains(rateStr))
+            return rateMap[rateStr];
+        return std::nullopt;
+    };
+
+    if (auto res = tryMatch(vatCountries)) return *res;
+
+    if (!vatCountries.countryCodeFrom.isEmpty()) {
+        VatCountries genericFrom = vatCountries;
+        genericFrom.countryCodeFrom = "";
+        if (auto res = tryMatch(genericFrom)) return *res;
+
+        if (!vatCountries.countryCodeDeclaring.isEmpty()) {
+            genericFrom.countryCodeDeclaring = "";
+            if (auto res = tryMatch(genericFrom)) return *res;
+        }
+    }
+
+    return {};
+}
 
 void BooksAccountsSalesTable::addAccount(
         const VatCountries &vatCountries, double vatRate, const BooksAccountsSalesTable::Accounts &accounts)

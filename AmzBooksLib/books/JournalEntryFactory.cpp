@@ -305,6 +305,100 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
     return entry;
 }
 
+QList<JournalEntryFactory::GroupedShipmentData> JournalEntryFactory::computeGrouping(
+    ActivitySource *source,
+    const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
+    const QDate &entryDate,
+    const QHash<QString, QString> &orderId_store)
+{
+    if (shipmentAndRefunds.isEmpty())
+        return {};
+
+    VatResolver vatResolver(QDir(), nullptr, false);
+
+    struct VatKey {
+        TaxScheme scheme;
+        QString countryFrom;
+        QString countryTo;
+        double vatRate;
+        QString currency;
+
+        bool operator<(const VatKey &other) const {
+            if (scheme != other.scheme) return scheme < other.scheme;
+            if (countryFrom != other.countryFrom) return countryFrom < other.countryFrom;
+            if (countryTo != other.countryTo) return countryTo < other.countryTo;
+            if (qAbs(vatRate - other.vatRate) > 0.001) return vatRate < other.vatRate;
+            return currency < other.currency;
+        }
+    };
+
+    QMap<VatKey, GroupedShipmentData> dataByKey;
+
+    for (auto it = shipmentAndRefunds.cbegin(); it != shipmentAndRefunds.cend(); ++it) {
+        const QDate date = it.key().date();
+        const auto &shipment = it.value();
+
+        for (const Activity &activity : shipment->getActivities()) {
+            VatKey key;
+            key.scheme      = activity.getTaxScheme();
+            key.countryFrom = activity.getCountryCodeFrom();
+            key.countryTo   = activity.getCountryCodeTo();
+            key.vatRate     = activity.getVatRate() * 100.0;
+
+            // Snap to theoretical rate when within 1 percentage point
+            const double theoreticalRate = vatResolver.getRate(
+                entryDate,
+                activity.getCountryCodeTo(),
+                activity.getSaleType(),
+                QString{},
+                activity.getVatTerritoryTo()
+            ) * 100.0;
+            if (theoreticalRate > 0 && qAbs(key.vatRate - theoreticalRate) < 1.0)
+                key.vatRate = theoreticalRate;
+
+            key.currency = activity.getCurrency();
+
+            if (!dataByKey.contains(key)) {
+                GroupedShipmentData g;
+                g.taxScheme    = key.scheme;
+                g.countryFrom  = key.countryFrom;
+                g.countryTo    = key.countryTo;
+                g.vatRatePct   = key.vatRate;
+                g.currency     = key.currency;
+                g.sampleEventId = activity.getEventId();
+                dataByKey[key] = g;
+            }
+
+            GroupedShipmentData &g = dataByKey[key];
+            g.totalRevenue += activity.getAmountUntaxed();
+            g.totalVat     += activity.getAmountTaxes();
+
+            const QString orderId = activity.getEventId();
+            ShipmentReportInfo info;
+            info.store            = orderId_store.value(orderId,
+                                        source ? source->subchannel : QString{});
+            info.date             = date;
+            info.orderId          = orderId;
+            info.shipmentRefundId = activity.getActivityId();
+            info.isRefund         = activity.getAmountTaxed() < 0.0;
+            info.untaxedAmount    = activity.getAmountUntaxed();
+            info.taxes            = activity.getAmountTaxes();
+            info.taxedAmount      = activity.getAmountTaxed();
+            info.currency         = activity.getCurrency();
+            info.origTaxedAmount  = activity.getAmountTaxed();
+            info.origCurrency     = activity.getCurrency();
+            info.vatRatePct       = key.vatRate;
+            info.taxScheme        = key.scheme;
+            info.countryFrom      = key.countryFrom;
+            info.countryTo        = key.countryTo;
+            info.isCompany        = activity.getIsCompany();
+            g.shipments.append(info);
+        }
+    }
+
+    return dataByKey.values();
+}
+
 QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntryGrouped(
     ActivitySource *source,
     const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
@@ -318,85 +412,14 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
     QString companyCountry = m_companyInfos->getCompanyCountryCode();
     QDate firstDate = shipmentAndRefunds.firstKey().date();
     QDate entryDate = QDate(firstDate.year(), firstDate.month(), firstDate.daysInMonth());
-    
+
     // Get journal code for this activity source
     QString journalCode = m_journalTable->getJournal(source);
-    // QString customerAccount = m_journalTable->getCustomerAccount(source); // Removed
-    
-    // Aggregate all activities by TaxScheme, Country Routes, VAT rate and Currency
-    VatResolver vatResolver(QDir(), nullptr, false); // In-memory VAT resolver for theoretical rates
 
-    struct VatKey {
-        TaxScheme scheme;
-        QString countryFrom;
-        QString countryTo;
-        double vatRate;
-        QString currency;
-        
-        bool operator<(const VatKey &other) const {
-            if (scheme != other.scheme) {
-                return scheme < other.scheme;
-            }
-            if (countryFrom != other.countryFrom) {
-                return countryFrom < other.countryFrom;
-            }
-            if (countryTo != other.countryTo) {
-                return countryTo < other.countryTo;
-            }
-            if (qAbs(vatRate - other.vatRate) > 0.001) {
-                return vatRate < other.vatRate;
-            }
-            return currency < other.currency;
-        }
-    };
-    
-    QMap<VatKey, double> revenueByVat;
-    QMap<VatKey, double> vatByVat;
-    QMap<VatKey, QString> debugEventIdByVat;
-    // QMap<QString, double> totalByCurrency; // Removed, now per Account
-    
-    // Process all shipments
-    for (const auto &shipment : shipmentAndRefunds.values()) {
-        const QList<Activity> &activities = shipment->getActivities();
-        
-        for (const Activity &activity : activities) {
-            VatKey key;
-            key.scheme = activity.getTaxScheme();
-            key.countryFrom = activity.getCountryCodeFrom();
-            key.countryTo = activity.getCountryCodeTo();
-            key.vatRate = activity.getVatRate() * 100.0; // Use percentage
-            
-            // Adjust to theoretical rate if we are within 1%
-            double theoreticalRate = vatResolver.getRate(
-                entryDate,
-                activity.getCountryCodeTo(),
-                activity.getSaleType(),
-                "", // empty special product type
-                activity.getVatTerritoryTo()
-            ) * 100.0;
-            
-            if (theoreticalRate > 0 && qAbs(key.vatRate - theoreticalRate) < 1.0) {
-                key.vatRate = theoreticalRate;
-            }
-            
-            key.currency = activity.getCurrency();
-            
-            double amountUntaxed = activity.getAmountUntaxed();
-            double amountTaxes = activity.getAmountTaxes();
-            // double amountTotal = activity.getAmountTaxed();
-            
-            revenueByVat[key] += amountUntaxed;
-            vatByVat[key] += amountTaxes;
-            // totalByCurrency[key.currency] += amountTotal;
-            
-            if (!debugEventIdByVat.contains(key)) {
-                debugEventIdByVat[key] = activity.getEventId();
-            }
-        }
-    }
-    
+    // Compute per-VatKey groupings (reusable for reporting)
+    const QList<GroupedShipmentData> vatGroups = computeGrouping(source, shipmentAndRefunds, entryDate);
+
     // Base title: "Vente <Channel> <Subchannel> - <JournalCode>"
-    // Each group appends its own VAT regime + route + rate description.
     QString baseTitle = QString("Vente %1 %2 - %3")
                         .arg(source->channel, source->subchannel, journalCode);
 
@@ -428,33 +451,25 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
         double  revenue = 0.0;
         double  vat     = 0.0;
         // (int(TaxScheme), round(vatRate×10)) → unique destination countries
-        // Multiple countries map to the same bucket when they share the same
-        // scheme+rate but all resolve to the same accounts (e.g. DOM BE, DOM DE,
-        // DOM IT all falling through to the same Italian chart-of-accounts entry).
         QMap<QPair<int,int>, QSet<QString>> vatDetails;
     };
     QList<JournalGroup> groups;
-    QMap<QString, int>  groupKeyToIndex; // insertion-order index
+    QMap<QString, int>  groupKeyToIndex;
 
-    // Resolve accounts and aggregate into groups
-    for (auto it = revenueByVat.constBegin(); it != revenueByVat.constEnd(); ++it) {
-        const VatKey &key = it.key();
-        double revenueAmount = it.value();
-        double vatAmount = vatByVat[key];
-
-        // Resolve Accounts
+    // Resolve accounts and aggregate into journal groups
+    for (const GroupedShipmentData &vg : vatGroups) {
         VatCountries vc = m_saleBookAccounts->resolveVatCountries(
-            key.scheme,
+            vg.taxScheme,
             companyCountry,
-            key.countryFrom,
-            key.countryTo
+            vg.countryFrom,
+            vg.countryTo
         );
 
         BooksAccountsSalesTable::Accounts accounts;
         try {
-            accounts = co_await m_saleBookAccounts->getAccounts(vc, key.vatRate, callbackAddIfMissing);
+            accounts = co_await m_saleBookAccounts->getAccounts(vc, vg.vatRatePct, callbackAddIfMissing);
         } catch (const ExceptionWithTitleText &e) {
-            QString newText = e.errorText() + QString("\n(Sample order ID for this VAT config: %1)").arg(debugEventIdByVat.value(key));
+            QString newText = e.errorText() + QString("\n(Sample order ID for this VAT config: %1)").arg(vg.sampleEventId);
             ExceptionWithTitleText newEx(e.errorTitle(), newText);
             newEx.raise();
         }
@@ -465,39 +480,35 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
             bool shouldRetry = co_await callbackAddIfMissing(
                 QObject::tr("Missing Customer Account"),
                 QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
-                    .arg(taxSchemeToString(key.scheme)).arg(key.vatRate));
+                    .arg(taxSchemeToString(vg.taxScheme)).arg(vg.vatRatePct));
             if (!shouldRetry)
                 break;
-            accounts = co_await m_saleBookAccounts->getAccounts(vc, key.vatRate, callbackAddIfMissing);
+            accounts = co_await m_saleBookAccounts->getAccounts(vc, vg.vatRatePct, callbackAddIfMissing);
             custAcc = accounts.customerAccount;
         }
         if (custAcc.isEmpty()) {
             ExceptionWithTitleText exception(QObject::tr("Missing Customer Account"),
                 QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
-                .arg(taxSchemeToString(key.scheme)).arg(key.vatRate));
+                .arg(taxSchemeToString(vg.taxScheme)).arg(vg.vatRatePct));
             exception.raise();
         }
 
         // Merge into existing group or create a new one.
-        // For DomesticVat, countryTo is part of the fiscal identity — DOM FR and DOM DE
-        // are separate obligations even when they happen to resolve to the same accounts.
-        const QString countryQualifier = (key.scheme == TaxScheme::DomesticVat)
-                                         ? "|" + key.countryTo : QString();
+        // For DomesticVat, countryTo is part of the fiscal identity.
+        const QString countryQualifier = (vg.taxScheme == TaxScheme::DomesticVat)
+                                         ? "|" + vg.countryTo : QString();
         const QString groupKey = accounts.saleAccount + "|" + accounts.vatAccount
-                               + "|" + custAcc + "|" + key.currency + countryQualifier;
+                               + "|" + custAcc + "|" + vg.currency + countryQualifier;
         if (!groupKeyToIndex.contains(groupKey)) {
             groupKeyToIndex[groupKey] = groups.size();
             groups.push_back({accounts.saleAccount, accounts.vatAccount,
-                              custAcc, key.currency, 0.0, 0.0, {}});
+                              custAcc, vg.currency, 0.0, 0.0, {}});
         }
         JournalGroup &g = groups[groupKeyToIndex[groupKey]];
-        g.revenue += revenueAmount;
-        g.vat     += vatAmount;
-        // Record (scheme, rate) → destination country.
-        // countryFrom is intentionally omitted — only the destination and rate
-        // matter for accounting; the source warehouse country is irrelevant.
-        g.vatDetails[{static_cast<int>(key.scheme), qRound(key.vatRate * 10)}]
-            .insert(key.countryTo);
+        g.revenue += vg.totalRevenue;
+        g.vat     += vg.totalVat;
+        g.vatDetails[{static_cast<int>(vg.taxScheme), qRound(vg.vatRatePct * 10)}]
+            .insert(vg.countryTo);
     }
 
     // Create one JournalEntry per group, each with exactly 3 lines
@@ -505,10 +516,6 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
     for (const JournalGroup &g : std::as_const(groups)) {
         auto entry = QSharedPointer<JournalEntry>::create(entryDate, companyCurrency);
 
-        // Build title parts from structured vatDetails:
-        //   single country  → "DOM IT 20%"
-        //   multiple countries that share scheme+rate → "DOM BE/DE/IT"
-        //   (country info is already embedded in the account names for the accountant)
         QStringList vatParts;
         for (auto dit = g.vatDetails.constBegin(); dit != g.vatDetails.constEnd(); ++dit) {
             const TaxScheme s = static_cast<TaxScheme>(dit.key().first);

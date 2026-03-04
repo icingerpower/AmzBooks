@@ -2,6 +2,7 @@
 #define PANEBOOKKEEPING_H
 
 #include <QWidget>
+#include <QDir>
 
 class BooksConnections;
 
@@ -28,6 +29,7 @@ private:
     Ui::PaneBookKeeping *ui;
     void _createBanks();
     void _createBooksTables();
+    void generateSaleReports(const QDir &dirTo);
     void _initYears();
     void _connectSlots();
     void _setSubButtonsEnabled(bool enable);

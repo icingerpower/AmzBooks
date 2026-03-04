@@ -11,6 +11,7 @@
 #include "books/PurchaseAmzPaymentsTable.h"
 #include "books/JournalTable.h"
 #include "books/JournalEntryFactory.h"
+#include "books/ReportGenerator.h"
 #include "books/BookSaverFull.h"
 #include "books/BooksAccountsSalesTable.h"
 #include "books/BookAccountPurchaseTable.h"
@@ -51,6 +52,8 @@
 #include "books/ServiceClientManager.h"
 #include "gui/delegates/ComboBoxDelegate.h"
 #include "books/VatResolver.h"
+#include "orders/InvoicingInfo.h"
+#include <QUrl>
 #include "books/TaxResolver.h"
 #include "books/CompanyInfosTable.h"
 #include "books/CompanyAddressTable.h"
@@ -175,11 +178,8 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
 
     // Callback for adding missing accounts
     auto callbackAddIfMissing = [](const QString &title, const QString &text) -> QCoro::Task<bool> {
-        // We currently do not have a UI to add the account dynamically here.
-        // Returning false ensures the getAccounts method will abort and throw an exception
-        // instead of getting stuck in an infinite loop trying to find an account that wasn't added.
-        QMessageBox::warning(nullptr, title, text);
-        co_return false;
+        DialogVatParams dialog(title, text);
+        co_return dialog.exec() == QDialog::Accepted;
     };
 
     JournalEntryFactory factory(&currencyRateManager, &companyInfo, &salesAccountTable, &purchaseAccountTable, &journalTable, &selfVatAccountTable);
@@ -594,13 +594,18 @@ void PaneBookKeeping::generateInvoices()
                     const auto &shipment = entry.shipmentsRefundsSameActivity[i];
                     if (!shipment || shipment->getActivities().isEmpty()) { errors++; errorMsgs << tr("Empty activities"); continue; }
 
-                    const QString orderId = shipment->getActivities().first().getEventId();
-                    if (orderId.isEmpty()) { errors++; errorMsgs << tr("Empty orderId"); continue; }
+                    const QString &orderId = shipment->getActivities().first().getEventId();
+                    const QString &activityId = shipment->getActivities().first().getActivityId();
+                    if (activityId.isEmpty()) {
+                        errors++;
+                        errorMsgs << tr("Empty shipmentId");
+                        continue;
+                    }
 
                     // Get InvoicingInfo per order (most precise), fallback to group-level info.
                     // The existing info already contains line items and payment date; we only
                     // add the invoice number — preserving all other recorded information.
-                    QSharedPointer<InvoicingInfo> info = m_orderManager->getInvoicingInfo(orderId);
+                    QSharedPointer<InvoicingInfo> info = m_orderManager->getInvoicingInfo(activityId);
                     if (!info) {
                         info = entry.invoicingInfo;
                     }
@@ -661,6 +666,8 @@ void PaneBookKeeping::generateInvoices()
         }
     }
     QMessageBox::information(this, tr("Invoice Generation Complete"), msg);
+
+    generateSaleReports(outDir);
 }
 
 void PaneBookKeeping::regenerateInvoices()
@@ -731,6 +738,208 @@ void PaneBookKeeping::regenerateInvoices()
                 .arg(outDir.absolutePath()));
     } catch (const ExceptionWithTitleText &e) {
         QMessageBox::warning(this, e.errorTitle(), e.errorText());
+    }
+
+    generateSaleReports(outDir);
+}
+
+void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
+{
+    const int year = ui->comboBoxYear->currentText().toInt();
+    const QDate from(year, 1, 1);
+    const QDate to(year, 12, 31);
+
+    auto schemeShortStr = [](TaxScheme s) -> QString {
+        switch (s) {
+        case TaxScheme::DomesticVat:               return "DOM";
+        case TaxScheme::EuOssUnion:                return "OSS";
+        case TaxScheme::EuOssNonUnion:             return "OSS-NU";
+        case TaxScheme::EuIoss:                    return "IOSS";
+        case TaxScheme::ImportVat:                 return "IMP";
+        case TaxScheme::ReverseChargeImport:       return "RCI";
+        case TaxScheme::ReverseChargeDomestic:     return "RCD";
+        case TaxScheme::MarketplaceDeemedSupplier: return "MDS";
+        case TaxScheme::Exempt:                    return "EXP";
+        case TaxScheme::OutOfScope:                return "HRS";
+        default:                                   return "?";
+        }
+    };
+
+    const QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
+    CompanyInfosTable companyInfos(workingDir);
+    BooksAccountsSalesTable salesAccounts(workingDir);
+
+    auto acceptGrouped = [](const ActivitySource *, const Shipment *s) {
+        return s->isGrouped();
+    };
+    const auto sourceMapGrouped =
+        m_orderManager->getActivitySource_ShipmentAndRefunds(from, to, acceptGrouped);
+
+    const QStringList tableHeaders = {
+        tr("Store"), tr("Date"), tr("Order ID"), tr("Shipment/Refund ID"),
+        tr("Type"), tr("Untaxed amount"), tr("Taxes"), tr("Taxed amount"),
+        tr("Currency"), tr("Orig full amount"), tr("Orig currency"),
+        tr("Vat rate"), tr("Vat scheme"), tr("Country from"), tr("Country to"),
+        tr("Tax number"), tr("Invoice number"), tr("Invoice")
+    };
+    const int NB_COLS = tableHeaders.size();
+
+    for (int month = 1; month <= 12; ++month) {
+        // Skip current and future months (data may be incomplete)
+        const QDate today = QDate::currentDate();
+        if (year > today.year() || (year == today.year() && month >= today.month()))
+            continue;
+
+        ReportGenerator report;
+        report.setLandscape(true);
+        report.setPageSize(QPageSize::A3);
+        report.setFontScale(1.5);
+
+        const QString monthStr = QString("%1").arg(month, 2, 10, QChar('0'));
+        report.addTitle(tr("Sale amazon") + QString(" %1/%2").arg(year).arg(monthStr));
+
+        bool hasData = false;
+
+        for (auto it = sourceMapGrouped.cbegin(); it != sourceMapGrouped.cend(); ++it) {
+            ActivitySource source = it.key();
+            const auto &allShipments = it.value();
+
+            // Filter to this month only
+            QMultiMap<QDateTime, QSharedPointer<Shipment>> monthlyShipments;
+            QList<QSharedPointer<Shipment>> monthlyShipmentList;
+            for (auto jt = allShipments.cbegin(); jt != allShipments.cend(); ++jt) {
+                const QDate d = jt.key().date();
+                if (d.year() == year && d.month() == month) {
+                    monthlyShipments.insert(jt.key(), jt.value());
+                    monthlyShipmentList.append(jt.value());
+                }
+            }
+            if (monthlyShipments.isEmpty())
+                continue;
+
+            const QHash<QString, QString> orderId_store =
+                m_orderManager->getStores(monthlyShipmentList);
+
+            const QDate firstDate = monthlyShipments.firstKey().date();
+            const QDate entryDate = QDate(firstDate.year(), firstDate.month(),
+                                          firstDate.daysInMonth());
+
+            QList<JournalEntryFactory::GroupedShipmentData> vatGroups =
+                JournalEntryFactory::computeGrouping(&source, monthlyShipments,
+                                                     entryDate, orderId_store);
+
+            // Resolve book accounts for each group (best-effort, no user prompt)
+            for (auto &g : vatGroups) {
+                const VatCountries vc = salesAccounts.resolveVatCountries(
+                    g.taxScheme, companyInfos.getCompanyCountryCode(),
+                    g.countryFrom, g.countryTo);
+                const BooksAccountsSalesTable::Accounts accts =
+                    salesAccounts.getAccountsIfPresent(vc, g.vatRatePct);
+                g.saleAccount = accts.saleAccount;
+                g.vatAccount  = accts.vatAccount;
+            }
+
+            for (const auto &group : std::as_const(vatGroups)) {
+                hasData = true;
+
+                // Subtitle: e.g. "Amazon Europe | DOM FR→FR 20.00% EUR [706000 / 445711]"
+                QString subtitle =
+                    QString("%1 %2 | %3 %4\u2192%5 %6% %7")
+                        .arg(source.channel, source.subchannel,
+                             schemeShortStr(group.taxScheme),
+                             group.countryFrom, group.countryTo,
+                             QString::number(group.vatRatePct, 'f', 2),
+                             group.currency);
+                if (!group.saleAccount.isEmpty()) {
+                    subtitle += " [" + group.saleAccount;
+                    if (group.vatRatePct > 0.01 && !group.vatAccount.isEmpty())
+                        subtitle += " / " + group.vatAccount;
+                    subtitle += "]";
+                }
+                report.addSubtitle(subtitle);
+
+                report.startTable(tableHeaders);
+
+                // Sort rows by store then date
+                QList<JournalEntryFactory::ShipmentReportInfo> rows = group.shipments;
+                std::sort(rows.begin(), rows.end(),
+                    [](const JournalEntryFactory::ShipmentReportInfo &a,
+                       const JournalEntryFactory::ShipmentReportInfo &b) {
+                        if (a.store != b.store) return a.store < b.store;
+                        return a.date < b.date;
+                    });
+
+                double sumUntaxed = 0.0, sumTaxes = 0.0, sumTaxed = 0.0;
+
+                const QDir invoiceSubDir(dirTo.filePath(
+                    QString("%1/%2").arg(year).arg(monthStr)));
+
+                for (const auto &row : std::as_const(rows)) {
+                    sumUntaxed += row.untaxedAmount;
+                    sumTaxes   += row.taxes;
+                    sumTaxed   += row.taxedAmount;
+
+                    QString invoiceNumberStr;
+                    QString invoiceLinkHtml;
+                    {
+                        const QSharedPointer<InvoicingInfo> info =
+                            m_orderManager->getInvoicingInfo(row.shipmentRefundId);
+                        if (info && info->getInvoiceNumber()) {
+                            invoiceNumberStr = *info->getInvoiceNumber();
+                        }
+                        if (info && info->getInvoiceLink()) {
+                            invoiceLinkHtml =
+                                "<a href=\"" + *info->getInvoiceLink() + "\">" + tr("Open") + "</a>";
+                        }
+                    }
+
+                    report.addRow({
+                        row.store,
+                        row.date.toString("yyyy-MM-dd"),
+                        row.orderId,
+                        row.shipmentRefundId,
+                        row.isRefund ? tr("Refund") : tr("Shipment"),
+                        QString::number(row.untaxedAmount, 'f', 2),
+                        QString::number(row.taxes,         'f', 2),
+                        QString::number(row.taxedAmount,   'f', 2),
+                        row.currency,
+                        QString::number(row.origTaxedAmount, 'f', 2),
+                        row.origCurrency,
+                        QString::number(row.vatRatePct, 'f', 2) + "%",
+                        schemeShortStr(row.taxScheme),
+                        row.countryFrom,
+                        row.countryTo,
+                        row.isCompany ? row.taxNumber : QString{},
+                        invoiceNumberStr,
+                        invoiceLinkHtml
+                    });
+                }
+
+                // Total row
+                QStringList totalRow(NB_COLS, QString{});
+                totalRow[0]  = tr("Total");
+                totalRow[5]  = QString::number(sumUntaxed, 'f', 2);
+                totalRow[6]  = QString::number(sumTaxes,   'f', 2);
+                totalRow[7]  = QString::number(sumTaxed,   'f', 2);
+                totalRow[8]  = group.currency;
+                report.addRowTotal(totalRow);
+
+                report.endTable();
+            }
+        }
+
+        if (hasData) {
+            const QString subDirName = QString("%1/%2").arg(year).arg(monthStr);
+            QDir subDir(dirTo.filePath(subDirName));
+            subDir.mkpath(".");
+            const QString reportPath = subDir.absoluteFilePath(
+                QString("sale_amazon_%1_%2.pdf").arg(year).arg(monthStr));
+            try {
+                report.save(reportPath);
+            } catch (const std::exception &ex) {
+                qWarning() << "[generateSaleReports] Failed to save report:" << ex.what();
+            }
+        }
     }
 }
 

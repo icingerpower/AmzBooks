@@ -4,12 +4,16 @@
 #include <QSharedPointer>
 #include <QMultiMap>
 #include <QDateTime>
+#include <QDate>
+#include <QList>
+#include <QHash>
 #include <QCoroTask>
 #include <functional>
 
 #include "JournalEntry.h"
 #include "PurchaseAmzPaymentsManager.h"
 #include "PurchaseInvoiceManager.h"
+#include "TaxScheme.h"
 
 class CurrencyRateManager;
 class CompanyInfosTable;
@@ -27,6 +31,50 @@ class InventoryMoveTree;
 class JournalEntryFactory
 {
 public:
+    // Per-activity detail row used in sale reports
+    struct ShipmentReportInfo {
+        QString store;             // marketplace store name (e.g. "amazon.fr")
+        QDate date;
+        QString orderId;           // activity.getEventId()
+        QString shipmentRefundId;  // activity.getActivityId()
+        bool isRefund = false;     // true when amount < 0
+        double untaxedAmount = 0.0;
+        double taxes = 0.0;
+        double taxedAmount = 0.0;
+        QString currency;
+        double origTaxedAmount = 0.0;  // original total in source currency
+        QString origCurrency;
+        double vatRatePct = 0.0;       // VAT rate as a percentage (e.g. 20.0)
+        TaxScheme taxScheme = TaxScheme::Unknown;
+        QString countryFrom;
+        QString countryTo;
+        bool isCompany = false;   // true = B2B
+        QString taxNumber;        // VAT/tax number for B2B, empty otherwise
+    };
+
+    // One group per unique (taxScheme, countryFrom, countryTo, vatRate, currency) combination
+    struct GroupedShipmentData {
+        TaxScheme taxScheme = TaxScheme::Unknown;
+        QString countryFrom;
+        QString countryTo;
+        double vatRatePct = 0.0;
+        QString currency;
+        double totalRevenue = 0.0;  // sum of untaxed amounts
+        double totalVat = 0.0;      // sum of tax amounts
+        QString sampleEventId;      // sample order ID for error messages
+        QString saleAccount;        // resolved sale account (empty if not looked up)
+        QString vatAccount;         // resolved VAT account (empty if not looked up or 0%)
+        QList<ShipmentReportInfo> shipments;
+    };
+
+    // Groups shipments by VAT key and collects per-activity report details.
+    // orderId_store maps order IDs to store names (e.g. "amazon.fr"); pass {} if not needed.
+    static QList<GroupedShipmentData> computeGrouping(
+            ActivitySource *source,
+            const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
+            const QDate &entryDate,
+            const QHash<QString, QString> &orderId_store = {});
+
     JournalEntryFactory(const CurrencyRateManager *currencyRateManager,
                         const CompanyInfosTable *companyInfos,
                         const BooksAccountsSalesTable *saleBookAccounts,
