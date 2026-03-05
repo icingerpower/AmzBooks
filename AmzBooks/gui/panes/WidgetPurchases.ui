@@ -67,6 +67,16 @@
           </spacer>
          </item>
          <item>
+          <widget class="QSpinBox" name="spinBoxYear">
+           <property name="minimum">
+            <number>2010</number>
+           </property>
+           <property name="maximum">
+            <number>2050</number>
+           </property>
+          </widget>
+         </item>
+         <item>
           <widget class="QLabel" name="label">
            <property name="text">
             <string>Shipping pirce / KG:</string>

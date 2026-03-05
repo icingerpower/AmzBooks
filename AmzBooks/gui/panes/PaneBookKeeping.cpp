@@ -41,6 +41,7 @@
 #include "../../common/utils/CsvHeader.h"
 #include "ExceptionWithTitleText.h"
 #include "../dialogs/DialogAddSelfEntry.h"
+#include "../dialogs/DialogViewShipments.h"
 #include "../dialogs/DialogPurchaseInvoices.h"
 #include "../dialogs/DialogAmzPayments.h"
 #include "../dialogs/DialogEditPurchase.h"
@@ -385,12 +386,14 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         {
             const QStringList &countryCodes = CountriesEu::getAmazonPanEuCountryCodes();
 
-            // Build per-country shipping costs from the WidgetPurchases configuration
-            QHash<QString, double> country_pricePerKilo;
-            for (const QString &cc : countryCodes) {
-                country_pricePerKilo[cc] = ui->widgetPurchases->getShippingPrice(cc);
+            // Build per-country shipping costs from the WidgetPurchases configuration, per year
+            QHash<int, QHash<QString, double>> country_pricePerKiloByYear;
+            for (int y = from.year(); y <= to.year(); ++y) {
+                for (const QString &cc : countryCodes) {
+                    country_pricePerKiloByYear[y][cc] = ui->widgetPurchases->getShippingPrice(y, cc);
+                }
+                country_pricePerKiloByYear[y][""] = ui->widgetPurchases->getShippingPrice(y, ""); // catch-all default
             }
-            country_pricePerKilo[""] = ui->widgetPurchases->getShippingPrice(""); // catch-all default
 
             QDate currentDate = QDate::currentDate();
 
@@ -414,7 +417,7 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
                 InventoryMoveTree inventoryTree(ui->widgetPurchases->getPurchaseDir(),
                                                 countryCode_sku_unitImported,
                                                 countryCode_sku_unitExported,
-                                                country_pricePerKilo,
+                                                country_pricePerKiloByYear,
                                                 companyInfo.getCurrency(),
                                                 &currencyRateManager,
                                                 workingDir,
@@ -462,14 +465,8 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
                 }
             }
             if (count > 0) {
-                auto answer = QMessageBox::question(
-                    this,
-                    tr("Generate Invoices"),
-                    tr("%1 order(s) in %2 do not have invoices yet. Do you want to generate them now?")
-                        .arg(count).arg(year),
-                    QMessageBox::Yes | QMessageBox::No,
-                    QMessageBox::Yes);
-                if (answer == QMessageBox::Yes) {
+                DialogViewShipments dialog(*noInvoicesList, year, m_orderManager, this);
+                if (dialog.exec() == QDialog::Accepted) {
                     generateInvoices();
                 }
             }

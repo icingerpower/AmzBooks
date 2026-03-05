@@ -133,8 +133,12 @@ InventoryMoveTree *TestInventoryMove::makeTree(
         const CurrencyRateManager *rates,
         const SkuRegradedTable *skuRegradedTable)
 {
+    QHash<int, QHash<QString, double>> pricePerKiloByYear;
+    if (!pricePerKilo.isEmpty()) {
+        pricePerKiloByYear[0] = pricePerKilo;
+    }
     return new InventoryMoveTree(m_purchasesDir, imported, exported,
-                                 pricePerKilo, companyCurrency, rates,
+                                 pricePerKiloByYear, companyCurrency, rates,
                                  QDir(), QString(), skuRegradedTable, this);
 }
 
@@ -689,7 +693,9 @@ void TestInventoryMove::test_shipping_cost()
     // [9] Also verify export direction: SKU_S1 exported from FR → same shipping cost applies
     QHash<QString, QHash<QString, int>> exported;
     exported[QStringLiteral("FR")][QStringLiteral("SKU_S1")] = 3;
-    InventoryMoveTree model2(m_purchasesDir, {}, exported, ppk, QString(), nullptr, QDir(), QString(), nullptr, this);
+    QHash<int, QHash<QString, double>> ppkByYear;
+    ppkByYear[0] = ppk;
+    InventoryMoveTree model2(m_purchasesDir, {}, exported, ppkByYear, QString(), nullptr, QDir(), QString(), nullptr, this);
     int expRow = findParentRow(model2, QStringLiteral("FR"), QStringLiteral("EU"));
     QVERIFY(expRow != -1);
     int cS1exp = findChildRow(model2, expRow, QStringLiteral("SKU_S1"));

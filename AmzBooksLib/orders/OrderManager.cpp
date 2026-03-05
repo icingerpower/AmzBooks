@@ -10,6 +10,7 @@
 #include <QVariant>
 #include <QDebug>
 #include <QDateTime>
+#include <QAtomicInteger>
 
 #include "ActivitySource.h"
 #include "Shipment.h"
@@ -20,6 +21,17 @@
 #include "ExceptionWithTitleText.h"
 
 namespace {
+    // Monotonically increasing counter ensures revision IDs sort correctly under ORDER BY id DESC
+    // even when two revisions are created within the same millisecond.
+    Q_GLOBAL_STATIC(QAtomicInteger<quint32>, s_revCounter)
+
+    QString makeRevisionSuffix() {
+        quint32 seq = s_revCounter->fetchAndAddOrdered(1);
+        return QString("%1_%2")
+                .arg(QDateTime::currentMSecsSinceEpoch())
+                .arg(seq, 8, 10, QChar('0'));
+    }
+
     QString getSourceKey(const ActivitySource *source) {
         if (!source) return QString();
         return QString("%1|%2|%3|%4")
@@ -166,6 +178,26 @@ void OrderManager::initDb()
             }
         }
     }
+
+    // Migration: Add is_refund column if missing in shipments
+    {
+        QSqlQuery qMig(m_db);
+        qMig.exec("PRAGMA table_info(shipments)");
+        bool hasIsRefund = false;
+        while (qMig.next()) {
+            if (qMig.value("name").toString() == "is_refund") {
+                hasIsRefund = true;
+                break;
+            }
+        }
+        if (!hasIsRefund) {
+            QSqlQuery qAlter(m_db);
+            if (!qAlter.exec("ALTER TABLE shipments ADD COLUMN is_refund INTEGER NOT NULL DEFAULT 0")) {
+                qWarning() << "Failed to add is_refund column to shipments:" << qAlter.lastError().text();
+            }
+        }
+    }
+
     m_db.commit();
 }
 
@@ -334,10 +366,9 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
             }
 
             if (isConflict) {
-                QString timestamp = QString::number(QDateTime::currentMSecsSinceEpoch());
-                // We use timestamps to ensure uniqueness for revisions
-                QString reversalId = QString("%1-rev-%2").arg(id).arg(timestamp);
-                QString newVersionId = QString("%1-v-%2").arg(id).arg(timestamp);
+                QString uniqueSuffix = makeRevisionSuffix();
+                QString reversalId = QString("%1-rev-%2").arg(id).arg(uniqueSuffix);
+                QString newVersionId = QString("%1-v-%2").arg(id).arg(uniqueSuffix);
                 
                 QSqlQuery qCheckDrafts(m_db);
                 qCheckDrafts.prepare("SELECT id FROM shipments WHERE root_id = ? AND status = 'Draft'");
@@ -366,7 +397,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                     // Reversal of the LATEST VALID State (latestJson)
                     {
                         QSqlQuery qInsRev(m_db);
-                        qInsRev.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, root_id, inserted_at) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?)");
+                        qInsRev.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, root_id, inserted_at, is_refund) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?, 0)");
                         qInsRev.addBindValue(reversalId);
                         qInsRev.addBindValue(orderId);
                         qInsRev.addBindValue(latestJson);  // Reverse what was last active
@@ -381,7 +412,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                     // New Version
                     {
                         QSqlQuery qInsNew(m_db);
-                        qInsNew.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, root_id, inserted_at) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?)");
+                        qInsNew.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, root_id, inserted_at, is_refund) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?, ?)");
                         qInsNew.addBindValue(newVersionId);
                         qInsNew.addBindValue(orderId);
                         qInsNew.addBindValue(jsonStr);
@@ -390,6 +421,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
                         qInsNew.addBindValue(sourceKey);
                         qInsNew.addBindValue(id);
                         qInsNew.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
+                        qInsNew.addBindValue(dynamic_cast<const Refund*>(shipCopy.data()) ? 1 : 0);
                         qInsNew.exec();
                     }
                 }
@@ -407,7 +439,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
         }
     } else {
         QSqlQuery qIns(m_db);
-        qIns.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, inserted_at) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?)");
+        qIns.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, inserted_at, is_refund) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?)");
         qIns.addBindValue(id);
         qIns.addBindValue(orderId);
         qIns.addBindValue(jsonStr);
@@ -415,6 +447,7 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
         qIns.addBindValue(eventDate);
         qIns.addBindValue(sourceKey);
         qIns.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
+        qIns.addBindValue(dynamic_cast<const Refund*>(shipCopy.data()) ? 1 : 0);
         qIns.exec();
     }
 }
@@ -437,6 +470,7 @@ void OrderManager::recordShipmentsFromSource(const ActivitySource *activitySourc
             QString id;
             QString jsonStr;
             QString eventDate;
+            bool isRefund = false;
         };
 
         QList<PreparedEntry> prepared;
@@ -459,6 +493,7 @@ void OrderManager::recordShipmentsFromSource(const ActivitySource *activitySourc
             pe.id = shipCopy->getId();
             pe.jsonStr = QJsonDocument(shipCopy->toJson()).toJson(QJsonDocument::Compact);
             pe.eventDate = shipCopy->getActivities().first().getDateTime().toString(Qt::ISODate);
+            pe.isRefund = dynamic_cast<const Refund*>(shipCopy.data()) != nullptr;
 
             prepared.append(pe);
             allShipmentIds.append(pe.id);
@@ -501,7 +536,7 @@ void OrderManager::recordShipmentsFromSource(const ActivitySource *activitySourc
         }
 
         // Phase 4 — Split: batch-insert new shipments; route complex cases to fallback.
-        QVariantList ids, orderIds, jsons, eventDates, sourceKeys, nows;
+        QVariantList ids, orderIds, jsons, eventDates, sourceKeys, nows, isRefunds;
         QList<const PreparedEntry*> toFallback;
         QSet<QString> processedInBatch; // guard against intra-batch duplicates
 
@@ -518,6 +553,7 @@ void OrderManager::recordShipmentsFromSource(const ActivitySource *activitySourc
                 eventDates << pe.eventDate;
                 sourceKeys << sourceKey;
                 nows       << now;
+                isRefunds  << (pe.isRefund ? 1 : 0);
             } else {
                 // Slow path: existing Draft/Published update, fixTaxDate, or intra-batch duplicate.
                 toFallback.append(&pe);
@@ -527,8 +563,8 @@ void OrderManager::recordShipmentsFromSource(const ActivitySource *activitySourc
         if (!ids.isEmpty()) {
             QSqlQuery qIns(m_db);
             qIns.prepare("INSERT INTO shipments "
-                         "(id, order_id, status, original_json, current_json, event_date, source_key, inserted_at) "
-                         "VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?)");
+                         "(id, order_id, status, original_json, current_json, event_date, source_key, inserted_at, is_refund) "
+                         "VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?)");
             qIns.addBindValue(ids);
             qIns.addBindValue(orderIds);
             qIns.addBindValue(jsons);
@@ -536,6 +572,7 @@ void OrderManager::recordShipmentsFromSource(const ActivitySource *activitySourc
             qIns.addBindValue(eventDates);
             qIns.addBindValue(sourceKeys);
             qIns.addBindValue(nows);
+            qIns.addBindValue(isRefunds);
             qIns.execBatch();
         }
 
@@ -1333,7 +1370,8 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
 
     QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, "
                        "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
-                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "COALESCE(o.customer_account, '') AS customer_account, "
+                       "COALESCE(s.is_refund, 0) AS is_refund "
                        "FROM shipments s "
                        "LEFT JOIN orders o ON s.order_id = o.id "
                        "WHERE 1=1";
@@ -1354,6 +1392,7 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
         QString id = query.value(3).toString();
         bool isGrouped = query.value(4).toInt() == 0;
         QString customerAccount = query.value(5).toString();
+        bool isRefund = query.value(6).toInt() == 1;
         QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
 
         // Parse Source
@@ -1370,7 +1409,15 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
 
         // Parse Shipment
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
-        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        QSharedPointer<Shipment> shipment;
+        if (isRefund) {
+            Shipment temp = Shipment::fromJson(obj);
+            auto refund = QSharedPointer<Refund>::create(temp.getActivities());
+            refund->setIsWrongIfConflict(temp.isWrongIfConflict());
+            shipment = refund;
+        } else {
+            shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        }
         shipment->setIsGrouped(isGrouped);
         shipment->setCustomerAccount(customerAccount);
 
@@ -1421,7 +1468,8 @@ QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManag
 
     QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, "
                        "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
-                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "COALESCE(o.customer_account, '') AS customer_account, "
+                       "COALESCE(s.is_refund, 0) AS is_refund "
                        "FROM shipments s "
                        "LEFT JOIN orders o ON s.order_id = o.id "
                        "WHERE 1=1";
@@ -1442,6 +1490,7 @@ QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManag
         QString id = query.value(3).toString();
         bool isGrouped = query.value(4).toInt() == 0;
         QString customerAccount = query.value(5).toString();
+        bool isRefund = query.value(6).toInt() == 1;
         QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
 
         // Parse Source
@@ -1458,7 +1507,15 @@ QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManag
 
         // Parse Shipment
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
-        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        QSharedPointer<Shipment> shipment;
+        if (isRefund) {
+            Shipment temp = Shipment::fromJson(obj);
+            auto refund = QSharedPointer<Refund>::create(temp.getActivities());
+            refund->setIsWrongIfConflict(temp.isWrongIfConflict());
+            shipment = refund;
+        } else {
+            shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        }
         shipment->setIsGrouped(isGrouped);
         shipment->setCustomerAccount(customerAccount);
 
@@ -1509,7 +1566,8 @@ OrderManager::get_channel_site_ShipmentAndRefundsInsertedAt(const QDate &dateFro
 
     QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, "
                        "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
-                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "COALESCE(o.customer_account, '') AS customer_account, "
+                       "COALESCE(s.is_refund, 0) AS is_refund "
                        "FROM shipments s "
                        "LEFT JOIN orders o ON s.order_id = o.id "
                        "WHERE 1=1";
@@ -1528,13 +1586,22 @@ OrderManager::get_channel_site_ShipmentAndRefundsInsertedAt(const QDate &dateFro
         QString id = query.value(3).toString();
         bool isGrouped = query.value(4).toInt() == 0;
         QString customerAccount = query.value(5).toString();
+        bool isRefund = query.value(6).toInt() == 1;
 
         QStringList parts = sourceKey.split('|');
         QString channel = (parts.size() >= 2) ? parts[1] : "Unknown";
         QString subchannel = (parts.size() >= 3) ? parts[2] : "Unknown";
 
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
-        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        QSharedPointer<Shipment> shipment;
+        if (isRefund) {
+            Shipment temp = Shipment::fromJson(obj);
+            auto refund = QSharedPointer<Refund>::create(temp.getActivities());
+            refund->setIsWrongIfConflict(temp.isWrongIfConflict());
+            shipment = refund;
+        } else {
+            shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        }
         shipment->setIsGrouped(isGrouped);
         shipment->setCustomerAccount(customerAccount);
 
@@ -1685,7 +1752,8 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
 
     QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, o.store, "
                        "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
-                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "COALESCE(o.customer_account, '') AS customer_account, "
+                       "COALESCE(s.is_refund, 0) AS is_refund "
                        "FROM shipments s "
                        "LEFT JOIN orders o ON s.order_id = o.id "
                        "WHERE 1=1";
@@ -1708,6 +1776,7 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
         QString store = query.value(4).toString();
         bool isGrouped = query.value(5).toInt() == 0;
         QString customerAccount = query.value(6).toString();
+        bool isRefund = query.value(7).toInt() == 1;
         QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
 
         // Parse Source
@@ -1724,7 +1793,15 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
 
         // Parse Shipment
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
-        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        QSharedPointer<Shipment> shipment;
+        if (isRefund) {
+            Shipment temp = Shipment::fromJson(obj);
+            auto refund = QSharedPointer<Refund>::create(temp.getActivities());
+            refund->setIsWrongIfConflict(temp.isWrongIfConflict());
+            shipment = refund;
+        } else {
+            shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        }
         shipment->setIsGrouped(isGrouped);
         shipment->setCustomerAccount(customerAccount);
 
@@ -1773,7 +1850,8 @@ OrderManager::get_channel_site_ShipmentAndRefundsConflicts(const QDate &dateFrom
 
     QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, "
                        "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
-                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "COALESCE(o.customer_account, '') AS customer_account, "
+                       "COALESCE(s.is_refund, 0) AS is_refund "
                        "FROM shipments s "
                        "LEFT JOIN orders o ON s.order_id = o.id "
                        "WHERE 1=1";
@@ -1792,6 +1870,7 @@ OrderManager::get_channel_site_ShipmentAndRefundsConflicts(const QDate &dateFrom
         QString id = query.value(3).toString();
         bool isGrouped = query.value(4).toInt() == 0;
         QString customerAccount = query.value(5).toString();
+        bool isRefund = query.value(6).toInt() == 1;
 
         // Parse Source
         QStringList parts = sourceKey.split('|');
@@ -1800,7 +1879,15 @@ OrderManager::get_channel_site_ShipmentAndRefundsConflicts(const QDate &dateFrom
 
         // Parse Shipment
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
-        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        QSharedPointer<Shipment> shipment;
+        if (isRefund) {
+            Shipment temp = Shipment::fromJson(obj);
+            auto refund = QSharedPointer<Refund>::create(temp.getActivities());
+            refund->setIsWrongIfConflict(temp.isWrongIfConflict());
+            shipment = refund;
+        } else {
+            shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        }
         shipment->setIsGrouped(isGrouped);
         shipment->setCustomerAccount(customerAccount);
 
@@ -2084,7 +2171,8 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
         SELECT s.id, s.order_id, s.current_json, s.source_key, s.event_date,
                COALESCE(s.root_id, s.id) as root_id, o.address_json, inv.json as inv_json,
                COALESCE(o.is_ungrouped, 0) AS is_ungrouped,
-               COALESCE(o.customer_account, '') AS customer_account
+               COALESCE(o.customer_account, '') AS customer_account,
+               COALESCE(s.is_refund, 0) AS is_refund
         FROM shipments s
         LEFT JOIN orders o ON s.order_id = o.id
         LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id
@@ -2115,11 +2203,20 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
         QString eventDateStr = query.value("event_date").toString();
         bool isGrouped = query.value("is_ungrouped").toInt() == 0;
         QString customerAccount = query.value("customer_account").toString();
+        bool isRefund = query.value("is_refund").toInt() == 1;
         QDate eventDate = QDate::fromString(eventDateStr.left(10), Qt::ISODate);
 
         // Parse Shipment
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
-        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        QSharedPointer<Shipment> shipment;
+        if (isRefund) {
+            Shipment temp = Shipment::fromJson(obj);
+            auto refund = QSharedPointer<Refund>::create(temp.getActivities());
+            refund->setIsWrongIfConflict(temp.isWrongIfConflict());
+            shipment = refund;
+        } else {
+            shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        }
         shipment->setIsGrouped(isGrouped);
         shipment->setCustomerAccount(customerAccount);
 
@@ -2219,7 +2316,8 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
 
     QString queryStr = "SELECT s.current_json, s.source_key, s.event_date, s.id, "
                        "COALESCE(o.is_ungrouped, 0) AS is_ungrouped, "
-                       "COALESCE(o.customer_account, '') AS customer_account "
+                       "COALESCE(o.customer_account, '') AS customer_account, "
+                       "COALESCE(s.is_refund, 0) AS is_refund "
                        "FROM shipments s "
                        "LEFT JOIN orders o ON s.order_id = o.id "
                        "WHERE 1=1";
@@ -2236,10 +2334,19 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
         QString id        = query.value(3).toString();
         bool isGrouped    = query.value(4).toInt() == 0;
         QString customerAccount = query.value(5).toString();
+        bool isRefund = query.value(6).toInt() == 1;
         QDateTime eventDate = QDateTime::fromString(dateStr, Qt::ISODate);
 
         QJsonObject obj = QJsonDocument::fromJson(jsonStr.toUtf8()).object();
-        QSharedPointer<Shipment> shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        QSharedPointer<Shipment> shipment;
+        if (isRefund) {
+            Shipment temp = Shipment::fromJson(obj);
+            auto refund = QSharedPointer<Refund>::create(temp.getActivities());
+            refund->setIsWrongIfConflict(temp.isWrongIfConflict());
+            shipment = refund;
+        } else {
+            shipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        }
         shipment->setIsGrouped(isGrouped);
         shipment->setCustomerAccount(customerAccount);
 

@@ -31,10 +31,10 @@ public:
     QStringList getCsvFilePaths() const;
     QDir        getPurchaseDir() const;
 
-    /** Returns the shipping price for the given country code (delegates to the
+    /** Returns the shipping price for the given year and country code (delegates to the
      *  shared ImportPriceTable). Falls back to the Default price when the
      *  country is not found. */
-    double getShippingPrice(const QString &countryCode) const;
+    double getShippingPrice(int year, const QString &countryCode) const;
 
 private slots:
     void selectFolder();

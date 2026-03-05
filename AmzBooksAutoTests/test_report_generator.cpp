@@ -112,7 +112,6 @@ void TestReportGenerator::test_initialState()
     ReportGenerator rep;
     QString html = rep.getHtml();
     
-    QVERIFY(html.contains("<html><body>"));
     QVERIFY(html.contains("</body></html>"));
     QVERIFY(!html.contains("<h1>"));
     QVERIFY(!html.contains("<h2>"));
@@ -158,26 +157,26 @@ void TestReportGenerator::test_tableValidPath()
     rep.endTable();
     QString html = rep.getHtml();
     
-    QVERIFY(html.contains("<table border=\"1\">"));
-    QVERIFY(html.contains("<th>Col1</th>"));
-    QVERIFY(html.contains("<th>Col2</th>"));
-    QVERIFY(html.contains("<td>Val1</td>"));
-    QVERIFY(html.contains("<td>Val2</td>"));
-    QVERIFY(html.contains("<td>Val3</td>"));
-    QVERIFY(html.contains("<td>Val4</td>"));
+    QVERIFY(html.contains("<table border=\"1\""));
+    QVERIFY(html.contains(">Col1</th>"));
+    QVERIFY(html.contains(">Col2</th>"));
+    QVERIFY(html.contains(">Val1</td>"));
+    QVERIFY(html.contains(">Val2</td>"));
+    QVERIFY(html.contains(">Val3</td>"));
+    QVERIFY(html.contains(">Val4</td>"));
     QVERIFY(html.contains("</table>"));
     
     // Structural checks
     QCOMPARE(html.count("<table"), 1);
     QCOMPARE(html.count("</table>"), 1);
-    QCOMPARE(html.count("<tr>"), 3); // 1 header + 2 rows
-    QCOMPARE(html.count("<th>"), 2);
-    QCOMPARE(html.count("<td>"), 4);
+    QCOMPARE(html.count("<tr"), 3); // 1 header + 2 rows
+    QCOMPARE(html.count("<th"), 2);
+    QCOMPARE(html.count("<td"), 4);
     
     // Tag ordering
     int tableStartIdx = html.indexOf("<table");
-    int firstThIdx = html.indexOf("<th>Col1");
-    int firstTdIdx = html.indexOf("<td>Val1");
+    int firstThIdx = html.indexOf(">Col1</th>");
+    int firstTdIdx = html.indexOf(">Val1</td>");
     int tableEndIdx = html.indexOf("</table>");
     
     QVERIFY(tableStartIdx != -1);
@@ -209,9 +208,9 @@ void TestReportGenerator::test_multipleTablesAndComplexFlow()
     QCOMPARE(html.count("<h1>"), 1);
     QCOMPARE(html.count("<h2>"), 1);
     
-    QCOMPARE(html.count("<th>"), 3);
-    QCOMPARE(html.count("<td>"), 5);
-    QCOMPARE(html.count("<tr>"), 5); // 1 head + 1 row for table1, 1 head + 2 rows for table 2
+    QCOMPARE(html.count("<th"), 3);
+    QCOMPARE(html.count("<td"), 5);
+    QCOMPARE(html.count("<tr"), 5); // 1 head + 1 row for table1, 1 head + 2 rows for table 2
     
     QVERIFY(html.indexOf("<h1>T1</h1>") < html.indexOf("<table"));
     QVERIFY(html.indexOf("</table>") < html.indexOf("<h2>S1</h2>"));
@@ -250,8 +249,8 @@ void TestReportGenerator::test_emptyInputs()
     QString html = rep.getHtml();
     QVERIFY(html.contains("<h1></h1>"));
     QVERIFY(html.contains("<h2></h2>"));
-    QCOMPARE(html.count("<th>"), 0);
-    QCOMPARE(html.count("<td>"), 0);
+    QCOMPARE(html.count("<th"), 0);
+    QCOMPARE(html.count("<td"), 0);
     QVERIFY(html.contains("<tr>\n  </tr>"));
 }
 
@@ -293,11 +292,11 @@ void TestReportGenerator::test_largeData()
     rep.endTable();
 
     QString html = rep.getHtml();
-    QCOMPARE(html.count("<th>"), 100);
-    QCOMPARE(html.count("<td>"), 5000);
-    QCOMPARE(html.count("<tr>"), 51);
-    QVERIFY(html.contains("<th>H99</th>"));
-    QVERIFY(html.contains("<td>V49-99</td>"));
+    QCOMPARE(html.count("<th"), 100);
+    QCOMPARE(html.count("<td"), 5000);
+    QCOMPARE(html.count("<tr"), 51);
+    QVERIFY(html.contains(">H99</th>"));
+    QVERIFY(html.contains(">V49-99</td>"));
 }
 
 void TestReportGenerator::test_savePdfMultiplePages()

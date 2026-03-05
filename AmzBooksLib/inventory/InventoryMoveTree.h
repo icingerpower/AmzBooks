@@ -139,12 +139,9 @@ public:
     // countryCode_sku_unitImported
     //                       – units imported into each Amazon warehouse country from the
     //                         EU central pool (direction EU → countryCode).
-    // countryCode_sku_unitExported
-    //                       – units exported back to the EU pool from an Amazon warehouse
-    //                         (direction countryCode → EU).
-    // country_pricePerKilo  – shipping cost in companyCurrency per kilogram, keyed by
-    //                         Amazon warehouse country code.  The key "" is a catch-all
-    //                         fallback for unknown country codes.
+    // country_pricePerKiloByYear  - shipping cost in companyCurrency per kilogram, keyed by
+    //                               year and then Amazon warehouse country code.  The key ""
+    //                               is a catch-all fallback for unknown country codes.
     // companyCurrency       – ISO-4217 home currency code (e.g. "EUR").  Pass an empty
     //                         string when unknown; conversion is skipped and COL_CURRENCY
     //                         shows the invoice currency.
@@ -163,7 +160,7 @@ public:
     explicit InventoryMoveTree(const QDir &purchaseDir,
                                const QHash<QString, QHash<QString, int>> &countryCode_sku_unitImported,
                                const QHash<QString, QHash<QString, int>> &countryCode_sku_unitExported,
-                               const QHash<QString, double> &country_pricePerKilo,
+                               const QHash<int, QHash<QString, double>> &country_pricePerKiloByYear,
                                const QString &companyCurrency,
                                const CurrencyRateManager *currencyRateManager,
                                const QDir &workingDir = QDir(),
@@ -221,7 +218,7 @@ private:
 
     QDir m_purchaseDir;
     QDir m_workingDir;
-    QHash<QString, double> m_country_pricePerKilo;
+    QHash<int, QHash<QString, double>> m_country_pricePerKiloByYear;
     QString m_companyCurrency;
     QString m_companyCountryCode;
     const CurrencyRateManager *m_currencyRateManager;

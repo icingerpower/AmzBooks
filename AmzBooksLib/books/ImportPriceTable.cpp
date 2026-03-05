@@ -3,6 +3,8 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDebug>
+#include <QList>
+#include <QPair>
 
 // ── Fixed row order ──────────────────────────────────────────────────────────
 // The table always contains exactly these rows in this order.
@@ -18,134 +20,73 @@ static const QList<QPair<QString /*code*/, QString /*label*/>> COUNTRY_ROWS = {
 // CSV serialisation label for the default row
 static constexpr auto DEFAULT_CSV_LABEL = "Default";
 
-const QStringList ImportPriceTable::HEADER_IDS = {"Country", "Price"};
+static const QStringList HEADER_IDS = {"Year", "Country", "Price"};
 
 // ── Construction ─────────────────────────────────────────────────────────────
 
 ImportPriceTable::ImportPriceTable(const QDir &workingDir, QObject *parent)
-    : QAbstractTableModel(parent)
+    : QObject(parent)
 {
     m_filePath = workingDir.absoluteFilePath("import-prices.csv");
 
     m_wasNewlyCreated = !QFile::exists(m_filePath);
-    _load(); // populates m_data (with 0.0 defaults when the file is absent)
+    _load(); // populates m_prices
 }
 
 // ── Public API ───────────────────────────────────────────────────────────────
 
-double ImportPriceTable::getShippingPrice(const QString &countryCode) const
+double ImportPriceTable::getShippingPrice(int year, const QString &countryCode) const
 {
+    auto itYear = m_prices.constFind(year);
+    if (itYear == m_prices.constEnd()) {
+        // Fallback to legacy year 0 if available
+        itYear = m_prices.constFind(0);
+        if (itYear == m_prices.constEnd()) {
+            return 0.0;
+        }
+    }
+
+    const auto &countryPrices = itYear.value();
+    
     // Exact match first
-    for (const auto &item : m_data) {
-        if (item.countryCode == countryCode)
-            return item.price;
+    auto itCountry = countryPrices.constFind(countryCode);
+    if (itCountry != countryPrices.constEnd()) {
+        return itCountry.value();
     }
-    // Fallback to Default (first row)
-    return m_data.isEmpty() ? 0.0 : m_data.first().price;
+    
+    // Fallback to Default (empty country code)
+    itCountry = countryPrices.constFind("");
+    if (itCountry != countryPrices.constEnd()) {
+        return itCountry.value();
+    }
+    
+    return 0.0;
 }
 
-void ImportPriceTable::setShippingPrice(const QString &countryCode, double price)
+void ImportPriceTable::setShippingPrice(int year, const QString &countryCode, double price)
 {
-    const int row = _rowForCountry(countryCode);
-    if (row == -1) return;
-    setData(index(row, 1), price, Qt::EditRole);
-}
-
-// ── QAbstractTableModel interface ────────────────────────────────────────────
-
-int ImportPriceTable::rowCount(const QModelIndex &parent) const
-{
-    if (parent.isValid()) return 0;
-    return m_data.size();
-}
-
-int ImportPriceTable::columnCount(const QModelIndex &parent) const
-{
-    if (parent.isValid()) return 0;
-    return 2; // 0: Country label, 1: Price
-}
-
-QVariant ImportPriceTable::data(const QModelIndex &index, int role) const
-{
-    if (!index.isValid()) return {};
-    if (index.row() < 0 || index.row() >= m_data.size()) return {};
-
-    const auto &item = m_data[index.row()];
-
-    if (role == Qt::DisplayRole || role == Qt::EditRole) {
-        switch (index.column()) {
-        case 0:
-            return item.countryCode.isEmpty() ? tr("Default") : item.countryCode;
-        case 1:
-            return item.price;
+    // Initialize standard countries if year doesn't exist to ensure they are written out
+    if (!m_prices.contains(year)) {
+        for (const auto &[code, label] : COUNTRY_ROWS) {
+            m_prices[year][code] = 0.0;
         }
     }
-    return {};
-}
 
-QVariant ImportPriceTable::headerData(int section, Qt::Orientation orientation, int role) const
-{
-    if (role == Qt::DisplayRole && orientation == Qt::Horizontal) {
-        switch (section) {
-        case 0: return tr("Country");
-        case 1: return tr("Price / KG");
-        }
+    if (qFuzzyCompare(m_prices[year].value(countryCode, 0.0), price)) {
+        return; // No change
     }
-    return {};
-}
 
-bool ImportPriceTable::setData(const QModelIndex &index, const QVariant &value, int role)
-{
-    if (!index.isValid() || role != Qt::EditRole) return false;
-    if (index.column() != 1) return false; // only the Price column is editable
-    if (index.row() < 0 || index.row() >= m_data.size()) return false;
-
-    bool ok = false;
-    const double newPrice = value.toDouble(&ok);
-    if (!ok) return false;
-
-    // Skip no-op updates to avoid spurious dataChanged emissions
-    if (qFuzzyCompare(m_data[index.row()].price, newPrice)) return true;
-
-    m_data[index.row()].price = newPrice;
+    m_prices[year][countryCode] = price;
     _save();
-    emit dataChanged(index, index, {role});
-    return true;
-}
-
-Qt::ItemFlags ImportPriceTable::flags(const QModelIndex &index) const
-{
-    if (!index.isValid()) return Qt::NoItemFlags;
-    Qt::ItemFlags f = QAbstractItemModel::flags(index);
-    if (index.column() == 1)
-        f |= Qt::ItemIsEditable;
-    return f;
+    emit pricesChanged();
 }
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-int ImportPriceTable::_rowForCountry(const QString &countryCode) const
-{
-    for (int i = 0; i < m_data.size(); ++i) {
-        if (m_data[i].countryCode == countryCode)
-            return i;
-    }
-    return -1;
-}
-
 void ImportPriceTable::_load()
 {
-    beginResetModel();
+    m_prices.clear();
 
-    // Step 1 — generate a row for every known country, defaulting to 0.0.
-    // This guarantees that newly added countries are always present even when
-    // the CSV was written by an older version of the application.
-    m_data.clear();
-    for (const auto &[code, label] : COUNTRY_ROWS)
-        m_data.append({code, 0.0});
-
-    // Step 2 — override defaults with the values stored in the CSV.
-    // Rows in the CSV that do not match any known country are silently ignored.
     QFile file(m_filePath);
     if (file.exists() && file.open(QIODevice::ReadOnly | QIODevice::Text)) {
         QTextStream in(&file);
@@ -158,17 +99,38 @@ void ImportPriceTable::_load()
             const QStringList parts = line.split(';');
             if (parts.size() < 2) continue;
 
-            const QString csvLabel = parts[0].trimmed();
-            const QString code     = (csvLabel == DEFAULT_CSV_LABEL) ? QString{} : csvLabel;
-            const double  price    = parts[1].trimmed().toDouble();
+            int year = 0;
+            QString csvLabel;
+            double price = 0.0;
 
-            const int row = _rowForCountry(code);
-            if (row != -1)
-                m_data[row].price = price;
+            if (parts.size() >= 3) {
+                // New format: Year;Country;Price
+                year = parts[0].trimmed().toInt();
+                csvLabel = parts[1].trimmed();
+                price = parts[2].trimmed().toDouble();
+            } else {
+                // Legacy format: Country;Price
+                csvLabel = parts[0].trimmed();
+                price = parts[1].trimmed().toDouble();
+            }
+
+            const QString code = (csvLabel == DEFAULT_CSV_LABEL) ? QString{} : csvLabel;
+            
+            // Generate defaults if year encountered for the first time
+            if (!m_prices.contains(year)) {
+                for (const auto &[cCode, cLabel] : COUNTRY_ROWS) {
+                    m_prices[year][cCode] = 0.0;
+                }
+            }
+            
+            m_prices[year][code] = price;
+        }
+    } else {
+        // If file doesn't exist, generate default countries for legacy year 0
+        for (const auto &[code, label] : COUNTRY_ROWS) {
+            m_prices[0][code] = 0.0;
         }
     }
-
-    endResetModel();
 }
 
 void ImportPriceTable::_save() const
@@ -181,10 +143,33 @@ void ImportPriceTable::_save() const
 
     QTextStream out(&file);
     out << HEADER_IDS.join(';') << '\n';
-    for (const auto &item : m_data) {
-        // Use the human-readable "Default" label in the CSV instead of an empty string.
-        const QString label = item.countryCode.isEmpty() ? DEFAULT_CSV_LABEL : item.countryCode;
-        out << label << ';' << item.price << '\n';
+    
+    // Sort years
+    QList<int> years = m_prices.keys();
+    std::sort(years.begin(), years.end());
+    
+    for (int year : years) {
+        const auto &countryPrices = m_prices[year];
+        
+        // Output in fixed row order first
+        for (const auto &[code, label] : COUNTRY_ROWS) {
+            double price = countryPrices.value(code, 0.0);
+            const QString outLabel = code.isEmpty() ? DEFAULT_CSV_LABEL : code;
+            out << year << ';' << outLabel << ';' << price << '\n';
+        }
+        
+        // Output any custom countries not in fixed row order
+        for (auto it = countryPrices.constBegin(); it != countryPrices.constEnd(); ++it) {
+            bool isFixed = false;
+            for (const auto &[code, label] : COUNTRY_ROWS) {
+                if (code == it.key()) {
+                    isFixed = true;
+                    break;
+                }
+            }
+            if (!isFixed) {
+                out << year << ';' << it.key() << ';' << it.value() << '\n';
+            }
+        }
     }
 }
-

@@ -125,7 +125,8 @@ void PaneProfit::computeProfit()
         ui->treeViewProfit->setModel(nullptr);
         currentProfitTree->deleteLater();
     }
-    double avgPricePerKilo = ui->widgetPurchases->getShippingPrice("");
+    int year = ui->dateEditSartDate->date().year();
+    double avgPricePerKilo = ui->widgetPurchases->getShippingPrice(year, "");
 
     m_profitTree = new ProfitTree(WorkingDirectoryManager::instance()->workingDir(), // Settings
                                   economicsDir, // Economics

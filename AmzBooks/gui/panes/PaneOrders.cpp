@@ -390,12 +390,14 @@ void PaneOrders::_loadInventoryMoveTree(const QDate &dateStart, const QDate &dat
         }
     }
 
-    // Shipping cost per kg from the purchases widget.
-    QHash<QString, double> pricePerKilo;
-    for (const QString &cc : countryCodes) {
-        pricePerKilo[cc] = ui->widgetPurchases->getShippingPrice(cc);
+    // Shipping cost per kg from the purchases widget, per year
+    QHash<int, QHash<QString, double>> pricePerKiloByYear;
+    for (int y = dateStart.year(); y <= dateEnd.year(); ++y) {
+        for (const QString &cc : countryCodes) {
+            pricePerKiloByYear[y][cc] = ui->widgetPurchases->getShippingPrice(y, cc);
+        }
+        pricePerKiloByYear[y][QString()] = ui->widgetPurchases->getShippingPrice(y, QString());
     }
-    pricePerKilo[QString()] = ui->widgetPurchases->getShippingPrice(QString());
 
     // Replace the old tree (detach model first so the view doesn't keep a
     // dangling pointer while we delete the old instance).
@@ -407,7 +409,7 @@ void PaneOrders::_loadInventoryMoveTree(const QDate &dateStart, const QDate &dat
             ui->widgetPurchases->getPurchaseDir(),
             countryCode_sku_unitImported,
             countryCode_sku_unitExported,
-            pricePerKilo,
+            pricePerKiloByYear,
             m_companyInfos->getCurrency(),
             m_currRateManager,
             workingDir,

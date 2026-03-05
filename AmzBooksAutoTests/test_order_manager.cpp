@@ -36,6 +36,7 @@ private slots:
     void test_record_with_refund();
     void test_getShipments();
     void test_getShipmentAndRefundsRecentlyAdded();
+    void test_getShipmentAndRefunds_dynamicCast();
     void test_getActivitySource_ShipmentAndRefunds();
     void test_invoicingInfos();
     void test_getShipmentOrRefundIfDifferent();
@@ -452,6 +453,108 @@ void TestOrderManager::test_getShipments()
     }
     
     QCOMPARE(sum, 0.0);
+}
+
+void TestOrderManager::test_getShipmentAndRefunds_dynamicCast()
+{
+    QTemporaryDir tempDir;
+    OrderManager manager(tempDir.path());
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+
+    // Add a Shipment
+    auto actResShip = Activity::create("evt_ship", "act_ship", "",
+         QDateTime(QDate(2023, 1, 15), QTime(10, 0)),
+         QDateTime(QDate(2023, 1, 15), QTime(10, 0)),
+         "EUR", "FR", "DE", false, "DE",
+         Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE",
+         TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    QVERIFY(actResShip.ok());
+    Shipment shipment({*actResShip.value}, "", true);
+    manager.recordShipmentFromSource("ord_cast", &source, &shipment, QDate());
+
+    // Add a Refund
+    auto actResRef = Activity::create("evt_ref", "act_ref", "",
+         QDateTime(QDate(2023, 1, 20), QTime(10, 0)),
+         QDateTime(QDate(2023, 1, 20), QTime(10, 0)),
+         "EUR", "FR", "DE", false, "DE",
+         Amount(-100.0, -20.0), TaxSource::MarketplaceProvided, "DE",
+         TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    QVERIFY(actResRef.ok());
+    Refund refund({*actResRef.value}, "", true);
+    manager.recordShipmentFromSource("ord_cast", &source, &refund, QDate());
+
+    // Retrieve all and verify dynamic_cast works to distinguish Shipment from Refund
+    auto results = manager.getShipmentAndRefunds(QDate(), QDate(),
+        [](const ActivitySource *, const Shipment *) { return true; });
+
+    QCOMPARE(results.size(), 2);
+
+    int shipmentCount = 0;
+    int refundCount = 0;
+    for (auto it = results.begin(); it != results.end(); ++it) {
+        const bool isRefund = dynamic_cast<const Refund *>(it.value().data()) != nullptr;
+        if (isRefund) {
+            refundCount++;
+            QCOMPARE(it.value()->getId(), QString("act_ref"));
+        } else {
+            shipmentCount++;
+            QCOMPARE(it.value()->getId(), QString("act_ship"));
+        }
+    }
+
+    QCOMPARE(shipmentCount, 1);
+    QCOMPARE(refundCount, 1);
+
+    // Verify getShipmentAndRefundsRecentlyAdded
+    auto recentResults = manager.getShipmentAndRefundsRecentlyAdded(QDate());
+    QCOMPARE(recentResults.size(), 2);
+    shipmentCount = 0;
+    refundCount = 0;
+    for (auto it = recentResults.begin(); it != recentResults.end(); ++it) {
+        if (dynamic_cast<const Refund *>(it.value().data()) != nullptr) {
+            refundCount++;
+        } else {
+            shipmentCount++;
+        }
+    }
+    QCOMPARE(shipmentCount, 1);
+    QCOMPARE(refundCount, 1);
+
+    // Verify get_channel_site_ShipmentAndRefundsInsertedAt
+    auto channelResults = manager.get_channel_site_ShipmentAndRefundsInsertedAt(QDate(), QDate());
+    shipmentCount = 0;
+    refundCount = 0;
+    for (const auto &channels : *channelResults) {
+        for (const auto &sites : channels) {
+            for (const auto &ctx : sites) {
+                for (const auto &ship : ctx.shipmentsRefundsSameActivity) {
+                    if (dynamic_cast<const Refund *>(ship.data()) != nullptr) {
+                        refundCount++;
+                    } else {
+                        shipmentCount++;
+                    }
+                }
+            }
+        }
+    }
+    QCOMPARE(shipmentCount, 1);
+    QCOMPARE(refundCount, 1);
+
+    // Verify getShipmentAndRefundsNoInvoices
+    auto noInvoiceResults = manager.getShipmentAndRefundsNoInvoices(QDate(), QDate());
+    shipmentCount = 0;
+    refundCount = 0;
+    for (const auto &item : *noInvoiceResults) {
+        for (const auto &ship : item.shipmentsRefundsSameActivity) {
+            if (dynamic_cast<const Refund *>(ship.data()) != nullptr) {
+                refundCount++;
+            } else {
+                shipmentCount++;
+            }
+        }
+    }
+    QCOMPARE(shipmentCount, 1);
+    QCOMPARE(refundCount, 1);
 }
 
 void TestOrderManager::test_invoicingInfos()

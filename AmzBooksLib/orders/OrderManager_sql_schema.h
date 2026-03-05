@@ -29,6 +29,7 @@ const QString CREATE_TABLE_SHIPMENTS = R"(
         source_key TEXT, -- For querying history by source
         root_id TEXT,    -- ID of the original/root shipment if this is a revision/correction
         inserted_at TEXT,
+        is_refund INTEGER NOT NULL DEFAULT 0,
         FOREIGN KEY(order_id) REFERENCES orders(id)
     )
 )";

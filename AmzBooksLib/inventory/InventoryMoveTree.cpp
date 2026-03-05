@@ -58,7 +58,7 @@ bool InventoryMoveTree::hasUnitPriceFor(const QString &canonicalSku) const
 InventoryMoveTree::InventoryMoveTree(const QDir &purchaseDir,
                                      const QHash<QString, QHash<QString, int>> &countryCode_sku_unitImported,
                                      const QHash<QString, QHash<QString, int>> &countryCode_sku_unitExported,
-                                     const QHash<QString, double> &country_pricePerKilo,
+                                     const QHash<int, QHash<QString, double>> &country_pricePerKiloByYear,
                                      const QString &companyCurrency,
                                      const CurrencyRateManager *currencyRateManager,
                                      const QDir &workingDir,
@@ -68,7 +68,7 @@ InventoryMoveTree::InventoryMoveTree(const QDir &purchaseDir,
     : QAbstractItemModel(parent)
     , m_purchaseDir(purchaseDir)
     , m_workingDir(workingDir)
-    , m_country_pricePerKilo(country_pricePerKilo)
+    , m_country_pricePerKiloByYear(country_pricePerKiloByYear)
     , m_companyCurrency(companyCurrency)
     , m_companyCountryCode(companyCountryCode)
     , m_currencyRateManager(currencyRateManager)
@@ -445,8 +445,22 @@ void InventoryMoveTree::buildTree(
             if (info.hasPriceFromFile) {
                 // unitPrice is already in companyCurrency (converted by PurchaseCsvLoader).
                 // Shipping cost: weight (kg) × price-per-kg for this warehouse.
-                double shippingCost = info.weight
-                        * m_country_pricePerKilo.value(warehouseCountry, 0.0);
+                int purchaseYear = info.purchaseDate.isValid() ? info.purchaseDate.year() : 0;
+                double pricePerKg = 0.0;
+                if (m_country_pricePerKiloByYear.contains(purchaseYear)) {
+                    pricePerKg = m_country_pricePerKiloByYear[purchaseYear].value(warehouseCountry, 0.0);
+                    // fallback to default country if specific country not found
+                    if (pricePerKg == 0.0) {
+                         pricePerKg = m_country_pricePerKiloByYear[purchaseYear].value("", 0.0);
+                    }
+                } else if (m_country_pricePerKiloByYear.contains(0)) {
+                    pricePerKg = m_country_pricePerKiloByYear[0].value(warehouseCountry, 0.0);
+                    if (pricePerKg == 0.0) {
+                         pricePerKg = m_country_pricePerKiloByYear[0].value("", 0.0);
+                    }
+                }
+
+                double shippingCost = info.weight * pricePerKg;
 
                 finalPrice   = info.unitPrice + shippingCost;
                 purchaseFile = info.purchaseFile;

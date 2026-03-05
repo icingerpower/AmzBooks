@@ -87,9 +87,15 @@ DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfo
     {
         QHash<QString, QHash<QString, int>> countryCode_sku_unitImported;
         QHash<QString, QHash<QString, int>> countryCode_sku_unitExported;
+        QHash<int, QHash<QString, double>> pricePerKiloByYear;
 
         const auto &moves = orderInfos.year_month_countryFrom_countryTo_id_SkuMovedUnits;
         for (auto it1 = moves.constBegin(); it1 != moves.constEnd(); ++it1) {
+            int currentYear = it1.key();
+            for (const QString &cc : CountriesEu::getAmazonPanEuCountryCodes())
+                pricePerKiloByYear[currentYear][cc] = ui->widgetPurchases->getShippingPrice(currentYear, cc);
+            pricePerKiloByYear[currentYear][QString()] = ui->widgetPurchases->getShippingPrice(currentYear, QString());
+            
             for (auto it2 = it1.value().constBegin(); it2 != it1.value().constEnd(); ++it2) {
                 for (auto it3 = it2.value().constBegin(); it3 != it2.value().constEnd(); ++it3) {
                     const QString &from = it3.key();
@@ -104,16 +110,11 @@ DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfo
             }
         }
 
-        QHash<QString, double> pricePerKilo;
-        for (const QString &cc : CountriesEu::getAmazonPanEuCountryCodes())
-            pricePerKilo[cc] = ui->widgetPurchases->getShippingPrice(cc);
-        pricePerKilo[QString()] = ui->widgetPurchases->getShippingPrice(QString());
-
         m_inventoryMoveTree = new InventoryMoveTree(
                 ui->widgetPurchases->getPurchaseDir(),
                 countryCode_sku_unitImported,
                 countryCode_sku_unitExported,
-                pricePerKilo,
+                pricePerKiloByYear,
                 destCurrency,
                 currencyRateManager,
                 workingDir,

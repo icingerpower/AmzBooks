@@ -4408,7 +4408,7 @@ static InventoryMoveTree *makeInventoryTree(
         const QString &companyCountry  = "FR")
 {
     return new InventoryMoveTree(purchaseDir, imported, exported,
-                                 {{"", 0.0}},       // no shipping cost
+                                 {{0, {{"", 0.0}}}},       // no shipping cost
                                  companyCurrency,
                                  nullptr,            // no currency rate manager needed (EUR=EUR)
                                  QDir(),             // no invoice lookup

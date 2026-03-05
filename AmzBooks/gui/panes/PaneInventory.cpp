@@ -62,11 +62,11 @@ void PaneInventory::computeInventory()
     int year = ui->spinBoxYear->value();
     
     QHash<QString, double> prices;
-    prices["US"] = ui->widgetPurchaseExtraPurchases->getShippingPrice("US");
-    prices["CA"] = ui->widgetPurchaseExtraPurchases->getShippingPrice("CA");
-    prices["UK"] = ui->widgetPurchaseExtraPurchases->getShippingPrice("UK");
-    prices["JP"] = ui->widgetPurchaseExtraPurchases->getShippingPrice("JP");
-    prices[""] = ui->widgetPurchaseExtraPurchases->getShippingPrice(""); // Default
+    prices["US"] = ui->widgetPurchaseExtraPurchases->getShippingPrice(year, "US");
+    prices["CA"] = ui->widgetPurchaseExtraPurchases->getShippingPrice(year, "CA");
+    prices["UK"] = ui->widgetPurchaseExtraPurchases->getShippingPrice(year, "UK");
+    prices["JP"] = ui->widgetPurchaseExtraPurchases->getShippingPrice(year, "JP");
+    prices[""] = ui->widgetPurchaseExtraPurchases->getShippingPrice(year, ""); // Default
     
     if (m_companyInfos) {
         delete m_companyInfos;

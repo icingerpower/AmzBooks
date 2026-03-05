@@ -19,6 +19,7 @@
 #include <QHeaderView>
 #include <QVBoxLayout>
 #include <QDialogButtonBox>
+#include <QDate>
 
 
 struct ErrorEntry {
@@ -86,13 +87,14 @@ WidgetPurchases::WidgetPurchases(QWidget *parent) :
             };
             for (const auto &[code, key] : migrations) {
                 if (settings->contains(key))
-                    s_importPriceTable->setShippingPrice(code, settings->value(key).toDouble());
+                    s_importPriceTable->setShippingPrice(0, code, settings->value(key).toDouble());
             }
         }
     }
 
     // Populate spin boxes from the model before connecting signals to avoid
     // triggering a write-back on the initial setValue() calls.
+    ui->spinBoxYear->setValue(QDate::currentDate().year());
     _refreshShippingSpinBoxes();
 
     _connectSlots();
@@ -123,20 +125,22 @@ void WidgetPurchases::_connectSlots()
     // Spin box → shared model: write the new price to the model whenever the
     // user edits a spin box.  The model then emits dataChanged, which causes
     // _refreshShippingSpinBoxes() to run on every WidgetPurchases instance.
+    connect(ui->spinBoxYear, QOverload<int>::of(&QSpinBox::valueChanged),
+            this, &WidgetPurchases::_refreshShippingSpinBoxes);
     connect(ui->spinBoxShippingDefault, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, [this](double v){ s_importPriceTable->setShippingPrice("",   v); });
+            this, [this](double v){ s_importPriceTable->setShippingPrice(ui->spinBoxYear->value(), "",   v); });
     connect(ui->spinBoxShippingUS, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, [this](double v){ s_importPriceTable->setShippingPrice("US", v); });
+            this, [this](double v){ s_importPriceTable->setShippingPrice(ui->spinBoxYear->value(), "US", v); });
     connect(ui->spinBoxShippingCA, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, [this](double v){ s_importPriceTable->setShippingPrice("CA", v); });
+            this, [this](double v){ s_importPriceTable->setShippingPrice(ui->spinBoxYear->value(), "CA", v); });
     connect(ui->spinBoxShippingUK, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, [this](double v){ s_importPriceTable->setShippingPrice("UK", v); });
+            this, [this](double v){ s_importPriceTable->setShippingPrice(ui->spinBoxYear->value(), "UK", v); });
     connect(ui->spinBoxShippingJP, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, [this](double v){ s_importPriceTable->setShippingPrice("JP", v); });
+            this, [this](double v){ s_importPriceTable->setShippingPrice(ui->spinBoxYear->value(), "JP", v); });
 
     // Shared model → spin boxes: refresh whenever any price changes, regardless
     // of which WidgetPurchases instance triggered the change.
-    connect(s_importPriceTable.get(), &QAbstractItemModel::dataChanged,
+    connect(s_importPriceTable.get(), &ImportPriceTable::pricesChanged,
             this, [this]{ _refreshShippingSpinBoxes(); });
 }
 
@@ -150,11 +154,12 @@ void WidgetPurchases::_refreshShippingSpinBoxes()
     const QSignalBlocker b4(ui->spinBoxShippingUK);
     const QSignalBlocker b5(ui->spinBoxShippingJP);
 
-    ui->spinBoxShippingDefault->setValue(s_importPriceTable->getShippingPrice(""));
-    ui->spinBoxShippingUS->setValue(s_importPriceTable->getShippingPrice("US"));
-    ui->spinBoxShippingCA->setValue(s_importPriceTable->getShippingPrice("CA"));
-    ui->spinBoxShippingUK->setValue(s_importPriceTable->getShippingPrice("UK"));
-    ui->spinBoxShippingJP->setValue(s_importPriceTable->getShippingPrice("JP"));
+    int year = ui->spinBoxYear->value();
+    ui->spinBoxShippingDefault->setValue(s_importPriceTable->getShippingPrice(year, ""));
+    ui->spinBoxShippingUS->setValue(s_importPriceTable->getShippingPrice(year, "US"));
+    ui->spinBoxShippingCA->setValue(s_importPriceTable->getShippingPrice(year, "CA"));
+    ui->spinBoxShippingUK->setValue(s_importPriceTable->getShippingPrice(year, "UK"));
+    ui->spinBoxShippingJP->setValue(s_importPriceTable->getShippingPrice(year, "JP"));
 }
 
 void WidgetPurchases::addExtraPurchase()
@@ -325,9 +330,9 @@ QDir WidgetPurchases::getPurchaseDir() const
     return QDir(m_currentDir);
 }
 
-double WidgetPurchases::getShippingPrice(const QString &countryCode) const
+double WidgetPurchases::getShippingPrice(int year, const QString &countryCode) const
 {
     Q_ASSERT(s_importPriceTable);
     if (!s_importPriceTable) return 0.0;
-    return s_importPriceTable->getShippingPrice(countryCode);
+    return s_importPriceTable->getShippingPrice(year, countryCode);
 }
