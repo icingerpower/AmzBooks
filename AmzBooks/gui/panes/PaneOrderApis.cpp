@@ -223,11 +223,11 @@ void PaneOrderApis::import()
                 QList<OrderManager::ShipmentFromSourceEntry> entries;
                 entries.reserve(aggregatedInfos.shipments.size() + aggregatedInfos.refunds.size());
                 for (const auto &shipment : aggregatedInfos.shipments) {
-                    entries.append({shipment.getId(), &shipment, QDate(), false, false});
+                    entries.append({shipment.getActivities().first().getEventId(), &shipment, QDate(), false, false});
                     newActivities.append(shipment.getActivities());
                 }
                 for (const auto &refund : aggregatedInfos.refunds) {
-                    entries.append({refund.getId(), &refund, QDate(), false, false});
+                    entries.append({refund.getActivities().first().getEventId(), &refund, QDate(), false, false});
                     newActivities.append(refund.getActivities());
                 }
                 manager.recordShipmentsFromSource(&source, entries);

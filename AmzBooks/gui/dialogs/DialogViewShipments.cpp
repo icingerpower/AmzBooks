@@ -3,6 +3,7 @@
 #include "orders/Refund.h"
 #include "books/TaxScheme.h"
 #include <QStandardItemModel>
+#include <QSortFilterProxyModel>
 #include <QHeaderView>
 
 DialogViewShipments::DialogViewShipments(const QList<OrderManager::ShipmentRefundsWithUpdates> &entries,
@@ -62,6 +63,13 @@ DialogViewShipments::DialogViewShipments(const QList<OrderManager::ShipmentRefun
 
             auto makeItem = [](const QString &text) {
                 auto *item = new QStandardItem(text);
+                item->setData(text, Qt::UserRole);
+                item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
+                return item;
+            };
+            auto makeNumericItem = [](double value) {
+                auto *item = new QStandardItem(QString::number(value, 'f', 2));
+                item->setData(value, Qt::UserRole);
                 item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
                 return item;
             };
@@ -71,8 +79,8 @@ DialogViewShipments::DialogViewShipments(const QList<OrderManager::ShipmentRefun
             row << makeItem(dateStr);
             row << makeItem(orderId);
             row << makeItem(shipmentId);
-            row << makeItem(QString::number(totalTaxed, 'f', 2));
-            row << makeItem(QString::number(totalVat, 'f', 2));
+            row << makeNumericItem(totalTaxed);
+            row << makeNumericItem(totalVat);
             row << makeItem(taxSchemeToString(scheme));
             row << makeItem(isRefund ? tr("Refund") : tr("Order"));
             m_model->appendRow(row);
@@ -84,7 +92,12 @@ DialogViewShipments::DialogViewShipments(const QList<OrderManager::ShipmentRefun
         tr("%1 order(s) in %2 do not have invoices yet. Do you want to generate them now?")
             .arg(count).arg(year));
 
-    ui->tableView->setModel(m_model);
+    auto *proxy = new QSortFilterProxyModel(this);
+    proxy->setSourceModel(m_model);
+    proxy->setSortRole(Qt::UserRole);
+
+    ui->tableView->setModel(proxy);
+    ui->tableView->setSortingEnabled(true);
     ui->tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     ui->tableView->horizontalHeader()->setStretchLastSection(true);
     ui->tableView->setAlternatingRowColors(true);

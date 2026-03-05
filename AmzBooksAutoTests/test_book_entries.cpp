@@ -1,4 +1,11 @@
 #include <QtTest>
+#include <QCoreApplication>
+#include <QFile>
+#include "orders/OrderManager.h"
+#include "orders/ImporterFileAmazonVatEu.h"
+#include "orders/ImporterFileAmazonFbaInvoicing.h"
+#include "orders/InvoicingInfo.h"
+#include "orders/LineItem.h"
 #include "books/JournalEntry.h"
 #include "books/PurchaseInvoiceManager.h"
 #include "books/PurchaseAmzPaymentsManager.h"
@@ -178,6 +185,9 @@ private slots:
     void test_factory_inventory_export_skipped();
     void test_factory_inventory_missing_accounts_returns_null();
     void test_factory_inventory_zero_price_skipped();
+
+    // ── Invoice generation with refunds that have no Amazon invoice number ───
+    void test_invoice_generation_refunds_synthetic();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -4848,6 +4858,154 @@ void TestBookEntries::test_factory_inventory_zero_price_skipped()
 
     // (28) Zero price → totalPrice == 0.0 → row skipped → null
     QVERIFY(!entry);
+}
+
+// Helper shared by the two invoice-generation-with-refunds tests.
+// Loads orderInfos from VatEu into an OrderManager and returns the "no invoices" map,
+// then verifies that each entry for the given orderId has a non-null InvoicingInfo.
+static void checkRefundsHaveInvoicingInfo(
+        OrderManager &manager,
+        const QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext,
+              OrderManager::ShipmentRefundsWithUpdates>>>> &noInvMap,
+        const QString &targetOrderId,
+        int expectedRefundCount)
+{
+    int refundCount = 0;
+    int missingInfoCount = 0;
+
+    for (auto chanIt = noInvMap->cbegin(); chanIt != noInvMap->cend(); ++chanIt) {
+        for (auto storeIt = chanIt->cbegin(); storeIt != chanIt->cend(); ++storeIt) {
+            for (auto ctxIt = storeIt->cbegin(); ctxIt != storeIt->cend(); ++ctxIt) {
+                const OrderManager::ShipmentRefundsWithUpdates &entry = ctxIt.value();
+                for (const auto &shipment : entry.shipmentsRefundsSameActivity) {
+                    if (!shipment || shipment->getActivities().isEmpty()) continue;
+                    if (shipment->getActivities().first().getEventId() != targetOrderId) continue;
+
+                    ++refundCount;
+
+                    const QString &actId = shipment->getActivities().first().getActivityId();
+                    QSharedPointer<InvoicingInfo> info = manager.getInvoicingInfo(actId);
+                    if (!info) info = entry.invoicingInfo;
+                    if (!info || info->getItems().isEmpty())
+                        ++missingInfoCount;
+                }
+            }
+        }
+    }
+
+    QCOMPARE(refundCount, expectedRefundCount);
+    QCOMPARE(missingInfoCount, 0); // every refund must have InvoicingInfo with line items
+}
+
+// ===========================================================================
+// test_invoice_generation_refunds_synthetic
+// Creates a synthetic VatEu-format CSV with:
+//   - 1 SALE  (has Amazon invoice number)
+//   - 2 REFUNDs (no invoice number / URL – same pattern as 404-4309379-2683555)
+// Verifies that ImporterFileAmazonVatEu populates invoicingInfos for both
+// refunds even when there is no Amazon invoice number/URL.
+// ===========================================================================
+void TestBookEntries::test_invoice_generation_refunds_synthetic()
+{
+    // Minimal VatEu CSV: only the columns the importer actually reads.
+    const QString csvContent =
+        "TRANSACTION_TYPE,TRANSACTION_EVENT_ID,ACTIVITY_TRANSACTION_ID,"
+        "TRANSACTION_COMPLETE_DATE,TAX_CALCULATION_DATE,MARKETPLACE,"
+        "VAT_CALCULATION_IMPUTATION_COUNTRY,PRODUCT_TAX_CODE,"
+        "PRICE_OF_ITEMS_AMT_VAT_EXCL,TOTAL_ACTIVITY_VALUE_VAT_AMT,"
+        "TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL,VAT_INV_NUMBER,TRANSACTION_CURRENCY_CODE,"
+        "TAX_REPORTING_SCHEME,TAX_COLLECTION_RESPONSIBILITY,"
+        "PRICE_OF_ITEMS_VAT_RATE_PERCENT,SELLER_SKU,QTY,"
+        "SALE_DEPART_COUNTRY,SALE_ARRIVAL_COUNTRY,INVOICE_URL,ITEM_DESCRIPTION\n"
+
+        // SALE – has Amazon invoice number
+        "SALE,ORDER-TEST-001,ACT-SALE-001,"
+        "27-01-2026,27-01-2026,amazon.it,"
+        "IT,A_GEN_STANDARD,"
+        "4.91,1.08,"
+        "4.91,IT60000INV001,EUR,"
+        "REGULAR,SELLER,"
+        "0.22,SKU-001,1,"
+        "IT,IT,https://example.com/inv001,Test Product\n"
+
+        // REFUND 1 – no invoice number / URL
+        "REFUND,ORDER-TEST-001,ACT-REFUND-001,"
+        "29-01-2026,27-01-2026,amazon.it,"
+        "IT,A_GEN_STANDARD,"
+        "-2.46,-0.54,"
+        "-2.46,,EUR,"
+        "REGULAR,SELLER,"
+        "0.22,SKU-001,1,"
+        "IT,IT,,Test Product\n"
+
+        // REFUND 2 – no invoice number / URL
+        "REFUND,ORDER-TEST-001,ACT-REFUND-002,"
+        "28-01-2026,27-01-2026,amazon.it,"
+        "IT,A_GEN_STANDARD,"
+        "-2.45,-0.54,"
+        "-2.45,,EUR,"
+        "REGULAR,SELLER,"
+        "0.22,SKU-001,1,"
+        "IT,IT,,Test Product\n";
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    // Write synthetic CSV
+    const QString csvPath = tempDir.filePath("test_vat_eu.csv");
+    {
+        QFile f(csvPath);
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+        f.write(csvContent.toUtf8());
+    }
+
+    // Use a second temp dir for the importer's settings (prevents duplicate-import check)
+    QTemporaryDir importerDir;
+    QVERIFY(importerDir.isValid());
+
+    ImporterFileAmazonVatEu vatEuImporter(importerDir.path());
+    vatEuImporter.load();
+
+    auto result = QCoro::waitFor(vatEuImporter.loadReport(csvPath));
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QVERIFY(result.orderInfos);
+
+    // Two refunds must have been parsed
+    QCOMPARE(result.orderInfos->refunds.size(), 2);
+
+    // Both refunds must appear in invoicingInfos with at least one line item.
+    // Before fix: InvoicingInfo::create fails (no number/URL/items) → refundInfoCount == 0.
+    // After fix:  InvoicingInfo created with line items             → refundInfoCount == 2.
+    int refundInfoCount = 0;
+    for (const auto &inv : result.orderInfos->invoicingInfos) {
+        if (inv.shipmentOrRefundId == "ACT-REFUND-001"
+                || inv.shipmentOrRefundId == "ACT-REFUND-002") {
+            QVERIFY2(!inv.invoicingInfo.getItems().isEmpty(),
+                     qPrintable("InvoicingInfo for " + inv.shipmentOrRefundId
+                                + " must contain at least one line item"));
+            ++refundInfoCount;
+        }
+    }
+    QCOMPARE(refundInfoCount, 2);
+
+    // Full integration: record into OrderManager and verify generateInvoices can proceed.
+    QTemporaryDir managerDir;
+    QVERIFY(managerDir.isValid());
+    OrderManager manager(managerDir.path());
+
+    ActivitySource source = vatEuImporter.getActivitySource();
+    for (const auto &ship : result.orderInfos->shipments)
+        manager.recordShipmentFromSource(ship.getId(), &source, &ship, QDate(), false);
+    for (const auto &ref : result.orderInfos->refunds)
+        manager.recordShipmentFromSource(ref.getId(), &source, &ref, QDate(), false);
+    for (const auto &inv : result.orderInfos->invoicingInfos)
+        manager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
+
+    auto noInvMap = manager.get_channel_site_ShipmentAndRefundsNoInvoices(
+            QDate(2026, 1, 1), QDate(2026, 1, 31));
+    QVERIFY(!noInvMap.isNull());
+
+    checkRefundsHaveInvoicingInfo(manager, noInvMap, "ORDER-TEST-001", 2);
 }
 
 QTEST_MAIN(TestBookEntries)

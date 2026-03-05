@@ -1,4 +1,5 @@
 #include "ImporterFileAmazonVatEu.h"
+#include "orders/LineItem.h"
 #include "utils/CsvReader.h"
 #include <QFileInfo>
 #include <QDebug>
@@ -107,14 +108,16 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
 
     // Amounts
     int indTotalVat = dataRode->header.pos("TOTAL_ACTIVITY_VALUE_VAT_AMT"); // Total VAT for the line? NO, standard says TOTAL_ACTIVITY_VALUE_VAT_AMT is total VAT amount.
-    // Wait, let's double check columns. 
+    // Wait, let's double check columns.
     // PRICE_OF_ITEMS_AMT_VAT_EXCL + SHIP_CHARGE... + GIFT...
     // To simplify we might just take TOTAL_ACTIVITY_VALUE_AMT_VAT_INCL and TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL if available
     // int indTotalIncl = dataRode->header.pos("TOTAL_ACTIVITY_VALUE_AMT_VAT_INCL"); // Unused if we calculate from Excl + Vat
     int indTotalExcl = dataRode->header.pos("TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL");
-    
+    int indVatRate = dataRode->header.pos("PRICE_OF_ITEMS_VAT_RATE_PERCENT");
+
     int indInvNumber = dataRode->header.pos("VAT_INV_NUMBER");
     int indInvUrl = dataRode->header.pos("INVOICE_URL");
+    int indItemDesc = dataRode->header.contains("ITEM_DESCRIPTION") ? dataRode->header.pos("ITEM_DESCRIPTION") : -1;
 
     int indDepart = -1;
     if (dataRode->header.contains("SALE_DEPART_COUNTRY")) indDepart = dataRode->header.pos("SALE_DEPART_COUNTRY");
@@ -139,12 +142,18 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
 
     // Temporary map to aggregate items by Shipment ID (actId)
     struct TempShipment {
-        QString eventId; // Order ID (not the shipment ID)
+        QString eventId; // Activity ID (used as shipmentOrRefundId for invoicingInfos)
         QString type; // SALE or REFUND
         QList<Activity> activities;
         QString invoiceNumber;
         QString invoiceUrl;
         QDate date;
+        // Line-item data for building InvoicingInfo even when no Amazon invoice number
+        QString itemSku;
+        QString itemDescription;
+        int itemQty = 1;
+        double itemVatRate = 0.0;
+        double itemTotalTaxed = 0.0;
     };
     QMap<QString, TempShipment> shipmentMap;
 
@@ -322,58 +331,67 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         if (indInvUrl != -1) {
             ts.invoiceUrl = line.value(indInvUrl);
         }
+        // Accumulate line-item data for InvoicingInfo construction
+        if (ts.itemSku.isEmpty() && indSellerSku >= 0)
+            ts.itemSku = line.value(indSellerSku);
+        if (ts.itemDescription.isEmpty() && indItemDesc >= 0)
+            ts.itemDescription = line.value(indItemDesc);
+        if (indQty >= 0)
+            ts.itemQty = qMax(1, line.value(indQty).toInt());
+        ts.itemVatRate = line.value(indVatRate).toDouble();
+        ts.itemTotalTaxed += (amountExcl + amountVat);
     }
     
     // Convert TempShipment to Shipment/Refund
     for (auto it = shipmentMap.begin(); it != shipmentMap.end(); ++it) {
         TempShipment &ts = it.value();
-        QString eventId = ts.eventId;
-        
-        // Aggregate items for InvoicingInfo
-        // We need to create LineItems. But ImporterFileAmazonVatEu requirements were just "Activity".
-        // However, InvoicingInfo needs LineItems.
-        // Wait, AbstractImporter::OrderInfos has shipments and refunds.
-        // Shipment takes List<Activity>.
-        // InvoicingInfo takes Shipment + LineItems.
-        
-        // We didn't parse Line Item details (Title, etc) in the loop above fully (only Sku/Asin available but not mapped to Activity directly).
-        // Activity doesn't hold SKU/Title.
-        // So we need to create LineItems separately if we want InvoicingInfo.
-        // But AbstractImporterFile::loadReport returns ReturnOrderInfos which contains OrderInfos.
-        // OrderInfos contains shipments, refunds, invoicingInfos.
-        
-        // We didn't explicitly demand full LineItem details (Title), but generally good for Invoice.
-        
-        // To do this properly, we should have stored Line Item data in TempShipment.
-        // Let's assume for now we just populate Shipments/Refunds with Activities. 
-        // If InvoicingInfo is required (likely yes for "Importer"), we populate it with basic info.
-        
+        const QString &eventId = ts.eventId;
+
+        // Build a LineItem from the per-row data collected during parsing.
+        // This ensures InvoicingInfo::create() always succeeds even when there is no
+        // Amazon invoice number or URL (e.g. refunds without a VAT_INV_NUMBER).
+        QList<LineItem> items;
+        {
+            const QString itemName = ts.itemDescription.isEmpty() ? ts.itemSku : ts.itemDescription;
+            if (!itemName.isEmpty() && ts.itemTotalTaxed != 0.0 && ts.itemQty > 0) {
+                auto lineItemRes = LineItem::create(
+                    ts.itemSku, itemName,
+                    ts.itemTotalTaxed / ts.itemQty,
+                    ts.itemVatRate,
+                    ts.itemQty);
+                if (lineItemRes.ok())
+                    items.append(*lineItemRes.value);
+            }
+        }
+
+        // Pass nullopt (not empty string) so toJson() omits the "invoiceNumber" key entirely.
+        // The no-invoice SQL filter detects missing invoices via the absence of "invoiceNumber" in JSON;
+        // storing an empty string would write "invoiceNumber":"" and fool that filter.
+        std::optional<QString> optInvNumber = ts.invoiceNumber.isEmpty() ? std::nullopt : std::optional<QString>(ts.invoiceNumber);
+        std::optional<QString> optInvUrl    = ts.invoiceUrl.isEmpty()    ? std::nullopt : std::optional<QString>(ts.invoiceUrl);
+
         if (ts.type == "SALE") {
             Shipment shipment(ts.activities, "", isGroupedOrders());
             result.orderInfos->shipments.append(shipment);
-            
-            // Basic InvoicingInfo
-            auto infoRes = InvoicingInfo::create(&result.orderInfos->shipments.last(), {}, ts.invoiceNumber, ts.invoiceUrl, ts.date);
 
+            auto infoRes = InvoicingInfo::create(&result.orderInfos->shipments.last(), items, optInvNumber, optInvUrl, ts.date);
             if (infoRes.ok()) {
                 result.orderInfos->invoicingInfos.append({eventId, *infoRes.value});
             } else {
-                 QString err = infoRes.errors.isEmpty() ? "Unknown error" : infoRes.errors.first().message;
-                 qWarning() << "InvoicingInfo creation failed for SALE" << eventId << ":" << err;
+                QString err = infoRes.errors.isEmpty() ? "Unknown error" : infoRes.errors.first().message;
+                qWarning() << "InvoicingInfo creation failed for SALE" << eventId << ":" << err;
             }
 
         } else if (ts.type == "REFUND") {
             Refund refund(ts.activities, "", isGroupedOrders());
             result.orderInfos->refunds.append(refund);
-            
-             // Refunds also have InvoicingInfo? yes.
-            auto infoRes = InvoicingInfo::create(&result.orderInfos->refunds.last(), {}, ts.invoiceNumber, ts.invoiceUrl, ts.date);
 
+            auto infoRes = InvoicingInfo::create(&result.orderInfos->refunds.last(), items, optInvNumber, optInvUrl, ts.date);
             if (infoRes.ok()) {
                 result.orderInfos->invoicingInfos.append({eventId, *infoRes.value});
             } else {
-                 QString err = infoRes.errors.isEmpty() ? "Unknown error" : infoRes.errors.first().message;
-                 qWarning() << "InvoicingInfo creation failed for REFUND" << eventId << ":" << err;
+                QString err = infoRes.errors.isEmpty() ? "Unknown error" : infoRes.errors.first().message;
+                qWarning() << "InvoicingInfo creation failed for REFUND" << eventId << ":" << err;
             }
         }
     }

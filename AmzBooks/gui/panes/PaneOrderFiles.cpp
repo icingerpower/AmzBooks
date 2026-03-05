@@ -310,10 +310,10 @@ void PaneOrderFiles::importFile()
                     entries.reserve(aggregatedResult.orderInfos->shipments.size()
                                     + aggregatedResult.orderInfos->refunds.size());
                     for (const auto &shipment : aggregatedResult.orderInfos->shipments) {
-                        entries.append({shipment.getId(), &shipment, QDate(), importer->isWrongIfConflict(), false});
+                        entries.append({shipment.getActivities().first().getEventId(), &shipment, QDate(), importer->isWrongIfConflict(), false});
                     }
                     for (const auto &refund : aggregatedResult.orderInfos->refunds) {
-                        entries.append({refund.getId(), &refund, QDate(), importer->isWrongIfConflict(), importer->fixRefundDate()});
+                        entries.append({refund.getActivities().first().getEventId(), &refund, QDate(), importer->isWrongIfConflict(), importer->fixRefundDate()});
                     }
                     manager.recordShipmentsFromSource(&source, entries);
                 }

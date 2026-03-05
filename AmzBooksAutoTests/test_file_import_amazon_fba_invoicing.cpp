@@ -183,11 +183,13 @@ void TestFileImportAmazonFbaInvoicing::test_variedSituations()
         
         // Verify Counts
         // Lines: 21 data rows.
+        // Case 7 (SHIP007): empty Recipient Name AND empty Buyer E-mail -> filtered as Vine refunded order.
+        //   => 20 unique shipIds remaining.
         // Case 14 (SHIP014): 2 rows share the same Shipment ID -> merged into 1 Shipment with 2 Activities.
-        //   => 20 unique shipIds after merging.
+        //   => 19 unique shipIds after merging.
         // Case 19 (SHIP019): price=0, tax=0 -> filtered out by AbstractImporterFile (zero-total-taxed).
-        //   => 19 shipments in the result.
-        QCOMPARE(result.orderInfos->shipments.size(), 19);
+        //   => 18 shipments in the result.
+        QCOMPARE(result.orderInfos->shipments.size(), 18);
         
         // Verify specific values
         // Case 1: DE (LEJ1) -> FR
@@ -206,16 +208,14 @@ void TestFileImportAmazonFbaInvoicing::test_variedSituations()
         // Case 9: " LYS4 " -> FR if trimmed or resolved.
         // If logic fails, error returned. Since no error, it passed.
         // Check if country correct. LYS4 is FR.
-        // Index 7 (Cases 1,2,3,4,5,7,8,9)
-        auto s9 = result.orderInfos->shipments[7];
+        // Index 6 (Cases 1,2,3,4,5,6,8,9 — Case 7 filtered as Vine refund)
+        auto s9 = result.orderInfos->shipments[6];
         QCOMPARE(s9.getActivities().first().getCountryCodeFrom(), "FR");
         
         // Addresses
-        // 20 orders (Case 15 same order).
-        // result.orderInfos->orderAddresses should have 20 unique OrderIDs if I implemented map/set logic.
-        // I used `addedAddresses` set in the loop.
-        // Recount: Cases 1-5 (5), 7-14 (8), 15 (1), 16 (1), 17-20 (4). Total = 19.
-        QCOMPARE(result.orderInfos->orderAddresses.size(), 19);
+        // Case 7 is filtered before address is stored (Vine refund), so 18 unique order IDs remain.
+        // Recount: Cases 1-6 (6), 8-14 (7), 15 (1), 16 (1), 17-20 (4). Total = 19 - 1 = 18.
+        QCOMPARE(result.orderInfos->orderAddresses.size(), 18);
         
         // Check Address Case 15
         bool found15 = false;
@@ -302,11 +302,20 @@ void TestFileImportAmazonFbaInvoicing::test_realData()
         
         int idxPrice = csvData->header.pos("Item Price");
         int idxTax = csvData->header.pos("Item Tax");
-        
+        int idxCsvName = csvData->header.contains("Recipient Name") ? csvData->header.pos("Recipient Name") : -1;
+        int idxCsvEmail = -1;
+        for (const QString &col : QStringList{"Buyer E-mail", "Buyer Email", "Buyer Name"}) {
+            if (csvData->header.contains(col)) { idxCsvEmail = csvData->header.pos(col); break; }
+        }
+
         double csvTotal = 0.0;
         if (idxPrice != -1 && idxTax != -1) {
             for (const auto &line : csvData->lines) {
                  if (line.isEmpty()) continue;
+                 // Mirror importer logic: skip Vine refunded orders (empty name AND empty email)
+                 if (idxCsvName != -1 && idxCsvEmail != -1) {
+                     if (line.value(idxCsvName).isEmpty() && line.value(idxCsvEmail).isEmpty()) continue;
+                 }
                  double p = line.value(idxPrice).toDouble();
                  double t = line.value(idxTax).toDouble();
                  csvTotal += (p + t);

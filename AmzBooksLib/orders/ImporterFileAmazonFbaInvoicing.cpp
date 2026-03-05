@@ -128,16 +128,23 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
     QHash<QString, QList<Activity>> shipIdActivities;
 
     for (const auto &line : csvData->lines) {
-        if (line.isEmpty()) continue;
+        if (line.isEmpty()) {
+            continue;
+        }
         
         const QString &orderId = line.value(idxOrderId);
         const QString &shipId = line.value(idxShipId);
         if (orderId.isEmpty() || shipId.isEmpty()) {
             continue;
         }
+        const QString &name = line.value(idxName);
+        const QString &email = line.value(idxEmail);
+        if (name.isEmpty() && email.isEmpty()) { // Vine refunded order
+            continue;
+        }
 
         // Date
-        QString dateStr = line.value(idxDate);
+        const QString &dateStr = line.value(idxDate);
         QDateTime dt = QDateTime::fromString(dateStr, Qt::ISODate);
         if (!dt.isValid()) {
              ret.errorReturned = QObject::tr("Invalid date format") + ": " + dateStr;
@@ -151,7 +158,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         ::Amount amount(price + tax, tax);
         
         // FC Resolution
-        QString fc = line.value(idxFC).trimmed();
+        const QString &fc = line.value(idxFC).trimmed();
         QString originCountry;
 
         // Forward the callback to allow user to add missing FBA centers
@@ -159,8 +166,8 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         // so we can identify and add it to FbaCentersTable::_fillIfEmpty.
         originCountry = co_await fbaTable.getCountryCode(fc, callbackAddIfMissing);
 
-        QString destCountry = line.value(idxDelivCountry);
-        QString shippingCountry = originCountry; // From FC
+        const QString &destCountry = line.value(idxDelivCountry);
+        const QString &shippingCountry = originCountry; // From FC
 
         // Guess isCompany: GB->GB with 0 tax suggests domestic UK B2B;
         // EU->EU (different countries) with 0 tax suggests intra-Community B2B supply.
@@ -218,7 +225,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         // Address
         if (!addedAddresses.contains(orderId)) {
             Address addr(
-                line.value(idxName),
+                name,
                 line.value(idxAddr1),
                 line.value(idxAddr2),
                 line.value(idxAddr3),
@@ -226,7 +233,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
                 line.value(idxPostcode),
                 destCountry,
                 line.value(idxCounty),
-                line.value(idxEmail),
+                email,
                 line.value(idxPhone),
                 "", // Company
                 ""  // Vat ID

@@ -2876,7 +2876,7 @@ void TestOrderManager::test_recordShipmentsFromSource_performance()
 
     for (int i = 0; i < N; ++i) {
         auto actRes = Activity::create(
-            QString("evt%1").arg(i),   // eventId
+            QString("evt%1").arg(i),   // eventId  →  this is the order ID
             QString("act%1").arg(i),   // activityId  →  this becomes Shipment::getId()
             QString(),
             dt, dt,
@@ -2889,7 +2889,7 @@ void TestOrderManager::test_recordShipmentsFromSource_performance()
         shipments.append(QSharedPointer<Shipment>::create(QList<Activity>{*actRes.value}, "", true));
 
         OrderManager::ShipmentFromSourceEntry e;
-        e.orderId          = QString("ord%1").arg(i);
+        e.orderId          = shipments.last()->getActivities().first().getEventId(); // orderId is the eventId, not the activityId
         e.shipmentOrRefund = shipments.last().get();
         entries.append(e);
     }
