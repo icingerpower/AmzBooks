@@ -148,10 +148,11 @@ public:
     // currencyRateManager   – converts invoice prices to companyCurrency.  May be null;
     //                         conversion is silently skipped when null (see class comment
     //                         for the full set of conditions required for conversion).
-    // workingDir            – application working directory used to locate invoice CSVs
-    //                         managed by InventoryInvoicesTree (workingDir/inventory/YYYY/).
-    //                         When the inventory subdirectory does not exist the fallback
-    //                         is silently skipped.  Pass QDir() to disable invoice lookup.
+    // inventoryFilePaths    – additional purchase invoice CSV paths (e.g. from a dedicated
+    //                         inventory folder).  Appended after the sorted purchase CSVs so
+    //                         that the hasPriceFromFile guard only consults them for SKUs
+    //                         whose price was not found in any regular purchase file.
+    //                         Pass an empty list to disable the fallback lookup.
     // skuRegradedTable      – optional manual mapping from Amazon regraded SKUs to their
     //                         canonical SKUs.  Consulted as a fallback when the heuristic
     //                         (resolveSkuForPurchaseLookup) produces a canonical with no
@@ -163,7 +164,7 @@ public:
                                const QHash<int, QHash<QString, double>> &country_pricePerKiloByYear,
                                const QString &companyCurrency,
                                const CurrencyRateManager *currencyRateManager,
-                               const QDir &workingDir = QDir(),
+                               const QStringList &inventoryFilePaths = QStringList(),
                                const QString &companyCountryCode = QString(),
                                const SkuRegradedTable *skuRegradedTable = nullptr,
                                QObject *parent = nullptr);
@@ -217,7 +218,7 @@ private:
     void watchRecursive(const QString &path);
 
     QDir m_purchaseDir;
-    QDir m_workingDir;
+    QStringList m_inventoryFilePaths;
     QHash<int, QHash<QString, double>> m_country_pricePerKiloByYear;
     QString m_companyCurrency;
     QString m_companyCountryCode;

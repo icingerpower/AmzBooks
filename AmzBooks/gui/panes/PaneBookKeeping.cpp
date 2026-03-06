@@ -420,7 +420,7 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
                                                 country_pricePerKiloByYear,
                                                 companyInfo.getCurrency(),
                                                 &currencyRateManager,
-                                                workingDir,
+                                                ui->widgetPurchases->getCsvFilePathsInventory(0),
                                                 companyInfo.getCompanyCountryCode(),
                                                 nullptr);
                                                 

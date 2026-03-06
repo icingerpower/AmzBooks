@@ -144,6 +144,19 @@
    <item>
     <layout class="QHBoxLayout" name="horizontalLayout_3">
      <item>
+      <spacer name="horizontalSpacer_4">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
       <widget class="QPushButton" name="buttonRemoveRange">
        <property name="toolTip">
         <string>Display the orders between the selected range</string>
@@ -214,7 +227,7 @@
          <x>0</x>
          <y>0</y>
          <width>1512</width>
-         <height>460</height>
+         <height>438</height>
         </rect>
        </property>
        <attribute name="label">
@@ -232,7 +245,7 @@
          <x>0</x>
          <y>0</y>
          <width>1512</width>
-         <height>460</height>
+         <height>438</height>
         </rect>
        </property>
        <attribute name="label">

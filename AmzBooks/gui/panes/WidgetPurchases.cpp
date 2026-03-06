@@ -1,7 +1,5 @@
 #include "../../common/workingdirectory/WorkingDirectoryManager.h"
 
-#include "inventory/InventoryInvoicesTree.h"
-
 #include "WidgetPurchases.h"
 #include "ui_WidgetPurchases.h"
 #include "gui/dialogs/DialogEditCsvPurchases.h"
@@ -34,11 +32,11 @@ QString                          WidgetPurchases::s_importPriceTableDir;
 
 // ── Construction / destruction ────────────────────────────────────────────────
 
-WidgetPurchases::WidgetPurchases(QWidget *parent) :
+ WidgetPurchases::WidgetPurchases(QWidget *parent) :
     QWidget(parent),
     ui(new Ui::WidgetPurchases),
-    m_invoicesTree(nullptr),
-    m_fileModel(new QFileSystemModel(this))
+    m_fileModel(new QFileSystemModel(this)),
+    m_fileModelInventory(new QFileSystemModel(this))
 {
     ui->setupUi(this);
 
@@ -50,7 +48,15 @@ WidgetPurchases::WidgetPurchases(QWidget *parent) :
     ui->treeViewCsvFiles->setIndentation(20);
     ui->treeViewCsvFiles->setSortingEnabled(true);
 
-    // Load saved folder
+    m_fileModelInventory->setNameFilters(QStringList() << "*.csv" << "*.CSV");
+    m_fileModelInventory->setNameFilterDisables(false);
+
+    ui->treeViewInventoryCsvFiles->setModel(m_fileModelInventory);
+    ui->treeViewInventoryCsvFiles->setAnimated(false);
+    ui->treeViewInventoryCsvFiles->setIndentation(20);
+    ui->treeViewInventoryCsvFiles->setSortingEnabled(true);
+
+    // Load saved folders
     QSettings settings;
     m_currentDir = settings.value("purchases/lastFolder").toString();
 
@@ -61,10 +67,16 @@ WidgetPurchases::WidgetPurchases(QWidget *parent) :
         ui->treeViewCsvFiles->setModel(nullptr);
     }
 
+    m_inventoryDir = settings.value("purchases/lastInventoryFolder").toString();
+
+    if (!m_inventoryDir.isEmpty() && QDir(m_inventoryDir).exists()) {
+        onInventoryFolderChanged(m_inventoryDir);
+    } else {
+        m_inventoryDir.clear();
+        ui->treeViewInventoryCsvFiles->setModel(nullptr);
+    }
+
     QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
-    m_invoicesTree = new InventoryInvoicesTree(workingDir, this);
-    ui->treeViewExtraPurchases->setModel(m_invoicesTree);
-    ui->treeViewExtraPurchases->setHeaderHidden(true);
 
     // ── Shared ImportPriceTable ───────────────────────────────────────────────
     // All WidgetPurchases instances share one model. Re-create it only when
@@ -109,16 +121,8 @@ WidgetPurchases::~WidgetPurchases()
 
 void WidgetPurchases::_connectSlots()
 {
-    connect(ui->buttonAddPurchase,
-            &QPushButton::clicked,
-            this,
-            &WidgetPurchases::addExtraPurchase);
-    connect(ui->buttonRemovePurchase,
-            &QPushButton::clicked,
-            this,
-            &WidgetPurchases::removeExtraPurchase);
-
     connect(ui->buttonSelectFolder, &QPushButton::clicked, this, &WidgetPurchases::selectFolder);
+    connect(ui->buttonSelectInventoryFolder, &QPushButton::clicked, this, &WidgetPurchases::selectInventoryFolder);
     connect(ui->buttonEditCsv, &QPushButton::clicked, this, &WidgetPurchases::editColumns);
     connect(ui->pushButton, &QPushButton::clicked, this, &WidgetPurchases::checkFiles);
 
@@ -162,41 +166,6 @@ void WidgetPurchases::_refreshShippingSpinBoxes()
     ui->spinBoxShippingJP->setValue(s_importPriceTable->getShippingPrice(year, "JP"));
 }
 
-void WidgetPurchases::addExtraPurchase()
-{
-    QSettings settings;
-    QString lastDir = settings.value("inventory/lastExtraPurchaseDir", QDir::homePath()).toString();
-
-    QString filePath = QFileDialog::getOpenFileName(this,
-                                                    tr("Select Invoice"),
-                                                    lastDir,
-                                                    tr("CSV Files (*.csv *.CSV)"));
-
-    if (filePath.isEmpty()) {
-        return;
-    }
-
-    settings.setValue("inventory/lastExtraPurchaseDir", QFileInfo(filePath).absolutePath());
-
-    m_invoicesTree->addFile(filePath);
-}
-
-void WidgetPurchases::removeExtraPurchase()
-{
-    QModelIndex index = ui->treeViewExtraPurchases->currentIndex();
-    if (!index.isValid()) {
-         QMessageBox::warning(this, tr("No Selection"), tr("Please select a file to remove."));
-         return;
-    }
-
-    if (m_invoicesTree->data(index, Qt::UserRole).toString().isEmpty()) {
-        QMessageBox::warning(this, tr("Remove"), tr("Please select a valid file item."));
-        return;
-    }
-
-    m_invoicesTree->removeFile(index);
-}
-
 void WidgetPurchases::selectFolder()
 {
     QString dir = QFileDialog::getExistingDirectory(this, tr("Select Purchase Folder"),
@@ -210,13 +179,37 @@ void WidgetPurchases::selectFolder()
     }
 }
 
+void WidgetPurchases::selectInventoryFolder()
+{
+    QString dir = QFileDialog::getExistingDirectory(this, tr("Select Inventory Folder"),
+                                                    m_inventoryDir,
+                                                    QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
+    if (!dir.isEmpty()) {
+        onInventoryFolderChanged(dir);
+
+        QSettings settings;
+        settings.setValue("purchases/lastInventoryFolder", m_inventoryDir);
+    }
+}
+
 void WidgetPurchases::onFolderChanged(const QString &path)
 {
     m_currentDir = path;
     ui->lineEditPurchaseFolder->setText(m_currentDir);
 
+    ui->treeViewCsvFiles->setModel(m_fileModel);
     m_fileModel->setRootPath(m_currentDir);
     ui->treeViewCsvFiles->setRootIndex(m_fileModel->index(m_currentDir));
+}
+
+void WidgetPurchases::onInventoryFolderChanged(const QString &path)
+{
+    m_inventoryDir = path;
+    ui->lineEditInventoryFolder->setText(m_inventoryDir);
+
+    ui->treeViewInventoryCsvFiles->setModel(m_fileModelInventory);
+    m_fileModelInventory->setRootPath(m_inventoryDir);
+    ui->treeViewInventoryCsvFiles->setRootIndex(m_fileModelInventory->index(m_inventoryDir));
 }
 
 void WidgetPurchases::editColumns()
@@ -225,8 +218,6 @@ void WidgetPurchases::editColumns()
                 WorkingDirectoryManager::instance()->workingDir(), this);
     dialog.exec();
 }
-
-#include <QDirIterator>
 
 void WidgetPurchases::checkFiles()
 {
@@ -318,6 +309,31 @@ QStringList WidgetPurchases::getCsvFilePaths() const
     QDirIterator it(m_currentDir, QStringList() << "*.csv" << "*.CSV", QDir::Files, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         absolutePaths << it.next();
+    }
+
+    std::sort(absolutePaths.begin(), absolutePaths.end(), std::greater<QString>());
+
+    return absolutePaths;
+}
+
+QStringList WidgetPurchases::getCsvFilePathsInventory(int year) const
+{
+    if (m_inventoryDir.isEmpty()) return QStringList();
+
+    QStringList absolutePaths;
+    QDirIterator it(m_inventoryDir, QStringList() << "*.csv" << "*.CSV", QDir::Files, QDirIterator::Subdirectories);
+    while (it.hasNext()) {
+        absolutePaths << it.next();
+    }
+
+    if (year > 0) {
+        const QString yearPrefix = QString::number(year) + "-";
+        absolutePaths.erase(
+            std::remove_if(absolutePaths.begin(), absolutePaths.end(),
+                [&yearPrefix](const QString &path) {
+                    return !QFileInfo(path).fileName().startsWith(yearPrefix);
+                }),
+            absolutePaths.end());
     }
 
     std::sort(absolutePaths.begin(), absolutePaths.end(), std::greater<QString>());

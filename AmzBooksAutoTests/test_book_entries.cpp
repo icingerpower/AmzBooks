@@ -4421,7 +4421,7 @@ static InventoryMoveTree *makeInventoryTree(
                                  {{0, {{"", 0.0}}}},       // no shipping cost
                                  companyCurrency,
                                  nullptr,            // no currency rate manager needed (EUR=EUR)
-                                 QDir(),             // no invoice lookup
+                                 QStringList(),      // no invoice lookup
                                  companyCountry,
                                  nullptr);           // no regraded SKU table
 }

@@ -1,5 +1,4 @@
 #include "InventoryTable.h"
-#include "InventoryInvoicesTree.h"
 #include "PurchaseCsvLoader.h"
 #include "books/CompanyInfosTable.h"
 #include "CurrencyRateManager.h"
@@ -12,13 +11,14 @@
 #include <QFile>
 #include <QTextStream>
 
-InventoryTable::InventoryTable(const QDir &workingDir, 
-                               const QDir &purchasesDir, 
-                               const QDir &amzLedgerDir, 
-                               int year, 
-                               const QHash<QString, double> &country_pricePerKilo, 
-                               CompanyInfosTable *companyInfos, 
-                               CurrencyRateManager *currencyRateManager, 
+InventoryTable::InventoryTable(const QDir &workingDir,
+                               const QDir &purchasesDir,
+                               const QDir &amzLedgerDir,
+                               int year,
+                               const QHash<QString, double> &country_pricePerKilo,
+                               CompanyInfosTable *companyInfos,
+                               CurrencyRateManager *currencyRateManager,
+                               const QStringList &inventoryFilePaths,
                                QObject *parent)
     : QAbstractTableModel(parent)
     , m_workingDir(workingDir)
@@ -28,7 +28,7 @@ InventoryTable::InventoryTable(const QDir &workingDir,
     , m_country_pricePerKilo(country_pricePerKilo)
     , m_companyInfos(companyInfos)
     , m_currencRateManager(currencyRateManager)
-    , m_invoicesTree(new InventoryInvoicesTree(m_workingDir, this))
+    , m_inventoryFilePaths(inventoryFilePaths)
 {
 }
 
@@ -41,7 +41,7 @@ void InventoryTable::load()
     beginResetModel();
     m_items.clear();
     
-    // 1. Load Stock from Ledger + Manual Invoices (InventoryInvoicesTree)
+    // 1. Load Stock from Ledger + Manual Invoices
     QHash<QString, SkuStockInfo> skuStock;
     loadInventoryFromLedger(skuStock);
     
@@ -138,15 +138,12 @@ void InventoryTable::loadInventoryFromLedger(QHash<QString, SkuStockInfo> &skuSt
         }
     }
     
-    // B. Parse Manual Invoices from InventoryInvoicesTree
-    // "Inventory is what's in amazon ... + CSV invoices added in InventoryInvoicesTree"
-    // "Usually the inventory not delivered yet"
+    // B. Parse Manual Invoices from inventoryFilePaths (purchase invoices not yet delivered).
     // These are CSV invoices. They contain Purchases (Qty).
     // We treat them as Stock that is NOT in Amazon yet (so location is likely Default or Transit?).
     // We add them to TotalQty.
-    // InventoryInvoicesTree now is a Model. We use getCsvInvoices(m_year).
-    
-    QStringList manualFiles = m_invoicesTree->getCsvInvoices(m_year);
+
+    const QStringList manualFiles = m_inventoryFilePaths;
     PurchaseFileSettingsTree settingsTree(m_workingDir);
     
     for (const QString &filePath : manualFiles) {
@@ -193,10 +190,9 @@ void InventoryTable::loadPurchases(QHash<QString, QList<PurchaseBatch>> &skuPurc
     while (it.hasNext())
         allFiles << it.next();
 
-    // Add invoice files for the current year BEFORE sorting so they are ordered
-    // alongside the regular purchase CSVs for correct FIFO date sequencing.
-    const QStringList manualFiles = m_invoicesTree->getCsvInvoices(m_year);
-    allFiles << manualFiles;
+    // Add invoice files BEFORE sorting so they are ordered alongside the
+    // regular purchase CSVs for correct FIFO date sequencing.
+    allFiles << m_inventoryFilePaths;
 
     // Sort newest-first by bare filename (YYYY-MM-DD__ prefix).
     std::sort(allFiles.begin(), allFiles.end(), [](const QString &a, const QString &b) {

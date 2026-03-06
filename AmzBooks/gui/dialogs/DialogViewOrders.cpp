@@ -117,7 +117,7 @@ DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfo
                 pricePerKiloByYear,
                 destCurrency,
                 currencyRateManager,
-                workingDir,
+                ui->widgetPurchases->getCsvFilePathsInventory(0),
                 companyCountryCode,
                 nullptr,
                 this);

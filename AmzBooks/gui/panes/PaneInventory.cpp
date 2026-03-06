@@ -87,13 +87,14 @@ void PaneInventory::computeInventory()
         delete m_inventoryTable;
     }
     
-    m_inventoryTable = new InventoryTable(workingDir, 
-                                     purchasesDir, 
-                                     amzLedgerDir, 
-                                     year, 
-                                     prices, 
-                                     m_companyInfos, 
-                                     m_currRateManager, 
+    m_inventoryTable = new InventoryTable(workingDir,
+                                     purchasesDir,
+                                     amzLedgerDir,
+                                     year,
+                                     prices,
+                                     m_companyInfos,
+                                     m_currRateManager,
+                                     ui->widgetPurchaseExtraPurchases->getCsvFilePathsInventory(year),
                                      this); // Parent this
                                      
     setCursor(Qt::WaitCursor);

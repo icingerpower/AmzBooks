@@ -1,6 +1,5 @@
 #include "InventoryMoveTree.h"
 #include "InventoryMoveTreeItem.h"
-#include "InventoryInvoicesTree.h"
 #include "PurchaseCsvLoader.h"
 #include "books/CompanyInfosTable.h"
 #include "books/SkuRegradedTable.h"
@@ -61,13 +60,13 @@ InventoryMoveTree::InventoryMoveTree(const QDir &purchaseDir,
                                      const QHash<int, QHash<QString, double>> &country_pricePerKiloByYear,
                                      const QString &companyCurrency,
                                      const CurrencyRateManager *currencyRateManager,
-                                     const QDir &workingDir,
+                                     const QStringList &inventoryFilePaths,
                                      const QString &companyCountryCode,
                                      const SkuRegradedTable *skuRegradedTable,
                                      QObject *parent)
     : QAbstractItemModel(parent)
     , m_purchaseDir(purchaseDir)
-    , m_workingDir(workingDir)
+    , m_inventoryFilePaths(inventoryFilePaths)
     , m_country_pricePerKiloByYear(country_pricePerKiloByYear)
     , m_companyCurrency(companyCurrency)
     , m_companyCountryCode(companyCountryCode)
@@ -346,23 +345,10 @@ void InventoryMoveTree::loadPurchaseData(QHash<QString, PurchaseInfo> &purchaseD
         return QFileInfo(a).fileName() > QFileInfo(b).fileName();
     });
 
-    // Append invoice fallback files (all years) AFTER the sorted purchase CSVs.
+    // Append inventory invoice fallback files AFTER the sorted purchase CSVs.
     // The hasPriceFromFile guard ensures they are only consulted for SKUs whose
     // price was not found in any regular purchase file.
-    {
-        QDir invDir(m_workingDir.absoluteFilePath(QStringLiteral("inventory")));
-        if (invDir.exists()) {
-            InventoryInvoicesTree invoicesTree(m_workingDir);
-            const QFileInfoList yearDirs =
-                    invDir.entryInfoList(QDir::Dirs | QDir::NoDotAndDotDot);
-            for (const QFileInfo &yearFi : yearDirs) {
-                bool ok;
-                int year = yearFi.fileName().toInt(&ok);
-                if (ok)
-                    allFiles << invoicesTree.getCsvInvoices(year);
-            }
-        }
-    }
+    allFiles << m_inventoryFilePaths;
 
     // Parse all files via the shared loader.  Currency conversion is applied
     // inside parseFiles so unitPrice is already in companyCurrency.

@@ -6,22 +6,23 @@
 #include <QHash>
 #include <QDate>
 #include <QList>
+#include <QStringList>
 
 class CompanyInfosTable;
 class CurrencyRateManager;
-class InventoryInvoicesTree;
 
 class InventoryTable : public QAbstractTableModel
 {
     Q_OBJECT
 public:
-    explicit InventoryTable(const QDir &workingDir, 
-                            const QDir &purchasesDir, 
-                            const QDir &amzLedgerDir, 
-                            int year, 
-                            const QHash<QString, double> &country_pricePerKilo, 
-                            CompanyInfosTable *companyInfos, 
-                            CurrencyRateManager *currencyRateManager, 
+    explicit InventoryTable(const QDir &workingDir,
+                            const QDir &purchasesDir,
+                            const QDir &amzLedgerDir,
+                            int year,
+                            const QHash<QString, double> &country_pricePerKilo,
+                            CompanyInfosTable *companyInfos,
+                            CurrencyRateManager *currencyRateManager,
+                            const QStringList &inventoryFilePaths = QStringList(),
                             QObject *parent = nullptr);
     ~InventoryTable() override;
 
@@ -58,7 +59,7 @@ private:
     CompanyInfosTable *m_companyInfos;
     CurrencyRateManager *m_currencRateManager;
     
-    InventoryInvoicesTree *m_invoicesTree;
+    QStringList m_inventoryFilePaths;
 
     struct InventoryItem {
         QString sku;

@@ -148,35 +148,9 @@
        <item>
         <layout class="QHBoxLayout" name="horizontalLayout_2">
          <item>
-          <widget class="QLabel" name="label_6">
+          <widget class="QPushButton" name="buttonSelectInventoryFolder">
            <property name="text">
-            <string>Undelivered purchase invoices</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="buttonAddPurchase">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>Add</string>
-           </property>
-          </widget>
-         </item>
-         <item>
-          <widget class="QPushButton" name="buttonRemovePurchase">
-           <property name="sizePolicy">
-            <sizepolicy hsizetype="Preferred" vsizetype="Fixed">
-             <horstretch>0</horstretch>
-             <verstretch>0</verstretch>
-            </sizepolicy>
-           </property>
-           <property name="text">
-            <string>Remove</string>
+            <string>Select inventory folder</string>
            </property>
           </widget>
          </item>
@@ -196,7 +170,17 @@
         </layout>
        </item>
        <item>
-        <widget class="QTreeView" name="treeViewExtraPurchases"/>
+        <widget class="QLineEdit" name="lineEditInventoryFolder"/>
+       </item>
+       <item>
+        <widget class="QTreeView" name="treeViewInventoryCsvFiles">
+         <property name="sizePolicy">
+          <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+           <horstretch>0</horstretch>
+           <verstretch>0</verstretch>
+          </sizepolicy>
+         </property>
+        </widget>
        </item>
       </layout>
      </widget>

@@ -466,7 +466,7 @@ void PaneOrders::_loadInventoryMoveTree(const QDate &dateStart, const QDate &dat
             pricePerKiloByYear,
             m_companyInfos->getCurrency(),
             m_currRateManager,
-            workingDir,
+            ui->widgetPurchases->getCsvFilePathsInventory(0),
             m_companyInfos->getCompanyCountryCode(),
             m_skuRegradedTable,
             this);

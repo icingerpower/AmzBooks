@@ -6,7 +6,6 @@
 #include <QSharedPointer>
 
 class ImportPriceTable;
-class InventoryInvoicesTree;
 
 namespace Ui {
 class WidgetPurchases;
@@ -31,6 +30,10 @@ public:
     QStringList getCsvFilePaths() const;
     QDir        getPurchaseDir() const;
 
+    /** Returns CSV file paths from the inventory folder, optionally filtered by
+     *  year (files whose name starts with "YYYY-"). Pass 0 to return all files. */
+    QStringList getCsvFilePathsInventory(int year) const;
+
     /** Returns the shipping price for the given year and country code (delegates to the
      *  shared ImportPriceTable). Falls back to the Default price when the
      *  country is not found. */
@@ -38,23 +41,23 @@ public:
 
 private slots:
     void selectFolder();
+    void selectInventoryFolder();
     void editColumns();
     void checkFiles();
     void onFolderChanged(const QString &path);
+    void onInventoryFolderChanged(const QString &path);
     void _connectSlots();
 
     /** Reads current prices from the shared model and updates the spin boxes
      *  without triggering further model writes (signals are blocked). */
     void _refreshShippingSpinBoxes();
 
-    void addExtraPurchase();
-    void removeExtraPurchase();
-
 private:
     Ui::WidgetPurchases *ui;
     QFileSystemModel    *m_fileModel;
+    QFileSystemModel    *m_fileModelInventory;
     QString              m_currentDir;
-    InventoryInvoicesTree *m_invoicesTree;
+    QString              m_inventoryDir;
 
     /** Shared across all WidgetPurchases instances in the process.
      *  Created (or re-created when the working directory changes) the first

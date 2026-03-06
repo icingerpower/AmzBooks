@@ -139,7 +139,7 @@ InventoryMoveTree *TestInventoryMove::makeTree(
     }
     return new InventoryMoveTree(m_purchasesDir, imported, exported,
                                  pricePerKiloByYear, companyCurrency, rates,
-                                 QDir(), QString(), skuRegradedTable, this);
+                                 QStringList(), QString(), skuRegradedTable, this);
 }
 
 int TestInventoryMove::findParentRow(InventoryMoveTree &model,
@@ -695,7 +695,7 @@ void TestInventoryMove::test_shipping_cost()
     exported[QStringLiteral("FR")][QStringLiteral("SKU_S1")] = 3;
     QHash<int, QHash<QString, double>> ppkByYear;
     ppkByYear[0] = ppk;
-    InventoryMoveTree model2(m_purchasesDir, {}, exported, ppkByYear, QString(), nullptr, QDir(), QString(), nullptr, this);
+    InventoryMoveTree model2(m_purchasesDir, {}, exported, ppkByYear, QString(), nullptr, QStringList(), QString(), nullptr, this);
     int expRow = findParentRow(model2, QStringLiteral("FR"), QStringLiteral("EU"));
     QVERIFY(expRow != -1);
     int cS1exp = findChildRow(model2, expRow, QStringLiteral("SKU_S1"));
@@ -878,7 +878,7 @@ void TestInventoryMove::test_sort()
     exported[QStringLiteral("DE")][QStringLiteral("SKU_SORT2")] = 30;
     exported[QStringLiteral("GB")][QStringLiteral("SKU_SORT3")] = 20;
 
-    InventoryMoveTree model(m_purchasesDir, {}, exported, {}, QString(), nullptr, QDir(), QString(), nullptr, this);
+    InventoryMoveTree model(m_purchasesDir, {}, exported, {}, QString(), nullptr, QStringList(), QString(), nullptr, this);
 
     // [1] 3 parent rows exist before sorting
     QCOMPARE(model.rowCount(), 3);
@@ -1115,7 +1115,7 @@ void TestInventoryMove::test_dialog_view_orders_currency()
     imported[QStringLiteral("SK")][QStringLiteral("SKU_DLG")] = 2;
 
     // DialogViewOrders now passes destCurrency directly (no CompanyInfosTable needed).
-    InventoryMoveTree model(m_purchasesDir, imported, {}, {}, QStringLiteral("EUR"), &rates, QDir(), QString(), nullptr, this);
+    InventoryMoveTree model(m_purchasesDir, imported, {}, {}, QStringLiteral("EUR"), &rates, QStringList(), QString(), nullptr, this);
 
     int pRow = findParentRow(model, QStringLiteral("EU"), QStringLiteral("SK"));
     QVERIFY(pRow != -1);
@@ -1424,7 +1424,7 @@ void TestInventoryMove::test_csv_loader_purchase_date_rate()
 
     InventoryMoveTree *model = new InventoryMoveTree(
             dateTestPurchases, imported, {},
-            {}, QStringLiteral("EUR"), &rates, QDir(), QString(), nullptr, this);
+            {}, QStringLiteral("EUR"), &rates, QStringList(), QString(), nullptr, this);
 
     const int pRow = findParentRow(*model, QStringLiteral("EU"), QStringLiteral("FR"));
     QVERIFY(pRow != -1);
