@@ -453,8 +453,10 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         qDebug() << "[PaneBookKeeping] Saved successfully.";
         QMessageBox::information(this, tr("Success"), tr("Bookkeeping generated successfully in %1").arg(outDir.absolutePath()));
 
-        // Check if there are orders without invoices in the period
-        auto noInvoicesList = m_orderManager->getShipmentAndRefundsNoInvoices(from, to);
+        // Check if there are orders without invoices in the period.
+        // Start one year earlier so that refunds arriving in the current year for
+        // sales from the previous year are included in the check.
+        auto noInvoicesList = m_orderManager->getShipmentAndRefundsNoInvoices(from.addYears(-1), to);
         if (noInvoicesList && !noInvoicesList->isEmpty()) {
             int count = 0;
             for (const auto &entry : *noInvoicesList) {
@@ -498,8 +500,10 @@ void PaneBookKeeping::generateInvoices()
     QDate from(year, 1, 1);
     QDate to(year, 12, 31);
 
-    // 3. Retrieve orders without invoices for the period
-    auto noInvoicesMap = m_orderManager->get_channel_site_ShipmentAndRefundsNoInvoices(from, to);
+    // 3. Retrieve orders without invoices for the period.
+    // Start one year earlier so that refunds arriving in the current year for sales
+    // from the previous year are not missed.
+    auto noInvoicesMap = m_orderManager->get_channel_site_ShipmentAndRefundsNoInvoices(from.addYears(-1), to);
     if (!noInvoicesMap || noInvoicesMap->isEmpty()) {
         QMessageBox::information(this, tr("No Invoices to Generate"),
             tr("All orders for %1 already have invoices.").arg(year));
@@ -573,9 +577,13 @@ void PaneBookKeeping::generateInvoices()
                         shipmentIds.append(QString());
                 }
 
-                // Generate invoice numbers for all shipments/refunds in this group
+                // Generate invoice numbers for all shipments/refunds in this group.
+                // Pass m_orderManager so that refunds whose sale invoice was imported
+                // externally (e.g. Amazon FBA invoicing) receive -R01/-R02 suffixes
+                // relative to the existing sale invoice rather than new base numbers.
                 QStringList invoiceNumbers = generator.getNextInvoiceNumbers(
-                    date, taxContext, channel, store, entry.invoicesToDo, existingNumber, shipmentIds);
+                    date, taxContext, channel, store, entry.invoicesToDo, existingNumber, shipmentIds,
+                    m_orderManager);
 
                 // Fallback address when none is recorded (e.g. manual service sales)
                 const Address emptyAddr("", "", "", "", "", "", "", "", "", "", "", "");
@@ -636,8 +644,14 @@ void PaneBookKeeping::generateInvoices()
                     }
 
                     try {
+                        // Pass activityId (shipment root ID) as the recording key so that
+                        // invoicing info is stored under the shipment root, not the Amazon
+                        // order ID. This ensures Phase-2 lookups in
+                        // get_channel_site_ShipmentAndRefundsNoInvoices find the invoice
+                        // via JOIN on COALESCE(root_id, id) = shipment_root_id.
                         generator.generateInvoice(invoiceNumber, prevNumber, pdfPath,
-                                                   addressTo, *info, orderId, *m_orderManager);
+                                                   addressTo, *info, orderId, *m_orderManager,
+                                                   QDate(), activityId);
                         generated++;
                     } catch (const std::exception &ex) {
                         qWarning() << "[generateInvoices] Failed for" << orderId << ":" << ex.what();

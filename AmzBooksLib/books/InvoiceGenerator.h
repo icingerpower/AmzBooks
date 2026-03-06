@@ -47,7 +47,12 @@ public:
         const QString &store,
         const QList<bool> &invoicesToDo,
         const std::optional<QString> &existingInvoiceNumber,
-        const QStringList &shipmentIds);
+        const QStringList &shipmentIds,
+        const OrderManager *orderManager = nullptr); // When provided, discovers sale invoices
+                                                     // stored in OrderManager but not yet in
+                                                     // this generator's own registry, so that
+                                                     // refunds for those orders receive -Rxx
+                                                     // suffixes instead of new base numbers.
 
     void generateInvoice(
         const QString &invoiceNumber,
@@ -57,7 +62,12 @@ public:
         const InvoicingInfo &invoicingInfo,
         const QString &orderId,
         OrderManager &orderManager,
-        const QDate &invoiceDate = QDate()); // Empty = use current date
+        const QDate &invoiceDate = QDate(),
+        const QString &shipmentId = QString()); // When provided, invoicing info is recorded
+                                               // under shipmentId instead of orderId, so that
+                                               // subsequent lookups via the shipment root ID
+                                               // work correctly (avoids writing under the
+                                               // Amazon order ID which is not a shipment root).
 
     // Regenerate PDFs for all invoice records whose date falls within [dateFrom, dateTo].
     // Retrieves InvoicingInfo and address from orderManager via the stored shipmentId.

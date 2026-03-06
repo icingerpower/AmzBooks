@@ -32,6 +32,8 @@ public slots:
     void displayNoPriceSkus();
     void editRegradedSkus();
     void exportReports();
+    void removeDateRange();
+    void removeCreatedAfter();
 
 private:
     Ui::PaneOrders *ui;

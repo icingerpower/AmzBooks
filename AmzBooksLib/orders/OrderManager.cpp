@@ -665,7 +665,7 @@ void OrderManager::removeOrder(const QString &orderId)
     m_db.commit();
 }
 
-void OrderManager::removeShipmenOrRefund(const QString &shipmentOrRefundId)
+void OrderManager::removeShipmentOrRefund(const QString &shipmentOrRefundId)
 {
     // 1. Resolve Root ID, Order ID, and verify status
     QString rootId;
@@ -724,6 +724,120 @@ void OrderManager::removeShipmenOrRefund(const QString &shipmentOrRefundId)
         
         m_db.commit();
     }
+}
+
+void OrderManager::removeShipmentsRefunds(const QDate &dateFrom, const QDate &dateTo)
+{
+    m_db.transaction();
+
+    // Find all root_ids in the given date range that DO NOT have any 'Published' revision
+    QStringList safeRootIds;
+    {
+        QSqlQuery q(m_db);
+        q.prepare("SELECT DISTINCT COALESCE(root_id, id) FROM shipments "
+                  "WHERE event_date >= ? AND event_date <= ? "
+                  "EXCEPT "
+                  "SELECT DISTINCT COALESCE(root_id, id) FROM shipments "
+                  "WHERE status = 'Published'");
+        q.addBindValue(dateFrom.toString(Qt::ISODate));
+        // Using "..." to cover the whole day correctly compared to ISO date-time strings
+        q.addBindValue(dateTo.toString(Qt::ISODate) + "T23:59:59");
+        if (q.exec()) {
+            while (q.next()) {
+                safeRootIds.append(q.value(0).toString());
+            }
+        }
+    }
+
+    if (!safeRootIds.isEmpty()) {
+        const int batchSize = 500;
+        for (int i = 0; i < safeRootIds.size(); i += batchSize) {
+            QStringList batch = safeRootIds.mid(i, batchSize);
+            QString placeholders = QString("?,").repeated(batch.size());
+            placeholders.chop(1);
+
+            // Delete Invoicing Infos
+            {
+                QSqlQuery qDelInv(m_db);
+                qDelInv.prepare(QString("DELETE FROM invoicing_infos WHERE shipment_root_id IN (%1)").arg(placeholders));
+                for (const QString &rid : batch) qDelInv.addBindValue(rid);
+                qDelInv.exec();
+            }
+
+            // Delete Shipments
+            {
+                QSqlQuery qDelShip(m_db);
+                qDelShip.prepare(QString("DELETE FROM shipments WHERE root_id IN (%1) OR id IN (%1)").arg(placeholders));
+                for (const QString &rid : batch) qDelShip.addBindValue(rid);
+                for (const QString &rid : batch) qDelShip.addBindValue(rid);
+                qDelShip.exec();
+            }
+        }
+
+        // Clean up orphaned orders
+        {
+            QSqlQuery qCleanOrd(m_db);
+            qCleanOrd.exec("DELETE FROM orders WHERE id NOT IN (SELECT DISTINCT order_id FROM shipments)");
+        }
+    }
+
+    m_db.commit();
+}
+
+void OrderManager::removeShipmentsRefunds(const QDate &dateFromCreated)
+{
+    m_db.transaction();
+
+    // Find all root_ids inserted >= dateFromCreated that DO NOT have any 'Published' revision
+    QStringList safeRootIds;
+    {
+        QSqlQuery q(m_db);
+        q.prepare("SELECT DISTINCT COALESCE(root_id, id) FROM shipments "
+                  "WHERE inserted_at >= ? "
+                  "EXCEPT "
+                  "SELECT DISTINCT COALESCE(root_id, id) FROM shipments "
+                  "WHERE status = 'Published'");
+        q.addBindValue(dateFromCreated.toString(Qt::ISODate));
+        if (q.exec()) {
+            while (q.next()) {
+                safeRootIds.append(q.value(0).toString());
+            }
+        }
+    }
+
+    if (!safeRootIds.isEmpty()) {
+        const int batchSize = 500;
+        for (int i = 0; i < safeRootIds.size(); i += batchSize) {
+            QStringList batch = safeRootIds.mid(i, batchSize);
+            QString placeholders = QString("?,").repeated(batch.size());
+            placeholders.chop(1);
+
+            // Delete Invoicing Infos
+            {
+                QSqlQuery qDelInv(m_db);
+                qDelInv.prepare(QString("DELETE FROM invoicing_infos WHERE shipment_root_id IN (%1)").arg(placeholders));
+                for (const QString &rid : batch) qDelInv.addBindValue(rid);
+                qDelInv.exec();
+            }
+
+            // Delete Shipments
+            {
+                QSqlQuery qDelShip(m_db);
+                qDelShip.prepare(QString("DELETE FROM shipments WHERE root_id IN (%1) OR id IN (%1)").arg(placeholders));
+                for (const QString &rid : batch) qDelShip.addBindValue(rid);
+                for (const QString &rid : batch) qDelShip.addBindValue(rid);
+                qDelShip.exec();
+            }
+        }
+
+        // Clean up orphaned orders
+        {
+            QSqlQuery qCleanOrd(m_db);
+            qCleanOrd.exec("DELETE FROM orders WHERE id NOT IN (SELECT DISTINCT order_id FROM shipments)");
+        }
+    }
+
+    m_db.commit();
 }
 
 void OrderManager::recordAddressesTo(const QHash<QString, Address> &orderId_addressTo)
@@ -1222,15 +1336,47 @@ QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfo(const QString &ship
         }
     }
     
-    // 2. Retrieve Data
+    // 2. Retrieve Data by root shipment ID
     QSqlQuery q(m_db);
     q.prepare("SELECT json FROM invoicing_infos WHERE shipment_root_id = ?");
     q.addBindValue(rootId);
     if (q.exec() && q.next()) {
-        QJsonObject json = QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
-        return QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(json));
+        // Guard: verify that rootId is not being used as an Amazon order ID.
+        // If there are shipments whose order_id equals rootId, then rootId is an
+        // Amazon order ID (not a proper shipment root).  In that case, the entry
+        // was written under the wrong key by a previous broken run of generateInvoice
+        // (which used getEventId() instead of getActivityId() for recordInvoicingInfo).
+        // Fall through to the order-level fallback to find the correct entry.
+        QSqlQuery guardQ(m_db);
+        guardQ.prepare("SELECT 1 FROM shipments WHERE order_id = ? LIMIT 1");
+        guardQ.addBindValue(rootId);
+        if (!(guardQ.exec() && guardQ.next())) {
+            // rootId is a proper shipment root — use this entry
+            QJsonObject json = QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
+            return QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(json));
+        }
+        // else: rootId looks like an Amazon order ID → fall through to order-level fallback
     }
-    
+
+    // 3. Order-level fallback: shipmentId may be an Amazon order ID (not a shipment ID).
+    // Find the invoice for any shipment belonging to this order (earliest event_date first,
+    // so the original sale is preferred over refunds).
+    {
+        QSqlQuery qOrder(m_db);
+        qOrder.prepare(
+            "SELECT inv.json FROM invoicing_infos inv "
+            "JOIN shipments s ON COALESCE(s.root_id, s.id) = inv.shipment_root_id "
+            "WHERE s.order_id = ? "
+            "AND inv.json LIKE '%\"invoiceNumber\":%' "
+            "AND inv.json NOT LIKE '%\"invoiceNumber\":null%' "
+            "ORDER BY s.event_date ASC LIMIT 1");
+        qOrder.addBindValue(shipmentId);
+        if (qOrder.exec() && qOrder.next()) {
+            QJsonObject json = QJsonDocument::fromJson(qOrder.value(0).toString().toUtf8()).object();
+            return QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(json));
+        }
+    }
+
     // Return empty pointer if not found
     return nullptr;
 }
@@ -1954,10 +2100,12 @@ OrderManager::get_channel_site_ShipmentAndRefundsNoInvoices(const QDate &dateFro
 {
     auto result = QSharedPointer<QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext, OrderManager::ShipmentRefundsWithUpdates>>>>::create();
 
-    // Phase 1: find distinct root IDs whose shipments (within dateFrom..dateTo) lack an invoice number.
-    // Same logic as getShipmentAndRefundsNoInvoices.
+    // Phase 1: find distinct ORDER IDs that have at least one shipment/refund in the
+    // requested date range that still needs an invoice.  We group by order_id so that
+    // refunds (which have their own COALESCE(root_id,id) key but share the order_id
+    // with the parent sale) are always fetched together with that parent sale in Phase 2.
     QString rootQueryStr = R"(
-        SELECT DISTINCT COALESCE(s.root_id, s.id) as root_id
+        SELECT DISTINCT s.order_id
         FROM shipments s
         LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id
         WHERE 1=1
@@ -1980,23 +2128,25 @@ OrderManager::get_channel_site_ShipmentAndRefundsNoInvoices(const QDate &dateFro
 
     QSqlQuery rootQuery(m_db);
     rootQuery.exec(rootQueryStr);
-    QSet<QString> rootIdsToProcess;
+    QSet<QString> orderIdsToProcess;
     while (rootQuery.next()) {
-        rootIdsToProcess.insert(rootQuery.value("root_id").toString());
+        orderIdsToProcess.insert(rootQuery.value("order_id").toString());
     }
 
-    if (rootIdsToProcess.isEmpty()) {
+    if (orderIdsToProcess.isEmpty()) {
         return result;
     }
 
-    // Phase 2: fetch all shipments for those roots, with invoicing info and source.
+    // Phase 2: fetch ALL shipments for those orders (including the parent sale that may
+    // already have an invoice — so it can be included in the group with invoicesToDo=false).
     QStringList quotedIds;
-    for (const QString &id : rootIdsToProcess) {
-        quotedIds << QString("'%1'").arg(id);
+    for (const QString &id : orderIdsToProcess) {
+        QString escaped = id;
+        quotedIds << QString("'%1'").arg(escaped.replace('\'', "''"));
     }
 
     QString queryStr =
-        "SELECT s.id, s.current_json, s.source_key, s.event_date, "
+        "SELECT s.id, s.order_id, s.current_json, s.source_key, s.event_date, "
         "COALESCE(s.root_id, s.id) as root_id, "
         "inv.json as inv_json, "
         "o.address_json, "
@@ -2005,22 +2155,25 @@ OrderManager::get_channel_site_ShipmentAndRefundsNoInvoices(const QDate &dateFro
         "FROM shipments s "
         "LEFT JOIN orders o ON s.order_id = o.id "
         "LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id "
-        "WHERE COALESCE(s.root_id, s.id) IN ("
+        "WHERE s.order_id IN ("
         + quotedIds.join(", ") + ") "
-        "ORDER BY root_id, s.event_date";
+        "ORDER BY s.order_id, s.event_date";
 
     QSqlQuery query(m_db);
     query.exec(queryStr);
 
-    // Group shipments by (channel, subchannel, TaxContext), accumulating per root.
-    // We use a helper map: rootId → (channel, subchannel, ctx) so we don't recompute.
-    struct RootMeta { QString channel; QString subchannel; TaxResolver::TaxContext ctx; };
-    QHash<QString, RootMeta> rootMeta;
-    QHash<QString, QString>  rootInvJson;
+    // Group shipments by (order_id → channel, subchannel, TaxContext).
+    // Using order_id as the meta-key ensures refunds and their parent sale always
+    // land in the same (channel, store, ctx) bucket.
+    struct OrderMeta { QString channel; QString subchannel; TaxResolver::TaxContext ctx; };
+    QHash<QString, OrderMeta> orderMeta;
+    // Per-order: first invJson that contains an invoice number (from the parent sale).
+    QHash<QString, QString>   orderInvJson;
+    QHash<QString, QString>   orderAddrJson;
 
     while (query.next()) {
         const QString id             = query.value("id").toString();
-        const QString rootId         = query.value("root_id").toString();
+        const QString orderId        = query.value("order_id").toString();
         const QString jsonStr        = query.value("current_json").toString();
         const QString sourceKey      = query.value("source_key").toString();
         const QString invJson        = query.value("inv_json").toString();
@@ -2033,8 +2186,7 @@ OrderManager::get_channel_site_ShipmentAndRefundsNoInvoices(const QDate &dateFro
         const QString channel    = (parts.size() >= 2) ? parts[1] : QString();
         const QString subchannel = (parts.size() >= 3 && !parts[2].isEmpty()) ? parts[2] : QStringLiteral("Unknown");
 
-        // Enforce the TODO requirement: every no-invoice shipment must have at least a channel.
-        // (A missing or empty channel means the shipment has no recognisable origin/site.)
+        // Enforce the requirement: every no-invoice shipment must have a channel.
         if (channel.isEmpty()) {
             ExceptionWithTitleText ex(
                 QObject::tr("Missing Channel / Site"),
@@ -2089,27 +2241,43 @@ OrderManager::get_channel_site_ShipmentAndRefundsNoInvoices(const QDate &dateFro
         ctx.taxJurisdictionLevel    = act.getTaxJurisdictionLevel();
         ctx.countryCodeVatPaidTo    = act.getCountryCodeVatPaidTo();
 
-        // Cache metadata for this root (first shipment wins; all revisions share same root).
-        if (!rootMeta.contains(rootId)) {
-            rootMeta[rootId] = RootMeta{channel, subchannel, ctx};
-            rootInvJson[rootId] = invJson;
+        // On first encounter for this order, record metadata and initialise the entry.
+        if (!orderMeta.contains(orderId)) {
+            orderMeta[orderId] = OrderMeta{channel, subchannel, ctx};
+            orderInvJson[orderId] = QString(); // will be set when we find a sale with invoice
+            orderAddrJson[orderId] = addressJson;
 
-            // Initialise the channel/subchannel/ctx entry if needed.
             auto &entry = (*result)[channel][subchannel][ctx];
-            if (!invJson.isEmpty()) {
-                QJsonObject invObj = QJsonDocument::fromJson(invJson.toUtf8()).object();
-                entry.invoicingInfo = QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(invObj));
-            }
             if (!addressJson.isEmpty()) {
                 QJsonObject addrObj = QJsonDocument::fromJson(addressJson.toUtf8()).object();
                 entry.addressTo = QSharedPointer<Address>::create(Address::fromJson(addrObj));
             }
         }
 
-        const RootMeta &meta = rootMeta[rootId];
+        // If this shipment has an invoice number and we haven't cached one yet for this
+        // order, use it as the representative invoicingInfo for the group.
+        if (!invJson.isEmpty() && orderInvJson[orderId].isEmpty()) {
+            QJsonObject invObj = QJsonDocument::fromJson(invJson.toUtf8()).object();
+            if (invObj.contains("invoiceNumber") && !invObj.value("invoiceNumber").isNull()) {
+                orderInvJson[orderId] = invJson;
+                const OrderMeta &meta = orderMeta[orderId];
+                auto &entry = (*result)[meta.channel][meta.subchannel][meta.ctx];
+                entry.invoicingInfo = QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(invObj));
+            }
+        }
+
+        // Determine whether this specific shipment needs an invoice.
+        bool hasInvoice = false;
+        if (!invJson.isEmpty()) {
+            QJsonObject invObj = QJsonDocument::fromJson(invJson.toUtf8()).object();
+            hasInvoice = invObj.contains("invoiceNumber") && !invObj.value("invoiceNumber").isNull();
+        }
+        bool isRevisionOrConflict = id.contains("-rev-") || id.contains("-v-");
+
+        const OrderMeta &meta = orderMeta[orderId];
         auto &entry = (*result)[meta.channel][meta.subchannel][meta.ctx];
         entry.shipmentsRefundsSameActivity.append(shipment);
-        entry.invoicesToDo.append(true); // all entries here need an invoice
+        entry.invoicesToDo.append(!hasInvoice || isRevisionOrConflict);
     }
 
     return result;
@@ -2126,46 +2294,47 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
     // 1. It's in the date range AND
     // 2. Either: (no invoicing_info exists) OR (it's a revision/conflict: contains -rev- or -v-)
     
-    // First, get all distinct root_ids that have shipments within the date range
-    // needing invoice work
+    // First, get all distinct order_ids that have at least one shipment in the date range
+    // needing invoice work. Group by order_id so refunds and their parent sale are together.
     QString rootQueryStr = R"(
-        SELECT DISTINCT COALESCE(s.root_id, s.id) as root_id
+        SELECT DISTINCT s.order_id
         FROM shipments s
         LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id
-        WHERE 1=1
+        WHERE s.order_id IS NOT NULL AND s.order_id != ''
     )";
-    
+
     if (dateFrom.isValid()) {
         rootQueryStr += QString(" AND DATE(s.event_date) >= '%1'").arg(dateFrom.toString(Qt::ISODate));
     }
     if (dateTo.isValid()) {
         rootQueryStr += QString(" AND DATE(s.event_date) <= '%1'").arg(dateTo.toString(Qt::ISODate));
     }
-    
-    // We want roots where shipments in range need invoices:
+
+    // We want orders where at least one shipment in range needs an invoice:
     // - Either no invoicing_info exists
-    // - OR invoicing_info has no invoice_number  
+    // - OR invoicing_info has no invoice_number
     // - OR the shipment is a revision/conflict (id contains -rev- or -v-)
     rootQueryStr += R"( AND (
-        inv.shipment_root_id IS NULL 
-        OR inv.json NOT LIKE '%"invoiceNumber":%' 
+        inv.shipment_root_id IS NULL
+        OR inv.json NOT LIKE '%"invoiceNumber":%'
         OR inv.json LIKE '%"invoiceNumber":null%'
         OR s.id LIKE '%-rev-%'
         OR s.id LIKE '%-v-%'
     ))";
-    
+
     QSqlQuery rootQuery(m_db);
     rootQuery.exec(rootQueryStr);
-    QSet<QString> rootIdsToProcess;
+    QSet<QString> orderIdsToProcess;
     while (rootQuery.next()) {
-        rootIdsToProcess.insert(rootQuery.value("root_id").toString());
+        orderIdsToProcess.insert(rootQuery.value("order_id").toString());
     }
-    
-    if (rootIdsToProcess.isEmpty()) {
+
+    if (orderIdsToProcess.isEmpty()) {
         return results;
     }
-    
-    // Now fetch ALL shipments for those roots (including history outside date range)
+
+    // Now fetch ALL shipments for those orders (including history outside date range,
+    // and including the parent sale that holds the original invoice number)
     // along with their invoicing info and address
     QString queryStr = R"(
         SELECT s.id, s.order_id, s.current_json, s.source_key, s.event_date,
@@ -2176,27 +2345,27 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
         FROM shipments s
         LEFT JOIN orders o ON s.order_id = o.id
         LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id
-        WHERE COALESCE(s.root_id, s.id) IN (
+        WHERE s.order_id IN (
     )";
-    
+
     // Build IN clause
     QStringList quotedIds;
-    for (const QString &id : rootIdsToProcess) {
+    for (const QString &id : orderIdsToProcess) {
         quotedIds << QString("'%1'").arg(id);
     }
     queryStr += quotedIds.join(", ") + ")";
-    queryStr += " ORDER BY root_id, s.event_date";
-    
+    queryStr += " ORDER BY s.order_id, s.event_date";
+
     QSqlQuery query(m_db);
     query.exec(queryStr);
-    
-    // Group shipments by root_id
+
+    // Group shipments by order_id so parent sale and all refunds are in the same group
     QHash<QString, ShipmentRefundsWithUpdates> groupedResults;
-    QHash<QString, QString> rootInvJson; // Cache invoicing json per root
-    
+    QHash<QString, bool> orderHasInvJson; // Track if we've set invoicingInfo for this order
+
     while (query.next()) {
         QString id = query.value("id").toString();
-        QString rootId = query.value("root_id").toString();
+        QString orderId = query.value("order_id").toString();
         QString jsonStr = query.value("current_json").toString();
         QString addressJson = query.value("address_json").toString();
         QString invJson = query.value("inv_json").toString();
@@ -2249,34 +2418,35 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
             }
             shipment = QSharedPointer<Shipment>::create(Shipment(newActs, customerAccount, isGrouped));
         }
-        
-        // Add to grouped results
-        if (!groupedResults.contains(rootId)) {
+
+        // Initialize group entry on first encounter
+        if (!groupedResults.contains(orderId)) {
             ShipmentRefundsWithUpdates item;
             item.activityUpdate = QSharedPointer<ActivityUpdate>::create();
-            
-            // Parse invoicing info if available
-            if (!invJson.isEmpty()) {
-                QJsonObject invObj = QJsonDocument::fromJson(invJson.toUtf8()).object();
-                item.invoicingInfo = QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(invObj));
-            }
-            
+
             // Parse address if available
             if (!addressJson.isEmpty()) {
                 QJsonObject addrObj = QJsonDocument::fromJson(addressJson.toUtf8()).object();
                 item.addressTo = QSharedPointer<Address>::create(Address::fromJson(addrObj));
             }
-            
-            rootInvJson[rootId] = invJson;
-            groupedResults[rootId] = item;
+
+            groupedResults[orderId] = item;
+            orderHasInvJson[orderId] = false;
         }
-        
-        groupedResults[rootId].shipmentsRefundsSameActivity.append(shipment);
-        
-        // Determine if this shipment needs an invoice
-        // invoicesToDo = true if:
-        // 1. The shipment is within the requested date range AND
-        // 2. Either: (no invoicing info exists OR no invoice number) OR (it's a revision/conflict)
+
+        // Cache the first invoice number found for this order (parent sale comes first due to ORDER BY event_date)
+        if (!orderHasInvJson[orderId] && !invJson.isEmpty()) {
+            QJsonObject invObj = QJsonDocument::fromJson(invJson.toUtf8()).object();
+            if (invObj.contains("invoiceNumber") && !invObj.value("invoiceNumber").isNull()) {
+                groupedResults[orderId].invoicingInfo = QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(invObj));
+                orderHasInvJson[orderId] = true;
+            }
+        }
+
+        groupedResults[orderId].shipmentsRefundsSameActivity.append(shipment);
+
+        // Determine if THIS specific shipment needs an invoice
+        // (check its own inv_json, not the group's)
         bool inDateRange = true;
         if (dateFrom.isValid() && eventDate < dateFrom) {
             inDateRange = false;
@@ -2284,23 +2454,20 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
         if (dateTo.isValid() && eventDate > dateTo) {
             inDateRange = false;
         }
-        
+
         bool isRevisionOrConflict = id.contains("-rev-") || id.contains("-v-");
-        
-        bool hasInvoiceNumber = false;
-        const QString &cachedInvJson = rootInvJson[rootId];
-        if (!cachedInvJson.isEmpty()) {
-            QJsonObject invObj = QJsonDocument::fromJson(cachedInvJson.toUtf8()).object();
-            if (invObj.contains("invoiceNumber") && !invObj.value("invoiceNumber").isNull()) {
-                hasInvoiceNumber = true;
-            }
+
+        bool hasInvoice = false;
+        if (!invJson.isEmpty()) {
+            QJsonObject invObj = QJsonDocument::fromJson(invJson.toUtf8()).object();
+            hasInvoice = invObj.contains("invoiceNumber") && !invObj.value("invoiceNumber").isNull();
         }
-        
-        // Needs invoice if in range AND (no invoice exists OR it's a revision/conflict)
-        bool needsInvoice = inDateRange && (!hasInvoiceNumber || isRevisionOrConflict);
-        groupedResults[rootId].invoicesToDo.append(needsInvoice);
+
+        // Needs invoice if in range AND (this shipment has no invoice OR it's a revision/conflict)
+        bool needsInvoice = inDateRange && (!hasInvoice || isRevisionOrConflict);
+        groupedResults[orderId].invoicesToDo.append(needsInvoice);
     }
-    
+
     // Convert hash to list
     for (auto it = groupedResults.begin(); it != groupedResults.end(); ++it) {
         results->append(it.value());

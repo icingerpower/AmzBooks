@@ -57,6 +57,8 @@ private slots:
     void test_recordShipmentsFromSource_performance();
     void test_groupedUngrouped();
     void test_recordInvoicingInfo_recordInfo_twice();
+    void test_removeShipmentsRefunds_dateRange();
+    void test_removeShipmentsRefunds_createdAfter();
     void test_importOrderInvariance(); // Keep this test last
 };
 
@@ -1142,7 +1144,7 @@ void TestOrderManager::test_remove_shipmentRefundr()
         QVERIFY(q.next()); 
         QCOMPARE(q.value(0).toInt(), 1);
         
-        manager.removeShipmenOrRefund(s.getId());
+        manager.removeShipmentOrRefund(s.getId());
         
         // Verify deleted (Order too)
         q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = '" + orderId + "'");
@@ -1167,7 +1169,7 @@ void TestOrderManager::test_remove_shipmentRefundr()
          manager.recordInvoicingInfo(s.getId(), &invInfo);
          
          // Verify exist
-         manager.removeShipmenOrRefund(s.getId());
+         manager.removeShipmentOrRefund(s.getId());
          
          // Verify deleted (Order too)
          QSqlQuery q(manager.m_db);
@@ -1202,7 +1204,7 @@ void TestOrderManager::test_remove_shipmentRefundr()
         QCOMPARE(q.value(0).toInt(), 2);
         
         // Remove sA
-        manager.removeShipmenOrRefund(s1.getId());
+        manager.removeShipmentOrRefund(s1.getId());
         
         // Verify sA deleted, sB remains, Order remains
         q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = '" + orderId + "'");
@@ -1234,7 +1236,7 @@ void TestOrderManager::test_remove_shipmentRefundr()
         manager.recordShipmentUpdated(orderId4, &source, &sUpd, QDate());
         
         // Verify 1 logical shipment (draft)
-        manager.removeShipmenOrRefund(s.getId());
+        manager.removeShipmentOrRefund(s.getId());
         
         QSqlQuery q(manager.m_db);
         q.exec("SELECT COUNT(*) FROM shipments WHERE order_id = '" + orderId4 + "'");
@@ -1256,7 +1258,7 @@ void TestOrderManager::test_remove_shipmentRefundr()
         manager.publish(pubDate); // s1 is Published
         
         // Try to remove s1 (Published)
-        manager.removeShipmenOrRefund(s1.getId());
+        manager.removeShipmentOrRefund(s1.getId());
         
         // Verify s1 NOT deleted
         QSqlQuery q(manager.m_db);
@@ -1271,7 +1273,7 @@ void TestOrderManager::test_remove_shipmentRefundr()
         
         // Now order has Published and Draft.
         // Try to remove s1 (Published) -> Should fail
-        manager.removeShipmenOrRefund(s1.getId());
+        manager.removeShipmentOrRefund(s1.getId());
          q.exec("SELECT COUNT(*) FROM shipments WHERE id = '" + s1.getId() + "'");
         QVERIFY(q.next());
         QCOMPARE(q.value(0).toInt(), 1);
@@ -1279,7 +1281,7 @@ void TestOrderManager::test_remove_shipmentRefundr()
         // Try to remove s2 (Draft) -> Should SUCCEED (because s2 itself is not published, and requirement 5 says "if order were published" but standard logic allows deleting drafts unless whole order locked)
         // Wait, User Requirement says "doesn't work if ... order were published".
         // If my implementation allows deleting s2 (Draft) even if Order has s1 (Published), does it violate requirement?
-        // Logic: removeShipmenOrRefund checks if *passed ID* is Published.
+        // Logic: removeShipmentOrRefund checks if *passed ID* is Published.
         // s2 is NOT published.
         // So Count > 1 (s1, s2).
         // It enters "Delete only this shipment".
@@ -1293,7 +1295,7 @@ void TestOrderManager::test_remove_shipmentRefundr()
         // So s2 is deleted.
         // Let's assume this is correct behavior.
         
-        manager.removeShipmenOrRefund(s2.getId());
+        manager.removeShipmentOrRefund(s2.getId());
          q.exec("SELECT COUNT(*) FROM shipments WHERE id = '" + s2.getId() + "'");
         QVERIFY(q.next());
         QCOMPARE(q.value(0).toInt(), 0); // Deleted
@@ -3260,6 +3262,225 @@ void TestOrderManager::test_recordInvoicingInfo_recordInfo_twice()
         QCOMPARE(retrieved->getInvoiceLink().value(),
                  QString("https://invoices.example.com/INV-2024-001.pdf"));
     }
+}
+
+void TestOrderManager::test_removeShipmentsRefunds_dateRange()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    OrderManager manager(tempDir.path());
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "RemovalTest"};
+
+    auto createShip = [](const QString &id, double amount, QDate eventDate) -> Shipment {
+        auto res = Activity::create(
+            id, "act_" + id, "",
+            QDateTime(eventDate, QTime(12, 0)), QDateTime(eventDate, QTime(12, 0)),
+            "EUR", "FR", "DE", false, "DE",
+            Amount(amount, amount * 0.2), TaxSource::MarketplaceProvided, "DE",
+            TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Q_ASSERT(res.ok());
+        return Shipment({*res.value}, "", true);
+    };
+
+    // 1. Shipment inside range (Draft)
+    Shipment s1 = createShip("s1", 10.0, QDate(2024, 2, 5));
+    manager.recordShipmentFromSource("ord1", &source, &s1, QDate());
+
+    // 2. Shipment inside range (Published)
+    Shipment s2 = createShip("s2", 20.0, QDate(2024, 2, 10));
+    manager.recordShipmentFromSource("ord2", &source, &s2, QDate());
+    QDate pubDate(2024, 2, 28);
+    manager.publish(pubDate); // Publishes everything up to Feb 28
+
+    // 3. Shipment outside range (Before)
+    Shipment s3 = createShip("s3", 30.0, QDate(2024, 1, 15));
+    manager.recordShipmentFromSource("ord3", &source, &s3, QDate());
+
+    // 4. Shipment outside range (After)
+    Shipment s4 = createShip("s4", 40.0, QDate(2024, 3, 5));
+    manager.recordShipmentFromSource("ord4", &source, &s4, QDate());
+
+    // 5. Shipment exactly on lower bound
+    Shipment s5 = createShip("s5", 50.0, QDate(2024, 2, 1));
+    manager.recordShipmentFromSource("ord5", &source, &s5, QDate());
+
+    // 6. Shipment exactly on upper bound
+    Shipment s6 = createShip("s6", 60.0, QDate(2024, 2, 29));
+    manager.recordShipmentFromSource("ord6", &source, &s6, QDate());
+
+    // Pre-test verification
+    {
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 6);
+    }
+
+    // Act: Remove from range Feb 1 - Feb 29
+    manager.removeShipmentsRefunds(QDate(2024, 2, 1), QDate(2024, 2, 29));
+
+    // Expected remaining:
+    // s1 (Draft, in range) -> DELETED! (Wait, s1 was recorded before publish. So s1 IS PUBLISHED).
+    // Ah, s1 was recorded before the `manager.publish(QDate(2024, 2, 28))` call.
+    // So s1 is PUBLISHED. Thus it should NOT be deleted.
+    // Let's verify what really happened.
+    // s1: eventDate 2024-02-05 -> Published
+    // s2: eventDate 2024-02-10 -> Published
+    // s3: eventDate 2024-01-15 -> Published
+    // s4: eventDate 2024-03-05 -> Draft (outside publish window)
+    // s5: eventDate 2024-02-01 -> Draft (wait, recorded after publish? Yes! recorded at step 5)
+    // s6: eventDate 2024-02-29 -> Draft
+
+    // Let's be precise about what gets deleted:
+    // in range (Feb 1 - Feb 29):
+    // - s1 (in range, Published) -> KEPT
+    // - s2 (in range, Published) -> KEPT
+    // - s3 (outside range: Jan 15, pub) -> KEPT
+    // - s4 (outside range: Mar 5, draft) -> KEPT
+    // - s5 (in range, Draft) -> DELETED
+    // - s6 (in range, Draft) -> DELETED
+
+    // Verification
+    {
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 4); // 6 - 2 = 4 (s1, s2, s3, s4 should remain)
+    }
+
+    auto checkOrderExists = [&manager](const QString& ord) -> bool {
+        QSqlQuery q(manager.m_db);
+        q.prepare("SELECT COUNT(*) FROM orders WHERE id = ?");
+        q.addBindValue(ord);
+        if (q.exec() && q.next()) return q.value(0).toInt() > 0;
+        return false;
+    };
+
+    QVERIFY(checkOrderExists("ord1"));
+    QVERIFY(checkOrderExists("ord2"));
+    QVERIFY(checkOrderExists("ord3"));
+    QVERIFY(checkOrderExists("ord4"));
+    QVERIFY(!checkOrderExists("ord5"));
+    QVERIFY(!checkOrderExists("ord6"));
+
+    // 7. Add a mixed order: one shipment in range, one outside range
+    Shipment s7a = createShip("s7a", 70.0, QDate(2024, 2, 15)); // inside
+    Shipment s7b = createShip("s7b", 71.0, QDate(2024, 3, 15)); // outside
+    manager.recordShipmentFromSource("ord7", &source, &s7a, QDate());
+    manager.recordShipmentFromSource("ord7", &source, &s7b, QDate());
+    
+    // Add invoicing info for s7a to check if it's cascaded deleted
+    auto resInfo = InvoicingInfo::create(&s7a, {}, "INV-S7A");
+    QVERIFY(resInfo.ok());
+    InvoicingInfo iInfo = *resInfo.value;
+    manager.recordInvoicingInfo("act_s7a", &iInfo);
+
+    QVERIFY(checkOrderExists("ord7"));
+
+    manager.removeShipmentsRefunds(QDate(2024, 2, 1), QDate(2024, 2, 29));
+
+    // s7a deleted, s7b kept.
+    {
+        QSqlQuery q(manager.m_db);
+        q.prepare("SELECT COUNT(*) FROM shipments WHERE id = 'act_s7a'");
+        q.exec(); q.next(); QCOMPARE(q.value(0).toInt(), 0);
+        
+        q.prepare("SELECT COUNT(*) FROM shipments WHERE id = 'act_s7b'");
+        q.exec(); q.next(); QCOMPARE(q.value(0).toInt(), 1);
+        
+        q.prepare("SELECT COUNT(*) FROM invoicing_infos WHERE shipment_root_id = 'act_s7a'");
+        q.exec(); q.next(); QCOMPARE(q.value(0).toInt(), 0);
+    }
+    
+    // Order ord7 should still exist because s7b is still there
+    QVERIFY(checkOrderExists("ord7"));
+}
+
+void TestOrderManager::test_removeShipmentsRefunds_createdAfter()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    OrderManager manager(tempDir.path());
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "CreatedTest"};
+
+    auto createShip = [](const QString &id) -> Shipment {
+        auto res = Activity::create(
+            id, "act_" + id, "",
+            QDateTime(QDate(2024, 1, 1), QTime(12, 0)), QDateTime(QDate(2024, 1, 1), QTime(12, 0)),
+            "EUR", "FR", "DE", false, "DE",
+            Amount(100.0, 20.0), TaxSource::MarketplaceProvided, "DE",
+            TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        Q_ASSERT(res.ok());
+        return Shipment({*res.value}, "", true);
+    };
+
+    // 1. Shipment created long ago (Draft)
+    Shipment s1 = createShip("s1");
+    manager.recordShipmentFromSource("ord1", &source, &s1, QDate());
+    // Simulate older insertion
+    {
+        QSqlQuery q(manager.m_db);
+        q.exec("UPDATE shipments SET inserted_at = '2024-01-01T10:00:00' WHERE id = 'act_s1'");
+    }
+
+    // 2. Shipment created today (Draft)
+    Shipment s2 = createShip("s2");
+    manager.recordShipmentFromSource("ord2", &source, &s2, QDate());
+
+    // 3. Shipment created today (Published) -> Should NOT be deleted
+    Shipment s3 = createShip("s3");
+    manager.recordShipmentFromSource("ord3", &source, &s3, QDate());
+    
+    QDate pubDate2(2024, 12, 31);
+    manager.publish(pubDate2);
+
+    // Validate pre-state
+    {
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 3);
+    }
+
+    // Act: Remove shipments inserted since yesterday
+    manager.removeShipmentsRefunds(QDate::currentDate().addDays(-1));
+
+    // Expected remaining:
+    // s1 (Draft, inserted 2024-01-01) -> KEPT
+    // s2 (Draft, inserted today) -> DELETED
+    // s3 (Published, inserted today) -> KEPT
+
+    {
+        QSqlQuery q(manager.m_db);
+        q.exec("SELECT COUNT(*) FROM shipments");
+        QVERIFY(q.next());
+        QCOMPARE(q.value(0).toInt(), 2);
+    }
+
+    auto checkOrderExists = [&manager](const QString& ord) -> bool {
+        QSqlQuery q(manager.m_db);
+        q.prepare("SELECT COUNT(*) FROM orders WHERE id = ?");
+        q.addBindValue(ord);
+        if (q.exec() && q.next()) return q.value(0).toInt() > 0;
+        return false;
+    };
+
+    QVERIFY(checkOrderExists("ord1"));
+    QVERIFY(!checkOrderExists("ord2"));
+    QVERIFY(checkOrderExists("ord3"));
+
+    // 4. Test exact boundary condition
+    Shipment s4 = createShip("s4");
+    manager.recordShipmentFromSource("ord4", &source, &s4, QDate());
+    // Modify to match *exactly* to check boundary inclusion
+    {
+        QSqlQuery q(manager.m_db);
+        q.exec(QString("UPDATE shipments SET inserted_at = '%1T00:00:00' WHERE id = 'act_s4'").arg(QDate::currentDate().toString(Qt::ISODate)));
+    }
+    
+    manager.removeShipmentsRefunds(QDate::currentDate());
+
+    QVERIFY(!checkOrderExists("ord4")); // Should be deleted since it's exactly >= Date
 }
 
 QTEST_MAIN(TestOrderManager)

@@ -1,5 +1,7 @@
 #include <QTest>
 #include <QTemporaryDir>
+#include <QCoreApplication>
+#include <QCoroTask>
 
 #include "books/InvoiceGenerator.h"
 #include "books/CompanyInfosTable.h"
@@ -12,11 +14,19 @@
 #include "books/TaxResolver.h"
 #include "books/TaxScheme.h"
 #include "books/TaxJurisdictionLevel.h"
+#include "books/Activity.h"
 #include "orders/OrderManager.h"
 #include "orders/InvoicingInfo.h"
 #include "orders/LineItem.h"
 #include "orders/Address.h"
 #include "orders/Shipment.h"
+#include "orders/Refund.h"
+#include "orders/ActivitySource.h"
+#include "orders/ActivitySourceType.h"
+#include "orders/SaleType.h"
+#include "orders/TaxSource.h"
+#include "orders/ImporterFileAmazonVatEu.h"
+#include "orders/ImporterFileAmazonFbaInvoicing.h"
 
 class TestInvoicing : public QObject
 {
@@ -67,6 +77,17 @@ private slots:
 
     // Regeneration tests
     void test_regenerateInvoices();
+
+    // Refund numbering when sale invoice only exists in OrderManager
+    void test_twoRefundsAfterSaleInvoiceInOrderManager();
+
+    // Refund invoice numbers inherit parent sale's Amazon invoice number
+    // (the refunds must be grouped with their parent sale's shipment)
+    void test_refundInvoiceNumbers_synthetic();   // uses synthetic data, no CSV files
+    void test_refundInvoiceNumbers_realData();    // loads real CSV files
+
+    // Regression: stale OM entry written under Amazon order ID must not poison lookups
+    void test_refundInvoiceNumbers_staleOmData();
 
 private:
     QTemporaryDir *m_tempDir = nullptr;
@@ -1258,6 +1279,537 @@ void TestInvoicing::test_regenerateInvoices()
 
     // VERIFY 50: full name round-trip
     QCOMPARE(reloadedAddr1->getFullName(), QString("Client Alpha"));
+}
+
+// ===========================================================================
+// test_twoRefundsAfterSaleInvoiceInOrderManager
+//
+// Regression test for the bug where refund invoices receive wrong numbers when
+// the sale invoice was stored directly in OrderManager (e.g., imported from
+// Amazon FBA invoicing) without going through InvoiceGenerator.
+//
+// Scenario: one item ordered in qty 2, then refunded in two separate operations.
+//   Sale invoice (in OrderManager only): 202601-DOM-IT-AMZ-IT-001
+//   Expected refund 1:                   202601-DOM-IT-AMZ-IT-001-R01
+//   Expected refund 2:                   202601-DOM-IT-AMZ-IT-001-R02
+//
+// Bug (before fix):
+//   getNextInvoiceNumbers did not find the sale invoice in its own registry and
+//   created a fresh base number, yielding -001 and -001-R01 instead of -R01/-R02.
+// ===========================================================================
+void TestInvoicing::test_twoRefundsAfterSaleInvoiceInOrderManager()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    companyAddress.insertRows(0, 1);
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress, &currencyRates);
+
+    TaxResolver::TaxContext context;
+    context.taxScheme               = TaxScheme::DomesticVat;
+    context.taxDeclaringCountryCode = "IT";
+    context.taxJurisdictionLevel    = TaxJurisdictionLevel::Country;
+    context.countryCodeVatPaidTo    = "IT";
+
+    const QDate   date    = QDate(2026, 1, 15);
+    const QString orderId = "AMZ-ORDER-IT-001";
+    const QString channel = "Amazon";
+    const QString store   = "amazon.it";
+
+    // --- STEP 1: Record the sale invoice in OrderManager only ---
+    // Simulates a shipment imported via Amazon FBA invoicing: the invoice number
+    // comes from Amazon and is persisted in OrderManager.  InvoiceGenerator has
+    // never seen this invoice (its registry is still empty).
+    const QString saleInvoiceNumber = "202601-DOM-IT-AMZ-IT-001";
+    auto itemRes = LineItem::create("ITEM-SKU", "Test Product IT", 100.0, 0.22, 2);
+    QVERIFY(itemRes.ok());
+    auto saleInfoRes = InvoicingInfo::create(nullptr, {*itemRes.value}, saleInvoiceNumber);
+    QVERIFY(saleInfoRes.ok());
+    InvoicingInfo saleInfo = *saleInfoRes.value;
+    orderManager.recordInvoicingInfo(orderId, &saleInfo);
+
+    // Sanity: InvoiceGenerator has no records yet
+    QCOMPARE(generator.rowCount(), 0);
+
+    // Sanity: OrderManager holds the sale invoice number
+    auto storedSale = orderManager.getInvoicingInfo(orderId);
+    QVERIFY(!storedSale.isNull());
+    QVERIFY(storedSale->getInvoiceNumber().has_value());
+    QCOMPARE(*storedSale->getInvoiceNumber(), saleInvoiceNumber);
+
+    // --- STEP 2: Generate invoice numbers for 2 refunds (same orderId as the sale) ---
+    // This replicates the PaneBookkeeping::generateInvoices() call for the group
+    // returned by get_channel_site_ShipmentAndRefundsNoInvoices.
+    // The OrderManager parameter lets getNextInvoiceNumbers discover the pre-existing
+    // sale invoice and produce -R01 / -R02 instead of a new base number.
+    QList<bool>  invoicesToDo = {true, true};
+    QStringList  refundIds    = {orderId, orderId};
+
+    QStringList invoiceNumbers = generator.getNextInvoiceNumbers(
+        date, context, channel, store, invoicesToDo, std::nullopt, refundIds,
+        &orderManager);
+
+    QCOMPARE(invoiceNumbers.size(), 2);
+
+    // VERIFY: first refund must be -R01 (not a fresh -001)
+    QCOMPARE(invoiceNumbers[0], saleInvoiceNumber + "-R01");
+
+    // VERIFY: second refund must be -R02 (not -001-R01)
+    QCOMPARE(invoiceNumbers[1], saleInvoiceNumber + "-R02");
+
+    // --- STEP 3: Generate the PDFs to confirm the full round-trip ---
+    Address addr("Customer IT", "Via Roma 1", "", "", "Roma", "00100", "IT",
+                 "", "", "", "", "");
+    orderManager.recordAddressesTo({{orderId, addr}});
+
+    auto r1Res = InvoicingInfo::create(nullptr, {*itemRes.value}, invoiceNumbers[0]);
+    QVERIFY(r1Res.ok());
+    const QString pdf1 = tempDir.filePath(invoiceNumbers[0] + ".pdf");
+    generator.generateInvoice(invoiceNumbers[0], saleInvoiceNumber, pdf1,
+                               addr, *r1Res.value, orderId, orderManager, date);
+    QVERIFY(QFile::exists(pdf1));
+
+    auto r2Res = InvoicingInfo::create(nullptr, {*itemRes.value}, invoiceNumbers[1]);
+    QVERIFY(r2Res.ok());
+    const QString pdf2 = tempDir.filePath(invoiceNumbers[1] + ".pdf");
+    generator.generateInvoice(invoiceNumbers[1], saleInvoiceNumber, pdf2,
+                               addr, *r2Res.value, orderId, orderManager, date);
+    QVERIFY(QFile::exists(pdf2));
+}
+
+// ===========================================================================
+// Helper: locate a data sub-directory by climbing the directory tree.
+// ===========================================================================
+static QString findDataDir(const QString &subPath)
+{
+    QDir dir(QCoreApplication::applicationDirPath());
+    for (int i = 0; i < 7; ++i) {
+        QString candidate = dir.absoluteFilePath(subPath);
+        if (QFileInfo::exists(candidate))
+            return candidate;
+        if (!dir.cdUp() || dir.isRoot())
+            break;
+    }
+    return {};
+}
+
+// ===========================================================================
+// Helper: replicate the generateInvoices logic from PaneBookKeeping for a
+// given noInvoicesMap, returning the list of generated invoice numbers for
+// entries where invoicesToDo is true.
+// ===========================================================================
+static QStringList generateInvoiceNumbers(
+    const QHash<QString, QHash<QString, QHash<TaxResolver::TaxContext,
+        OrderManager::ShipmentRefundsWithUpdates>>> &noInvoicesMap,
+    InvoiceGenerator &generator,
+    const OrderManager &orderManager,
+    const QDate &fallbackDate)
+{
+    QStringList result;
+    for (auto chanIt = noInvoicesMap.cbegin(); chanIt != noInvoicesMap.cend(); ++chanIt) {
+        const QString &channel = chanIt.key();
+        for (auto storeIt = chanIt.value().cbegin(); storeIt != chanIt.value().cend(); ++storeIt) {
+            const QString &store = storeIt.key();
+            for (auto ctxIt = storeIt.value().cbegin(); ctxIt != storeIt.value().cend(); ++ctxIt) {
+                const TaxResolver::TaxContext &taxContext = ctxIt.key();
+                const OrderManager::ShipmentRefundsWithUpdates &entry = ctxIt.value();
+                if (entry.shipmentsRefundsSameActivity.isEmpty()) continue;
+
+                QDate date;
+                const auto &first = entry.shipmentsRefundsSameActivity.first();
+                if (first && !first->getActivities().isEmpty())
+                    date = first->getActivities().first().getDateTime().date();
+                if (!date.isValid()) date = fallbackDate;
+
+                std::optional<QString> existingNumber;
+                if (entry.invoicingInfo) {
+                    auto optNum = entry.invoicingInfo->getInvoiceNumber();
+                    if (optNum.has_value() && !optNum->isEmpty())
+                        existingNumber = optNum;
+                }
+
+                QStringList shipmentIds;
+                for (const auto &shipment : entry.shipmentsRefundsSameActivity) {
+                    if (shipment && !shipment->getActivities().isEmpty())
+                        shipmentIds.append(shipment->getActivities().first().getEventId());
+                    else
+                        shipmentIds.append(QString());
+                }
+
+                QStringList invoiceNumbers = generator.getNextInvoiceNumbers(
+                    date, taxContext, channel, store,
+                    entry.invoicesToDo, existingNumber, shipmentIds, &orderManager);
+
+                for (int i = 0; i < invoiceNumbers.size(); ++i) {
+                    if (entry.invoicesToDo.value(i, false) && !invoiceNumbers[i].isEmpty())
+                        result.append(invoiceNumbers[i]);
+                }
+            }
+        }
+    }
+    return result;
+}
+
+// ===========================================================================
+// test_refundInvoiceNumbers_synthetic
+//
+// Reproduces the PaneBookKeeping::generateInvoices bug using synthetic data:
+//   - One sale shipment (SHIP-001, order ORDER-001) with external invoice AMZINV-001
+//   - Two refunds (REF-001, REF-002) for the same order
+//
+// Expected: refunds receive AMZINV-001-R01 and AMZINV-001-R02.
+// Bug (before fix): each refund is in its own group → each gets a fresh
+//   sequential base number instead of inheriting AMZINV-001.
+// ===========================================================================
+void TestInvoicing::test_refundInvoiceNumbers_synthetic()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.it", "SyntheticTest"};
+
+    const QDate saleDate(2026, 1, 27);
+    const QDate refDate1(2026, 1, 28);
+    const QDate refDate2(2026, 1, 29);
+
+    // Sale: eventId = order ID, activityId = shipment ID
+    auto saleActRes = Activity::create(
+        "ORDER-001", "SHIP-001", "",
+        QDateTime(saleDate, QTime(10, 0)), QDateTime(saleDate, QTime(10, 0)),
+        "EUR", "IT", "IT", false, "IT",
+        Amount(4.91, 1.08),
+        TaxSource::MarketplaceProvided, "IT",
+        TaxScheme::DomesticVat, TaxJurisdictionLevel::Country, SaleType::Products);
+    QVERIFY(saleActRes.ok());
+    Shipment sale(QList<Activity>{*saleActRes.value}, QString(), true);
+
+    // Refund 1
+    auto ref1ActRes = Activity::create(
+        "ORDER-001", "REF-001", "",
+        QDateTime(refDate1, QTime(10, 0)), QDateTime(refDate1, QTime(10, 0)),
+        "EUR", "IT", "IT", false, "IT",
+        Amount(-2.46, -0.54),
+        TaxSource::MarketplaceProvided, "IT",
+        TaxScheme::DomesticVat, TaxJurisdictionLevel::Country, SaleType::Products);
+    QVERIFY(ref1ActRes.ok());
+    Refund ref1(QList<Activity>{*ref1ActRes.value}, QString(), true);
+
+    // Refund 2
+    auto ref2ActRes = Activity::create(
+        "ORDER-001", "REF-002", "",
+        QDateTime(refDate2, QTime(10, 0)), QDateTime(refDate2, QTime(10, 0)),
+        "EUR", "IT", "IT", false, "IT",
+        Amount(-2.45, -0.54),
+        TaxSource::MarketplaceProvided, "IT",
+        TaxScheme::DomesticVat, TaxJurisdictionLevel::Country, SaleType::Products);
+    QVERIFY(ref2ActRes.ok());
+    Refund ref2(QList<Activity>{*ref2ActRes.value}, QString(), true);
+
+    // Record all via recordShipmentsFromSource (as PaneOrderFiles does, using eventId as orderId)
+    QList<OrderManager::ShipmentFromSourceEntry> entries;
+    entries.append({"ORDER-001", &sale,  QDate(), false, false});
+    entries.append({"ORDER-001", &ref1,  QDate(), false, false});
+    entries.append({"ORDER-001", &ref2,  QDate(), false, false});
+    orderManager.recordShipmentsFromSource(&source, entries);
+
+    Address addr("Customer IT", "Via Roma 1", "", "", "Roma", "00100", "IT", "", "", "", "", "");
+    orderManager.recordAddressesTo({{"ORDER-001", addr}});
+    QDate pubDate1(2026, 1, 31);
+    orderManager.publish(pubDate1);
+
+    // Record sale's external invoice number (simulates Amazon FBA invoicing import)
+    auto itemRes = LineItem::create("ITEM-SKU", "Ice Pack Set", 4.91, 0.22, 1);
+    QVERIFY(itemRes.ok());
+    auto saleInfoRes = InvoicingInfo::create(nullptr, {*itemRes.value}, "AMZINV-001");
+    QVERIFY(saleInfoRes.ok());
+    InvoicingInfo saleInfo = *saleInfoRes.value;
+    orderManager.recordInvoicingInfo("SHIP-001", &saleInfo);
+
+    // -----------------------------------------------------------------------
+    // STEP 1: Verify getShipmentAndRefundsNoInvoices groups all three together
+    // Expected (after fix): 1 group with sale(invoiceToDo=false) + 2 refunds(true)
+    // Bug (before fix): 2 separate groups (one per refund), sale not included
+    // -----------------------------------------------------------------------
+    auto noInvList = orderManager.getShipmentAndRefundsNoInvoices(
+        QDate(2025, 1, 1), QDate(2026, 12, 31));
+    QVERIFY(!noInvList.isNull());
+    QCOMPARE(noInvList->size(), 1); // must be 1 group for order ORDER-001
+
+    const auto &group = noInvList->first();
+    // First entry (ordered by event_date) is the sale, which has an invoice
+    QCOMPARE(group.shipmentsRefundsSameActivity.size(), 3);
+    QCOMPARE(group.invoicesToDo.value(0), false); // sale — has invoice
+    QCOMPARE(group.invoicesToDo.value(1), true);  // refund 1
+    QCOMPARE(group.invoicesToDo.value(2), true);  // refund 2
+    QVERIFY(group.invoicingInfo != nullptr);
+    QVERIFY(group.invoicingInfo->getInvoiceNumber().has_value());
+    QCOMPARE(*group.invoicingInfo->getInvoiceNumber(), QString("AMZINV-001"));
+
+    // -----------------------------------------------------------------------
+    // STEP 2: Generate invoice numbers (mirrors PaneBookKeeping::generateInvoices)
+    // -----------------------------------------------------------------------
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    companyAddress.insertRows(0, 1);
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress, &currencyRates);
+
+    auto noInvoicesMap = orderManager.get_channel_site_ShipmentAndRefundsNoInvoices(
+        QDate(2025, 1, 1), QDate(2026, 12, 31));
+    QVERIFY(!noInvoicesMap.isNull());
+    QVERIFY(!noInvoicesMap->isEmpty());
+
+    QStringList invoiceNumbers = generateInvoiceNumbers(
+        *noInvoicesMap, generator, orderManager, QDate(2026, 1, 1));
+
+    // Must generate exactly 2 invoice numbers: AMZINV-001-R01 and AMZINV-001-R02
+    QCOMPARE(invoiceNumbers.size(), 2);
+    QVERIFY(invoiceNumbers.contains(QStringLiteral("AMZINV-001-R01")));
+    QVERIFY(invoiceNumbers.contains(QStringLiteral("AMZINV-001-R02")));
+}
+
+// ===========================================================================
+// test_refundInvoiceNumbers_realData
+//
+// Loads the real vat-eu-2026-01.csv and invoicing-fba-ue_2026-02-08.csv
+// files and verifies that:
+//   - Order 404-4309379-2683555 has two refunds
+//   - getShipmentAndRefundsNoInvoices returns a group where the first
+//     shipment is UXLjbQj0f with invoice IT60000NENVBFT
+//   - The two refunds get invoice numbers IT60000NENVBFT-R01 and
+//     IT60000NENVBFT-R02
+// ===========================================================================
+void TestInvoicing::test_refundInvoiceNumbers_realData()
+{
+    const QString vatDir = findDataDir("data/amazon-vat-reports/2026");
+    const QString fbaDir = findDataDir("data/amazon-fba-invoicing/2026");
+
+    if (vatDir.isEmpty() || fbaDir.isEmpty()) {
+        QSKIP("Real data directories not found — skipping test_refundInvoiceNumbers_realData");
+    }
+
+    const QString vatFile = vatDir + "/vat-eu-2026-01.csv";
+    const QString fbaFile = fbaDir + "/invoicing-fba-ue_2026-02-08.csv";
+
+    if (!QFileInfo::exists(vatFile) || !QFileInfo::exists(fbaFile)) {
+        QSKIP("Real CSV files not found — skipping test_refundInvoiceNumbers_realData");
+    }
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    OrderManager orderManager(tempDir.path());
+
+    // Helper: record importer results into OrderManager the same way PaneOrderFiles does
+    auto importAndRecord = [&](AbstractImporterFile &importer, const QString &filePath) {
+        AbstractImporter::ReturnOrderInfos res;
+        try {
+            res = QCoro::waitFor(importer.loadReport(filePath));
+        } catch (...) {
+            QFAIL("Exception while loading CSV");
+        }
+        QVERIFY2(res.errorReturned.isEmpty(), qPrintable(res.errorReturned));
+        QVERIFY(res.orderInfos);
+
+        ActivitySource source = importer.getActivitySource();
+
+        QList<OrderManager::ShipmentFromSourceEntry> entries;
+        for (const auto &ship : res.orderInfos->shipments)
+            entries.append({ship.getActivities().first().getEventId(), &ship, QDate(), importer.isWrongIfConflict(), false});
+        for (const auto &ref : res.orderInfos->refunds)
+            entries.append({ref.getActivities().first().getEventId(), &ref, QDate(), importer.isWrongIfConflict(), false});
+        orderManager.recordShipmentsFromSource(&source, entries);
+
+        QHash<QString, Address> addrMap;
+        for (const auto &addr : res.orderInfos->orderAddresses)
+            addrMap.insert(addr.orderId, addr.address);
+        orderManager.recordAddressesTo(addrMap);
+
+        for (const auto &inv : res.orderInfos->invoicingInfos)
+            orderManager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
+    };
+
+    // Import FBA invoicing first (shipments with line items), then VAT EU
+    // (adds invoice numbers and imports refunds)
+    {
+        ImporterFileAmazonFbaInvoicing fbaImporter(tempDir.path());
+        importAndRecord(fbaImporter, fbaFile);
+    }
+    {
+        ImporterFileAmazonVatEu vatImporter(tempDir.path());
+        importAndRecord(vatImporter, vatFile);
+    }
+
+    QDate pubDate(2026, 3, 1);
+    orderManager.publish(pubDate);
+
+    // -----------------------------------------------------------------------
+    // STEP 1: Verify getShipmentAndRefundsNoInvoices for order 404-4309379-2683555
+    // The group should contain:
+    //   - UXLjbQj0f (sale, invoiceToDo=false, invoice=IT60000NENVBFT) — first by date
+    //   - refund 1 (invoiceToDo=true)
+    //   - refund 2 (invoiceToDo=true)
+    // -----------------------------------------------------------------------
+    auto noInvList = orderManager.getShipmentAndRefundsNoInvoices(
+        QDate(2025, 1, 1), QDate(2026, 12, 31));
+    QVERIFY(!noInvList.isNull());
+
+    // Find the group for order 404-4309379-2683555
+    const OrderManager::ShipmentRefundsWithUpdates *targetGroup = nullptr;
+    for (const auto &grp : *noInvList) {
+        if (grp.invoicingInfo &&
+            grp.invoicingInfo->getInvoiceNumber().has_value() &&
+            *grp.invoicingInfo->getInvoiceNumber() == QLatin1String("IT60000NENVBFT")) {
+            targetGroup = &grp;
+            break;
+        }
+    }
+    QVERIFY2(targetGroup != nullptr,
+             "No group found with invoicingInfo.invoiceNumber == IT60000NENVBFT");
+
+    // First shipment (ordered by event_date) should be UXLjbQj0f (the sale)
+    QVERIFY(!targetGroup->shipmentsRefundsSameActivity.isEmpty());
+    const auto &firstShip = targetGroup->shipmentsRefundsSameActivity.first();
+    QVERIFY(firstShip);
+    QCOMPARE(firstShip->getId(), QStringLiteral("UXLjbQj0f"));
+    QCOMPARE(targetGroup->invoicesToDo.value(0), false); // sale has invoice already
+
+    // Must have exactly 3 entries: sale + 2 refunds
+    QCOMPARE(targetGroup->shipmentsRefundsSameActivity.size(), 3);
+    QCOMPARE(targetGroup->invoicesToDo.value(1), true);
+    QCOMPARE(targetGroup->invoicesToDo.value(2), true);
+
+    // -----------------------------------------------------------------------
+    // STEP 2: Generate invoice numbers (mirrors PaneBookKeeping::generateInvoices)
+    // -----------------------------------------------------------------------
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    companyAddress.insertRows(0, 1);
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress, &currencyRates);
+
+    auto noInvoicesMap = orderManager.get_channel_site_ShipmentAndRefundsNoInvoices(
+        QDate(2025, 1, 1), QDate(2026, 12, 31));
+    QVERIFY(!noInvoicesMap.isNull());
+    QVERIFY(!noInvoicesMap->isEmpty());
+
+    QStringList invoiceNumbers = generateInvoiceNumbers(
+        *noInvoicesMap, generator, orderManager, QDate(2026, 1, 1));
+
+    // Find the two invoice numbers for order 404-4309379-2683555
+    QStringList orderInvNumbers;
+    for (const QString &n : invoiceNumbers) {
+        if (n.startsWith(QStringLiteral("IT60000NENVBFT")))
+            orderInvNumbers.append(n);
+    }
+
+    QCOMPARE(orderInvNumbers.size(), 2);
+    QVERIFY(orderInvNumbers.contains(QStringLiteral("IT60000NENVBFT-R01")));
+    QVERIFY(orderInvNumbers.contains(QStringLiteral("IT60000NENVBFT-R02")));
+}
+
+// ===========================================================================
+// test_refundInvoiceNumbers_staleOmData
+//
+// Regression test for the bug where generateInvoice() recorded invoicing info
+// under the Amazon order ID (getEventId()) instead of the shipment root ID
+// (getActivityId()).  On subsequent runs, getInvoicingInfo() found this stale
+// entry first and used its wrong invoice number as the base, producing numbers
+// like "202601-DOM-IT-AMZ-AMA-001-R01-R05" instead of "IT600007ENVBFT-R01".
+//
+// Fix: getInvoicingInfo() now checks whether the primary-lookup result was stored
+// under an Amazon order ID (detected by the presence of shipments with
+// order_id = rootId).  If so, it falls through to the order-level fallback,
+// which returns the correct sale invoice stored under the real shipment root.
+//
+// Additionally, generateInvoice() now accepts an optional shipmentId parameter
+// so that PaneBookKeeping can record under the actual shipment root, preventing
+// stale entries from accumulating.
+// ===========================================================================
+void TestInvoicing::test_refundInvoiceNumbers_staleOmData()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "Amazon EU", "StaleTest"};
+    OrderManager orderManager(tempDir.path());
+
+    const QString amazonOrderId = "ORDER-STALE-001";
+    const QString shipmentId    = "SHIP-STALE-001";
+    const QString saleInvoice   = "IT600007ENVBFT";
+    // Simulates the wrong entry written by a previous broken run of generateInvoice()
+    const QString staleInvoice  = "202601-DOM-IT-AMZ-AMA-001-R01-R04";
+
+    // --- Step 1: Add the sale shipment to the DB ---
+    const QDate saleDate(2026, 1, 27);
+    auto saleActRes = Activity::create(
+        amazonOrderId, shipmentId, "",
+        QDateTime(saleDate, QTime(10, 0)), QDateTime(saleDate, QTime(10, 0)),
+        "EUR", "IT", "IT", false, "IT",
+        Amount(100.0, 22.0),
+        TaxSource::MarketplaceProvided, "IT",
+        TaxScheme::DomesticVat, TaxJurisdictionLevel::Country, SaleType::Products);
+    QVERIFY(saleActRes.ok());
+    Shipment sale(QList<Activity>{*saleActRes.value}, QString(), true);
+
+    QList<OrderManager::ShipmentFromSourceEntry> entries;
+    entries.append({amazonOrderId, &sale, QDate(), false, false});
+    orderManager.recordShipmentsFromSource(&source, entries);
+    QDate pubDate(2026, 1, 31);
+    orderManager.publish(pubDate);
+
+    // --- Step 2: Record the correct Amazon FBA invoice under the SHIPMENT root ---
+    auto itemRes = LineItem::create("ITEM-SKU", "Product", 100.0, 0.22, 1);
+    QVERIFY(itemRes.ok());
+    auto saleInfoRes = InvoicingInfo::create(nullptr, {*itemRes.value}, saleInvoice);
+    QVERIFY(saleInfoRes.ok());
+    orderManager.recordInvoicingInfo(shipmentId, &*saleInfoRes.value);
+
+    // --- Step 3: Simulate the stale entry from a previous broken run ---
+    // Previous generateInvoice() called recordInvoicingInfo(orderId, ...) with a
+    // wrong generated number.  This entry must NOT poison the lookup.
+    auto staleInfoRes = InvoicingInfo::create(nullptr, {*itemRes.value}, staleInvoice);
+    QVERIFY(staleInfoRes.ok());
+    orderManager.recordInvoicingInfo(amazonOrderId, &*staleInfoRes.value);
+
+    // --- Step 4: Verify getInvoicingInfo returns the CORRECT sale invoice ---
+    // Before fix: primary lookup finds the stale entry and returns staleInvoice.
+    // After fix:  guard detects amazonOrderId is an order ID, falls through to
+    //             order-level fallback, which returns saleInvoice via SHIP-STALE-001.
+    auto info = orderManager.getInvoicingInfo(amazonOrderId);
+    QVERIFY(!info.isNull());
+    QVERIFY(info->getInvoiceNumber().has_value());
+    QCOMPARE(*info->getInvoiceNumber(), saleInvoice); // Must be IT600007ENVBFT, NOT staleInvoice
+
+    // --- Step 5: Verify getNextInvoiceNumbers generates correct revision numbers ---
+    TaxResolver::TaxContext context;
+    context.taxDeclaringCountryCode = "IT";
+    context.taxScheme               = TaxScheme::DomesticVat;
+    context.taxJurisdictionLevel    = TaxJurisdictionLevel::Country;
+    context.countryCodeVatPaidTo    = "IT";
+
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    companyAddress.insertRows(0, 1);
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress, &currencyRates);
+
+    QList<bool>  invoicesToDo = {true, true};
+    QStringList  refundIds    = {amazonOrderId, amazonOrderId};
+
+    QStringList invoiceNumbers = generator.getNextInvoiceNumbers(
+        saleDate, context, "Amazon", "Amazon EU",
+        invoicesToDo, std::nullopt, refundIds, &orderManager);
+
+    QCOMPARE(invoiceNumbers.size(), 2);
+    // Must produce -R01 and -R02 relative to the CORRECT sale invoice,
+    // NOT -R05/-R06 relative to the stale wrong number.
+    QCOMPARE(invoiceNumbers[0], saleInvoice + "-R01");
+    QCOMPARE(invoiceNumbers[1], saleInvoice + "-R02");
 }
 
 QTEST_MAIN(TestInvoicing)

@@ -35,6 +35,13 @@ PaneOrders::PaneOrders(QWidget *parent) :
                 QDate::currentDate().addDays(-25));
     ui->treeViewInventory->setSortingEnabled(true);
 
+    {
+        const QDate today = QDate::currentDate();
+        ui->dateEditRemoveFrom->setDate(QDate(today.year(), today.month(), 1));
+        ui->dateEditRemoveTo->setDate(today);
+        ui->dateEditRemoveAfter->setDate(today.addDays(-3));
+    }
+
     // Initialise the range pickers to the previous calendar quarter
     {
         const QDate today = QDate::currentDate();
@@ -348,6 +355,53 @@ void PaneOrders::exportReports()
         tr("Reports have been exported to:\n%1").arg(targetDir.absolutePath()));
 }
 
+void PaneOrders::removeDateRange()
+{
+    QDate dateFrom = ui->dateEditRemoveFrom->date();
+    QDate dateTo = ui->dateEditRemoveTo->date();
+
+    if (dateFrom > dateTo) {
+        QMessageBox::warning(this, tr("Invalid Date Range"), tr("The start date must be before or equal to the end date."));
+        return;
+    }
+
+    int ret = QMessageBox::question(this, tr("Confirm Removal"),
+                                    tr("Are you sure you want to remove all unpublished shipments and refunds between %1 and %2?")
+                                        .arg(dateFrom.toString(Qt::TextDate))
+                                        .arg(dateTo.toString(Qt::TextDate)),
+                                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+    if (ret != QMessageBox::Yes) {
+        return;
+    }
+
+    QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
+    OrderManager orderManager(workingDir);
+    orderManager.removeShipmentsRefunds(dateFrom, dateTo);
+
+    QMessageBox::information(this, tr("Removal Complete"), tr("Unpublished shipments and refunds in the specified date range have been removed."));
+}
+
+void PaneOrders::removeCreatedAfter()
+{
+    QDate dateAfter = ui->dateEditRemoveAfter->date();
+
+    int ret = QMessageBox::question(this, tr("Confirm Removal"),
+                                    tr("Are you sure you want to remove all unpublished shipments and refunds created on or after %1?")
+                                        .arg(dateAfter.toString(Qt::TextDate)),
+                                    QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+
+    if (ret != QMessageBox::Yes) {
+        return;
+    }
+
+    QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
+    OrderManager orderManager(workingDir);
+    orderManager.removeShipmentsRefunds(dateAfter);
+
+    QMessageBox::information(this, tr("Removal Complete"), tr("Unpublished shipments and refunds created since the specified date have been removed."));
+}
+
 void PaneOrders::_loadInventoryMoveTree(const QDate &dateStart, const QDate &dateEnd)
 {
     m_lastLoadedStartDate = dateStart;
@@ -461,4 +515,12 @@ void PaneOrders::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneOrders::exportReports);
+    connect(ui->buttonRemoveRange,
+            &QPushButton::clicked,
+            this,
+            &PaneOrders::removeDateRange);
+    connect(ui->buttonRemoveCreatedAfter,
+            &QPushButton::clicked,
+            this,
+            &PaneOrders::removeCreatedAfter);
 }
