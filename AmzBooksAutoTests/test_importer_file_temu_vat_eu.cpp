@@ -87,6 +87,9 @@ private slots:
     void test_marketplace_populatesOrderIdStore();
     void test_marketplace_columnAbsent();
 
+    // Per-line invoice filter
+    void test_linesWithoutInvoiceSkipped();
+
     // Error / edge-case tests
     void test_missingRequiredColumn();
     void test_invalidDateRowSkipped();
@@ -529,17 +532,17 @@ void TestImporterFileTemuVatEu::test_dateRange()
     content += CSV_ROW("PO-069-00000000000000101","FR","TestShop","2025-11-01",
                        "sales","SKU101","20%","1","FR","FR",
                        "11,09","0,00","0,00","2,49","0,00","0,00",
-                       "2,22","0,00","0,00","0,50","2,72","EUR","","");
+                       "2,22","0,00","0,00","0,50","2,72","EUR","INV-101","");
     // Middle
     content += CSV_ROW("PO-069-00000000000000102","FR","TestShop","1 déc. 2025",
                        "return","SKU102","20%","1","FR","FR",
                        "-11,09","0,00","0,00","-2,49","0,00","0,00",
-                       "-2,22","0,00","0,00","-0,50","-2,72","EUR","","");
+                       "-2,22","0,00","0,00","-0,50","-2,72","EUR","CN-102","");
     // Latest date
     content += CSV_ROW("PO-069-00000000000000103","FR","TestShop","26 janv. 2026",
                        "sales","SKU103","20%","1","FR","FR",
                        "11,09","0,00","0,00","2,49","0,00","0,00",
-                       "2,22","0,00","0,00","0,50","2,72","EUR","","");
+                       "2,22","0,00","0,00","0,50","2,72","EUR","INV-103","");
 
     QString file = createTempCsv(content, tempDir);
 
@@ -693,6 +696,89 @@ void TestImporterFileTemuVatEu::test_emptyData()
     QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
     QCOMPARE(result.orderInfos->shipments.size(), 0);
     QCOMPARE(result.orderInfos->refunds.size(),   0);
+}
+
+// ===========================================================================
+// test_linesWithoutInvoiceSkipped
+// Each CSV line that has no invoice ID is skipped individually; lines that do
+// carry an invoice are kept.
+//
+// Three scenarios in one CSV:
+//   PO-069-...091 – 2 rows, neither has invoice → both skipped → no shipment
+//   PO-069-...092 – 2 rows, only first has invoice → 1 activity kept → 1 shipment
+//   PO-069-...093 – 1 row, has invoice → 1 shipment
+// Total expected: 2 shipments (orders 092 and 093).
+// ===========================================================================
+void TestImporterFileTemuVatEu::test_linesWithoutInvoiceSkipped()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    QString content = CSV_HEADER;
+
+    // --- PO-...091: two rows, no invoice on either → both lines skipped ---
+    content += CSV_ROW("PO-069-00000000000000091","FR","TestShop","2025-12-01",
+                       "sales","SKU091A","20%","1","FR","FR",
+                       "10,00","0,00","0,00","2,00","0,00","0,00",
+                       "2,00","0,00","0,00","0,40",
+                       "2,40","EUR","","");
+    content += CSV_ROW("PO-069-00000000000000091","FR","TestShop","2025-12-01",
+                       "sales","SKU091B","20%","1","FR","FR",
+                       "5,00","0,00","0,00","1,00","0,00","0,00",
+                       "1,00","0,00","0,00","0,20",
+                       "1,20","EUR","","");
+
+    // --- PO-...092: two rows, only first has invoice → 1 activity in shipment ---
+    content += CSV_ROW("PO-069-00000000000000092","FR","TestShop","2025-12-02",
+                       "sales","SKU092A","20%","1","FR","FR",
+                       "10,00","0,00","0,00","2,00","0,00","0,00",
+                       "2,00","0,00","0,00","0,40",
+                       "2,40","EUR","INV-092","");
+    content += CSV_ROW("PO-069-00000000000000092","FR","TestShop","2025-12-02",
+                       "sales","SKU092B","20%","1","FR","FR",
+                       "5,00","0,00","0,00","1,00","0,00","0,00",
+                       "1,00","0,00","0,00","0,20",
+                       "1,20","EUR","","");
+
+    // --- PO-...093: single row with invoice → 1 shipment ---
+    content += CSV_ROW("PO-069-00000000000000093","FR","TestShop","2025-12-03",
+                       "sales","SKU093","20%","1","FR","FR",
+                       "11,09","0,00","0,00","2,49","0,00","0,00",
+                       "2,22","0,00","0,00","0,50",
+                       "2,72","EUR","INV-093","");
+
+    QString file = createTempCsv(content, tempDir);
+
+    QTemporaryDir workDir;
+    ImporterFileTemuVatEu importer(workDir.path());
+    auto result = QCoro::waitFor(importer.loadReport(file));
+
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+
+    // Orders 091 (no invoice anywhere) leaves no shipment.
+    // Orders 092 and 093 each produce one shipment.
+    QCOMPARE(result.orderInfos->shipments.size(), 2);
+    QCOMPARE(result.orderInfos->refunds.size(),   0);
+
+    // Verify order 091 is absent
+    for (const auto &s : result.orderInfos->shipments)
+        for (const auto &act : s.getActivities())
+            QVERIFY2(act.getEventId() != "PO-069-00000000000000091",
+                     "order 091 (no invoice) must have been skipped");
+
+    // Order 092 shipment must contain only the row that had an invoice (SKU092A)
+    bool found092 = false;
+    for (const auto &s : result.orderInfos->shipments)
+    {
+        const auto &acts = s.getActivities();
+        if (!acts.isEmpty() && acts.first().getEventId() == "PO-069-00000000000000092")
+        {
+            found092 = true;
+            QCOMPARE(acts.size(), 1);
+            QCOMPARE(acts.first().getSubActivityId(), QString("SKU092A"));
+        }
+    }
+    QVERIFY2(found092, "shipment for order 092 not found");
 }
 
 // ===========================================================================
@@ -938,7 +1024,7 @@ void TestImporterFileTemuVatEu::test_marketplace_populatesOrderIdStore()
                        "sales","SKU074","20%","1","FR","FR",
                        "11,09","0,00","0,00","2,49","0,00","0,00",
                        "2,22","0,00","0,00","0,50",
-                       "2,72","EUR","INV-074","");
+                       "2,72","EUR","INV-074-NOMP","");
 
     QString file = createTempCsv(content, tempDir);
 

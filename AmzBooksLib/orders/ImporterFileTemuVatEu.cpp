@@ -1,5 +1,6 @@
 #include "ImporterFileTemuVatEu.h"
 #include "books/Activity.h"
+#include "books/TaxResolver.h"
 #include "orders/Shipment.h"
 #include "orders/Refund.h"
 #include "orders/InvoicingInfo.h"
@@ -191,6 +192,8 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
     };
     QMap<QString, TempOrder> tempOrders; // key = orderId + "|" + type
 
+    TaxResolver taxResolver(m_workingDirectory);
+
     for (const auto &line : csvData->lines)
     {
         if (line.isEmpty())
@@ -230,8 +233,14 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
         if (currency.isEmpty())
             currency = "EUR";
 
-        // vatPaidTo is the destination country (Temu collects VAT for the buyer's country)
-        QString vatCountry = arrival.isEmpty() ? departure : arrival;
+        // --- Tax context (scheme, declaring country, VAT-paid-to) -----------------
+        TaxResolver::TaxContext taxCtx = taxResolver.getTaxContext(
+            date.startOfDay(),
+            departure,
+            arrival,
+            SaleType::Products,
+            false   // isCompany: Temu is a B2C marketplace
+        );
 
         // --- Amounts -------------------------------------------------------------
         double itemExcl    = parseEuropeanAmount(line.value(idxItemExcl));
@@ -246,12 +255,15 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
 
         // --- Invoice IDs ---------------------------------------------------------
         QString invoiceId      = line.value(idxInvoice).trimmed();
+        if (invoiceId.isEmpty())
+            continue;
         QString subsidyInvId   = (idxSubsidyInvoice >= 0)
                                  ? line.value(idxSubsidyInvoice).trimmed() : "";
 
         // --- Create Activity -----------------------------------------------------
         // activityId = orderId + "_" + sku to be unique within the order.
         ::Amount amount(totalIncl, totalTax);
+        Q_ASSERT(qAbs(totalIncl) < 0.001 || qAbs(totalTax) > 0.001 ); // It could be business customer to handle
 
         auto actResult = Activity::create(
             orderId,                  // eventId (order number)
@@ -262,13 +274,13 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
             currency,
             departure,                // countryCodeFrom
             arrival,                  // countryCodeTo
-            false,                    // isCompany (Temu is B2C marketplace)
-            vatCountry,               // countryCodeVatPaidTo
+            false,                          // isCompany (Temu is B2C marketplace)
+            taxCtx.countryCodeVatPaidTo,
             amount,
             TaxSource::MarketplaceProvided,
-            vatCountry,               // taxDeclaringCountryCode
-            TaxScheme::MarketplaceDeemedSupplier,
-            TaxJurisdictionLevel::Country,
+            taxCtx.taxDeclaringCountryCode,
+            taxCtx.taxScheme,
+            taxCtx.taxJurisdictionLevel,
             SaleType::Products,
             "", "",                   // territories
             invoiceId

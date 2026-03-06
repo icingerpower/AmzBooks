@@ -68,9 +68,14 @@ QVariant OrderTable::data(const QModelIndex &index, int role) const
 
 QVariant OrderTable::headerData(int section, Qt::Orientation orientation, int role) const
 {
-    if (role == Qt::DisplayRole && orientation == Qt::Horizontal) {
-        if (section >= 0 && section < COL_NAMES.size())
-            return COL_NAMES[section];
+    if (role == Qt::DisplayRole) {
+        if (orientation == Qt::Horizontal) {
+            if (section >= 0 && section < COL_NAMES.size()) {
+                return COL_NAMES[section];
+            }
+        } else {
+            return QString::number(section + 1);
+        }
     }
     return QVariant();
 }
