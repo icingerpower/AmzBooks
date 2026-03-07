@@ -42,14 +42,23 @@ class ConcreteBooksTableBank : public AbstractBooksTableBank {
 public:
     ConcreteBooksTableBank(const BooksConnections *connections, const QDir &workingDir)
         : AbstractBooksTableBank(connections, workingDir, nullptr) {}
-        
+
     QString getId() const override { return "ConcreteBankTable"; }
     const AbstractBankStatement *getBankStatement() const override { return &m_bank; }
     ConcreteBankStatement *getMutableBankStatement() { return &m_bank; }
-    
-    // Helper to add rows directly to table for testing (since addFilePaths uses reading)
-    // AbstractBooksTable::add is protected/public? It is public.
-    
+
+private:
+    ConcreteBankStatement m_bank;
+};
+
+class ConcreteBooksTableBank2 : public AbstractBooksTableBank {
+public:
+    ConcreteBooksTableBank2(const BooksConnections *connections, const QDir &workingDir)
+        : AbstractBooksTableBank(connections, workingDir, nullptr) {}
+
+    QString getId() const override { return "ConcreteBankTable2"; }
+    const AbstractBankStatement *getBankStatement() const override { return &m_bank; }
+
 private:
     ConcreteBankStatement m_bank;
 };
@@ -65,6 +74,8 @@ private slots:
     void test_addFilePaths_splitting();
     void test_tryToConnect_overload();
     void test_tryToConnect_more2();
+    void test_getAccount2();
+    void test_bankToBank_connect();
 };
 
 void TestBooksConnection::test_save_load()
@@ -800,6 +811,80 @@ void TestBooksConnection::test_tryToConnect_more2()
     // 1% of 100 is 1.0. 0.01 < 1.0. OK.
     runMultiTest("20_TolSplit", {{b1, 100, "EUR"}}, {{k1, 33.33, "EUR"}, {k1, 33.33, "EUR"}, {k1, 33.33, "EUR"}}, true);
 
+}
+
+void TestBooksConnection::test_getAccount2()
+{
+    // Regression test: getAccount2 must return the account2 of the CONNECTED book entry,
+    // not the book entry at the same row index as the bank entry.
+    QTemporaryDir tempDir;
+    QDir dir(tempDir.path());
+    BooksConnections connections(dir);
+    CurrencyRateManager rateManager(dir, "DUMMY");
+
+    // Book table: row 0 = BOOK_0 (100 EUR, SUPPLIER_A), row 1 = BOOK_1 (200 EUR, SUPPLIER_B)
+    ConcreteBooksTable bookTable(&connections, dir);
+    bookTable.add("BOOK_0", "", QDate::currentDate(), 100.0, "EUR", "Label0", "Acc1_0", "SUPPLIER_A", 0, "", "");
+    bookTable.add("BOOK_1", "", QDate::currentDate(), 200.0, "EUR", "Label1", "Acc1_1", "SUPPLIER_B", 0, "", "");
+
+    // Bank table: row 0 = BANK_0 (200 EUR), row 1 = BANK_1 (100 EUR)
+    // Deliberately cross-connecting so that bank row index != book row index
+    ConcreteBooksTableBank bankTable(&connections, dir);
+    bankTable.add("BANK_0", "", QDate::currentDate(), 200.0, "EUR", "BankLabel0", "", "", 0, "", "");
+    bankTable.add("BANK_1", "", QDate::currentDate(), 100.0, "EUR", "BankLabel1", "", "", 0, "", "");
+
+    // Connect BANK_0 (row 0, 200 EUR) <-> BOOK_1 (row 1, 200 EUR, SUPPLIER_B)
+    {
+        QHash<AbstractBooksTable*, QModelIndexList> sel;
+        sel[&bookTable] = {bookTable.index(1, 0)};
+        sel[&bankTable] = {bankTable.index(0, 0)};
+        connections.tryToConnect(sel, &rateManager);
+    }
+    // Connect BANK_1 (row 1, 100 EUR) <-> BOOK_0 (row 0, 100 EUR, SUPPLIER_A)
+    {
+        QHash<AbstractBooksTable*, QModelIndexList> sel;
+        sel[&bookTable] = {bookTable.index(0, 0)};
+        sel[&bankTable] = {bankTable.index(1, 0)};
+        connections.tryToConnect(sel, &rateManager);
+    }
+
+    // Build cache
+    connections.associateTablesToIds({&bookTable}, nullptr);
+
+    // Bank row 0 (BANK_0) is connected to BOOK_1 (row 1) -> must return SUPPLIER_B
+    QCOMPARE(connections.getAccount2(&bankTable, 0), QString("SUPPLIER_B"));
+
+    // Bank row 1 (BANK_1) is connected to BOOK_0 (row 0) -> must return SUPPLIER_A
+    QCOMPARE(connections.getAccount2(&bankTable, 1), QString("SUPPLIER_A"));
+}
+
+void TestBooksConnection::test_bankToBank_connect()
+{
+    // Regression test: connecting two bank entries (bank-to-bank transfer) must create
+    // a real connection. Previously tryToConnect classified both as "right" items,
+    // leaving leftItems empty and returning without creating any connection.
+    QTemporaryDir tempDir;
+    QDir dir(tempDir.path());
+    BooksConnections connections(dir);
+    CurrencyRateManager rateManager(dir, "DUMMY");
+
+    ConcreteBooksTableBank  bankA(&connections, dir);
+    ConcreteBooksTableBank2 bankB(&connections, dir);
+
+    // Bank A: outgoing transfer -100 EUR
+    bankA.add("BANK_A_1", "", QDate::currentDate(), -100.0, "EUR", "Transfer out", "", "", 0, "", "");
+    // Bank B: incoming transfer +100 EUR
+    bankB.add("BANK_B_1", "", QDate::currentDate(),  100.0, "EUR", "Transfer in",  "", "", 0, "", "");
+
+    QHash<AbstractBooksTable*, QModelIndexList> sel;
+    sel[&bankA] = {bankA.index(0, 0)};
+    sel[&bankB] = {bankB.index(0, 0)};
+
+    // Should succeed and create a connection
+    QVERIFY_THROWS_NO_EXCEPTION(connections.tryToConnect(sel, &rateManager));
+
+    QVERIFY(connections.contains("ConcreteBankTable",  "BANK_A_1"));
+    QVERIFY(connections.contains("ConcreteBankTable2", "BANK_B_1"));
 }
 
 QTEST_MAIN(TestBooksConnection)

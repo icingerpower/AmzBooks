@@ -1019,6 +1019,7 @@ void PaneBookKeeping::associate()
         // Perform associations using BooksConnections
         try {
             m_booksConnections->tryToConnect(bankTable, bankSelection, selfTable, selfIndex);
+            unselectAll();
             //QMessageBox::information(this, tr("Association Successful"),
                 //tr("Successfully associated %1 bank row(s) with the selected self-entry.")
                 //.arg(bankSelection.size()));
@@ -1043,12 +1044,24 @@ void PaneBookKeeping::associate()
         
         // Add bank table with its selection
         tableIndexes.insert(bankTable, bankSelection);
-        
+
+        // Add selections from other bank tabs in toolBoxBanks
+        QList<QTableView *> allBankViews = ui->toolBoxBanks->findChildren<QTableView *>();
+        for (QTableView *bankTabView : std::as_const(allBankViews)) {
+            if (bankTabView == bankView) continue; // already added
+            auto *otherBankTable = qobject_cast<AbstractBooksTableBank*>(bankTabView->model());
+            if (!otherBankTable) continue;
+            QModelIndexList sel = bankTabView->selectionModel()->selectedRows();
+            if (!sel.isEmpty()) {
+                tableIndexes.insert(otherBankTable, sel);
+            }
+        }
+
         // For each book table, get its selection
-        for (const AbstractBooksTable *bookTable : bookTables) {
+        for (const AbstractBooksTable *bookTable : std::as_const(bookTables)) {
             // Find the QTableView for this book table
             QList<QTableView *> allViews = ui->toolBoxSalePurchases->findChildren<QTableView *>();
-            for (QTableView *view : allViews) {
+            for (QTableView *view : std::as_const(allViews)) {
                 if (view->model() == bookTable) {
                     QModelIndexList selection = view->selectionModel()->selectedRows();
                     if (!selection.isEmpty()) {
@@ -1085,8 +1098,9 @@ void PaneBookKeeping::associate()
             // Perform associations using the hash-based tryToConnect
             try {
                 m_booksConnections->tryToConnect(tableIndexes, &currencyRateManager);
-                QMessageBox::information(this, tr("Association Successful"),
-                                         tr("Successfully associated entries between selected tables."));
+                unselectAll();
+                //QMessageBox::information(this, tr("Association Successful"),
+                                         //tr("Successfully associated entries between selected tables."));
             } catch (const std::exception &e) {
                 QMessageBox::warning(this, tr("Association Failed"),
                                      tr("Failed to associate entries: %1").arg(e.what()));

@@ -97,6 +97,12 @@ void BooksConnections::tryToConnect(
         }
     }
 
+    // Bank-to-bank (or self-to-self): all items landed on the right side.
+    // Promote the first right item to left so the cartesian-product connection is created.
+    if (leftItems.isEmpty() && rightItems.size() >= 2) {
+        leftItems.append(rightItems.takeFirst());
+    }
+
     if (leftItems.isEmpty() || rightItems.isEmpty())
     {
         return;
@@ -217,7 +223,7 @@ void BooksConnections::disconnect(AbstractBooksTable *booksTable, const QModelIn
         m_id_id.remove(firstId);
         
         // For each connected ID, remove the backlink to firstId
-        for (const QString &v : values) {
+        for (const QString &v : std::as_const(values)) {
             m_id_id.remove(v, firstId);
         }
         _save();
@@ -237,7 +243,7 @@ void BooksConnections::disconnect(EntrySelfTable *selfTable, const QModelIndex &
         m_id_id.remove(firstId);
         
         // For each connected ID, remove the backlink to firstId
-        for (const QString &v : values) {
+        for (const QString &v : std::as_const(values)) {
             m_id_id.remove(v, firstId);
         }
         _save();
@@ -265,7 +271,7 @@ void BooksConnections::associateTablesToIds(
             const auto &indexRow = table->index(i, 0);
             const auto &rowId = table->getRowId(indexRow);
             const auto &id = _getId(tableId, rowId);
-            m_cacheId_table.insert(id, table);
+            m_cacheId_table.insert(id, qMakePair(table, i));
         }
     }
 
@@ -277,7 +283,7 @@ void BooksConnections::associateTablesToIds(
             const auto &indexRow = selfEntryTable->index(i, 0);
             const auto &rowId = selfEntryTable->getRowId(indexRow);
             const auto &id = _getId(tableId, rowId);
-            m_cacheId_tableSelf.insert(id, selfEntryTable);
+            m_cacheId_tableSelf.insert(id, qMakePair(selfEntryTable, i));
         }
     }
 }
@@ -291,13 +297,13 @@ QString BooksConnections::getAccount2(AbstractBooksTableBank *tableBank, int row
     const auto &otherId = m_id_id[id];
     if (m_cacheId_table.contains(otherId))
     {
-        auto otherTable = m_cacheId_table[otherId];
-        return otherTable->getAccount2(row);
+        auto [otherTable, otherRow] = m_cacheId_table[otherId];
+        return otherTable->getAccount2(otherRow);
     }
     else if (m_cacheId_tableSelf.contains(otherId))
     {
-        auto selfTable = m_cacheId_tableSelf[otherId];
-        return selfTable->getAccount(row);
+        auto [selfTable, selfRow] = m_cacheId_tableSelf[otherId];
+        return selfTable->getAccount(selfRow);
     }
     return "TODO"; //TODOCEDRIC
     //Q_ASSERT(false); // Should not happen

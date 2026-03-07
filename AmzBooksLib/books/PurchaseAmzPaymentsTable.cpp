@@ -110,15 +110,22 @@ QVariant PurchaseAmzPaymentsTable::headerData(int section,
 
 QVariant PurchaseAmzPaymentsTable::data(const QModelIndex &index, int role) const
 {
-    if (!index.isValid())
+    if (!index.isValid()) {
         return QVariant();
+    }
 
     int base = AbstractBooksTable::columnCount();
-    if (index.column() < base)
+    if (index.column() < base) {
         return AbstractBooksTable::data(index, role);
+    }
 
-    if (role != Qt::DisplayRole && role != Qt::EditRole)
+    if (role == Qt::BackgroundRole) {
+        return AbstractBooksTable::data(this->index(index.row(), 0), role);
+    }
+
+    if (role != Qt::DisplayRole && role != Qt::EditRole) {
         return QVariant();
+    }
 
     // Decode the AmzPaymentInfo from the row ID (filename), same approach as PurchaseInvoiceTable
     QString rowId = getRowId(index);

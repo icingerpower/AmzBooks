@@ -5,6 +5,7 @@
 #include <QString>
 #include <QModelIndex>
 #include <QMultiHash>
+#include <QPair>
 
 class AbstractBooksTable;
 class AbstractBooksTableBank;
@@ -35,8 +36,8 @@ private:
     QString _getId(const QString &booksTableId, const QString &rowId) const;
     void _save();
     void _load();
-    QHash<QString, const AbstractBooksTable *> m_cacheId_table;
-    QHash<QString, const EntrySelfTable *> m_cacheId_tableSelf;
+    QHash<QString, QPair<const AbstractBooksTable *, int>> m_cacheId_table;
+    QHash<QString, QPair<const EntrySelfTable *, int>> m_cacheId_tableSelf;
 };
 
 #endif // BOOKSCONNECTIONS_H
