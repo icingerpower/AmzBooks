@@ -42,6 +42,29 @@ PaneOrders::PaneOrders(QWidget *parent) :
         ui->dateEditRemoveAfter->setDate(today.addDays(-3));
     }
 
+    // Initialise the e-reporting date pickers to the last complete period
+    // (periods: 1-10, 11-20, 21-end of month)
+    {
+        const QDate today = QDate::currentDate();
+        QDate erpFrom, erpTo;
+        if (today.day() <= 10) {
+            // Last complete period: 21 to end of previous month
+            const QDate prevMonth = today.addMonths(-1);
+            erpFrom = QDate(prevMonth.year(), prevMonth.month(), 21);
+            erpTo   = QDate(today.year(), today.month(), 1).addDays(-1);
+        } else if (today.day() <= 20) {
+            // Last complete period: 1-10 of current month
+            erpFrom = QDate(today.year(), today.month(), 1);
+            erpTo   = QDate(today.year(), today.month(), 10);
+        } else {
+            // Last complete period: 11-20 of current month
+            erpFrom = QDate(today.year(), today.month(), 11);
+            erpTo   = QDate(today.year(), today.month(), 20);
+        }
+        ui->dateEditEreportingFrom->setDate(erpFrom);
+        ui->dateEditEreportingTo->setDate(erpTo);
+    }
+
     // Initialise the range pickers to the previous calendar quarter
     {
         const QDate today = QDate::currentDate();
@@ -220,6 +243,51 @@ void PaneOrders::displayOrdersNoInvoices()
     
     auto taxTable = new TaxAmountTable(shipmentsList, &currencyRateManager, companyInfo.getCurrency(), companyInfo.getCompanyCountryCode(), this);
     ui->tableViewVat->setModel(taxTable);
+}
+
+void PaneOrders::displayOrdersEreporting()
+{
+    QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
+    OrderManager orderManager(workingDir);
+
+    CompanyInfosTable companyInfo(workingDir);
+    const auto &apiKey = companyInfo.getApiKeyFixer();
+    if (apiKey.isEmpty())
+    {
+        QMessageBox::warning(
+                    this,
+                    tr("Fixer API key"),
+                    tr("Fixer API key is needed for currency rate retrieval"));
+        return;
+    }
+    CurrencyRateManager currencyRateManager(workingDir, apiKey);
+
+    const QDate dateStart = ui->dateEditEreportingFrom->date();
+    const QDate dateEnd   = ui->dateEditEreportingTo->date();
+
+    auto data = orderManager.get_channel_site_ShipmentAndRefundsConflicts(dateStart, dateEnd);
+
+    QList<QSharedPointer<Shipment>> allShipments;
+    if (data) {
+        for (auto itCh = data->constBegin(); itCh != data->constEnd(); ++itCh)
+            for (auto itSt = itCh.value().constBegin(); itSt != itCh.value().constEnd(); ++itSt)
+                for (auto itCtx = itSt.value().constBegin(); itCtx != itSt.value().constEnd(); ++itCtx)
+                    allShipments.append(itCtx.value().shipmentsRefundsSameActivity);
+    }
+    auto orderIdToSite = orderManager.getStores(allShipments);
+
+    auto orderTable = new OrderCompleteTable(data, orderIdToSite, this);
+    ui->tableViewOrders->setModel(orderTable);
+
+    auto taxTable = new TaxAmountTable(data, &currencyRateManager, companyInfo.getCurrency(), companyInfo.getCompanyCountryCode(), this);
+    ui->tableViewVat->setModel(taxTable);
+
+    _loadInventoryMoveTree(dateStart, dateEnd);
+}
+
+void PaneOrders::publishEreporting()
+{
+    // TODO publish by API with a confirmation dialog to create
 }
 
 void PaneOrders::filter()
@@ -507,6 +575,14 @@ void PaneOrders::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneOrders::displayNoPriceSkus);
+    connect(ui->buttonDisplayEreportingOrders,
+            &QPushButton::clicked,
+            this,
+            &PaneOrders::displayOrdersEreporting);
+    connect(ui->buttonPublishEreporting,
+            &QPushButton::clicked,
+            this,
+            &PaneOrders::publishEreporting);
     connect(ui->buttonEditRegradedSkus,
             &QPushButton::clicked,
             this,

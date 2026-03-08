@@ -27,6 +27,8 @@ public slots:
     void displayRecentOrders();
     void displayMonthlyOrders();
     void displayOrdersNoInvoices();
+    void displayOrdersEreporting();
+    void publishEreporting();
     void filter();
     void filterReset();
     void displayNoPriceSkus();

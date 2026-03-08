@@ -6,7 +6,7 @@
    <rect>
     <x>0</x>
     <y>0</y>
-    <width>1530</width>
+    <width>1638</width>
     <height>935</height>
    </rect>
   </property>
@@ -62,6 +62,43 @@
      </item>
      <item>
       <widget class="Line" name="line">
+       <property name="orientation">
+        <enum>Qt::Orientation::Vertical</enum>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QPushButton" name="buttonDisplayEreportingOrders">
+       <property name="text">
+        <string>Display e-reporting</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QDateEdit" name="dateEditEreportingFrom"/>
+     </item>
+     <item>
+      <widget class="QLabel" name="label_4">
+       <property name="text">
+        <string>to</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QDateEdit" name="dateEditEreportingTo"/>
+     </item>
+     <item>
+      <widget class="QPushButton" name="buttonPublishEreporting">
+       <property name="toolTip">
+        <string>Publish e-reporting data</string>
+       </property>
+       <property name="text">
+        <string>Publish</string>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="Line" name="line_5">
        <property name="orientation">
         <enum>Qt::Orientation::Vertical</enum>
        </property>
@@ -226,7 +263,7 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>1512</width>
+         <width>1620</width>
          <height>438</height>
         </rect>
        </property>
@@ -244,7 +281,7 @@
         <rect>
          <x>0</x>
          <y>0</y>
-         <width>1512</width>
+         <width>1620</width>
          <height>438</height>
         </rect>
        </property>
