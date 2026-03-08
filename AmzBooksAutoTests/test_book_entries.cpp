@@ -25,6 +25,9 @@
 #include <QCoroFuture>
 #include "books/BankQontoTable.h"
 #include "books/BooksConnections.h"
+#include "books/AbstractBooksTable.h"
+#include "books/AbstractBooksTableBank.h"
+#include "banks/AbstractBankStatement.h"
 #include "books/AmzPaymentSettings.h"
 #include "inventory/InventoryMoveTree.h"
 
@@ -188,6 +191,11 @@ private slots:
 
     // ── Invoice generation with refunds that have no Amazon invoice number ───
     void test_invoice_generation_refunds_synthetic();
+
+    // ── BooksConnections::tryToConnect same-currency USD association ─────────
+    void test_associate_usd_invoice_usd_bank_succeeds();
+    void test_associate_eur_invoice_usd_bank_fails_without_rate();
+    void test_associate_usd_invoice_usd_bank_with_api_key_blocker();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -5006,6 +5014,147 @@ void TestBookEntries::test_invoice_generation_refunds_synthetic()
     QVERIFY(!noInvMap.isNull());
 
     checkRefundsHaveInvoicingInfo(manager, noInvMap, "ORDER-TEST-001", 2);
+}
+
+// ─── Helpers for tryToConnect same-currency tests ────────────────────────────
+
+namespace {
+
+class BookTableForAssoc : public AbstractBooksTable {
+public:
+    BookTableForAssoc(const BooksConnections *c, const QDir &dir)
+        : AbstractBooksTable(c, dir, nullptr) {}
+    QString getId() const override { return "BookForAssoc"; }
+    void load(int) override {}
+};
+
+class BankStatementForAssoc : public AbstractBankStatement {
+public:
+    BankStatementForAssoc(QObject *parent = nullptr) : AbstractBankStatement(parent) {}
+    QString getId() const override { return "BankStmtForAssoc"; }
+    QString getName() const override { return "BankForAssoc"; }
+    QString defaultAccount() const override { return "512000"; }
+    QString defaultAccountFees() const override { return "627000"; }
+    QString defaultJournal() const override { return "BQ"; }
+    QSharedPointer<QList<BankRow>> readRows(const QString &) const override {
+        return QSharedPointer<QList<BankRow>>::create();
+    }
+};
+
+class BankTableForAssoc : public AbstractBooksTableBank {
+public:
+    BankTableForAssoc(const BooksConnections *c, const QDir &dir)
+        : AbstractBooksTableBank(c, dir, nullptr) {}
+    QString getId() const override { return "BankForAssoc"; }
+    const AbstractBankStatement *getBankStatement() const override { return &m_stmt; }
+private:
+    BankStatementForAssoc m_stmt;
+};
+
+} // namespace
+
+// ─── test_associate_usd_invoice_usd_bank_succeeds ────────────────────────────
+// Confirms that tryToConnect does NOT need a rate manager when both sides share
+// the same currency (USD). The UI-level bug in PaneBookKeeping::associate()
+// was blocking same-currency associations by gating on the Fixer.io API key.
+void TestBookEntries::test_associate_usd_invoice_usd_bank_succeeds()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    BooksConnections connections(dir);
+    BookTableForAssoc bookTable(&connections, dir);
+    BankTableForAssoc bankTable(&connections, dir);
+
+    const QDate date(2025, 11, 15);
+    bookTable.add("INVOICE_USD_001", "", date,  56.04, "USD", "Purchase USD", "60110", "40110", 0.0, "", "");
+    bankTable.add("BANK_USD_001",    "", date, -56.04, "USD", "Bank USD",     "",      "",      0.0, "", "");
+
+    QHash<AbstractBooksTable *, QModelIndexList> selection;
+    selection[&bookTable] = {bookTable.index(0, 0)};
+    selection[&bankTable] = {bankTable.index(0, 0)};
+
+    // nullptr: no API key, no HTTP call — must succeed for same-currency
+    bool threw = false;
+    try {
+        connections.tryToConnect(selection, nullptr);
+    } catch (...) {
+        threw = true;
+    }
+
+    QVERIFY2(!threw, "tryToConnect must succeed for USD-USD without a rate manager");
+    QVERIFY(connections.contains("BookForAssoc", "INVOICE_USD_001"));
+    QVERIFY(connections.contains("BankForAssoc", "BANK_USD_001"));
+}
+
+// ─── test_associate_eur_invoice_usd_bank_fails_without_rate ──────────────────
+// Confirms that tryToConnect throws when a rate manager is required (EUR book
+// entry paired with a USD bank entry) but none is provided.
+void TestBookEntries::test_associate_eur_invoice_usd_bank_fails_without_rate()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    BooksConnections connections(dir);
+    BookTableForAssoc bookTable(&connections, dir);
+    BankTableForAssoc bankTable(&connections, dir);
+
+    const QDate date(2025, 11, 15);
+    bookTable.add("INVOICE_EUR_001", "", date,  56.04, "EUR", "Purchase EUR", "60110", "40110", 0.0, "", "");
+    bankTable.add("BANK_USD_002",    "", date, -56.04, "USD", "Bank USD",     "",      "",      0.0, "", "");
+
+    QHash<AbstractBooksTable *, QModelIndexList> selection;
+    selection[&bookTable] = {bookTable.index(0, 0)};
+    selection[&bankTable] = {bankTable.index(0, 0)};
+
+    bool threw = false;
+    try {
+        connections.tryToConnect(selection, nullptr);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+
+    QVERIFY2(threw, "tryToConnect must throw for EUR-USD without a rate manager");
+}
+
+// ─── test_associate_usd_invoice_usd_bank_with_api_key_blocker ────────────────
+// Shows that a CurrencyRateManager built with an empty API key is never
+// consulted for same-currency associations, so the connection succeeds even
+// when the key is empty. This validates that the fix (removing the API-key gate
+// in PaneBookKeeping::associate and always calling tryToConnect) is safe.
+void TestBookEntries::test_associate_usd_invoice_usd_bank_with_api_key_blocker()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    BooksConnections connections(dir);
+    BookTableForAssoc bookTable(&connections, dir);
+    BankTableForAssoc bankTable(&connections, dir);
+
+    const QDate date(2025, 11, 15);
+    bookTable.add("INVOICE_USD_002", "", date,  56.04, "USD", "Purchase USD", "60110", "40110", 0.0, "", "");
+    bankTable.add("BANK_USD_003",    "", date, -56.04, "USD", "Bank USD",     "",      "",      0.0, "", "");
+
+    QHash<AbstractBooksTable *, QModelIndexList> selection;
+    selection[&bookTable] = {bookTable.index(0, 0)};
+    selection[&bankTable] = {bankTable.index(0, 0)};
+
+    // A rate manager with an empty key must not be called for same-currency.
+    CurrencyRateManager rateManager(dir, "");
+
+    bool threw = false;
+    try {
+        connections.tryToConnect(selection, &rateManager);
+    } catch (...) {
+        threw = true;
+    }
+
+    QVERIFY2(!threw, "Same-currency USD-USD must succeed even with an empty API key");
+    QVERIFY(connections.contains("BookForAssoc", "INVOICE_USD_002"));
+    QVERIFY(connections.contains("BankForAssoc", "BANK_USD_003"));
 }
 
 QTEST_MAIN(TestBookEntries)

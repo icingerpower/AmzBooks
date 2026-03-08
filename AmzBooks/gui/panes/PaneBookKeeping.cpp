@@ -1080,31 +1080,24 @@ void PaneBookKeeping::associate()
             return;
         }
 
-        // Create CurrencyRateManager for the connection
+        // Create CurrencyRateManager for the connection (only needed for cross-currency).
+        // Same-currency associations work without an API key; tryToConnect will throw
+        // with a clear error if a rate lookup is actually required but no key is set.
         QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
         CompanyInfosTable companyInfo{workingDir};
         const auto &apiKey = companyInfo.getApiKeyFixer();
-        if (apiKey.isEmpty())
-        {
-            QMessageBox::warning(
-                        this
-                        , tr("Fixer.io API key is empty")
-                        , tr("Fixer.io API key can't be empty. You need to create an account and enter the API key in the settings."));
-        }
-        else
-        {
-            CurrencyRateManager currencyRateManager{workingDir, apiKey};
 
-            // Perform associations using the hash-based tryToConnect
-            try {
+        try {
+            if (apiKey.isEmpty()) {
+                m_booksConnections->tryToConnect(tableIndexes, nullptr);
+            } else {
+                CurrencyRateManager currencyRateManager{workingDir, apiKey};
                 m_booksConnections->tryToConnect(tableIndexes, &currencyRateManager);
-                unselectAll();
-                //QMessageBox::information(this, tr("Association Successful"),
-                                         //tr("Successfully associated entries between selected tables."));
-            } catch (const std::exception &e) {
-                QMessageBox::warning(this, tr("Association Failed"),
-                                     tr("Failed to associate entries: %1").arg(e.what()));
             }
+            unselectAll();
+        } catch (const std::exception &e) {
+            QMessageBox::warning(this, tr("Association Failed"),
+                                 tr("Failed to associate entries: %1").arg(e.what()));
         }
     }
 }

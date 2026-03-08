@@ -128,32 +128,37 @@ void BooksConnections::tryToConnect(
         QString curr = tbl->data(tbl->index(idx.row(), 2)).toString();
         
         if (curr != refCurrency) {
-             // Convert Left items to RefCurrency too? 
-             // If allow mixed Book currencies.
              if (currencyRateManager) {
                  double r = currencyRateManager->rate(curr, refCurrency, refDate);
                  sumLeft += amt * r;
              } else {
-                 // Fallback or error? Assume 1:1
-                 sumLeft += amt;
+                 ExceptionWithTitleText exception(
+                     QObject::tr("Currency Rate Error"),
+                     QObject::tr("A currency rate is required to convert %1 to %2 but no rate manager is available.")
+                         .arg(curr, refCurrency));
+                 exception.raise();
              }
         } else {
             sumLeft += amt;
         }
     }
-    
+
     // Sum Right (Convert to RefCurrency)
     for (const auto& item : rightItems) {
         auto [tbl, idx] = item;
         double amt = tbl->data(tbl->index(idx.row(), 1)).toDouble();
         QString curr = tbl->data(tbl->index(idx.row(), 2)).toString();
-        
+
         if (curr != refCurrency) {
              if (currencyRateManager) {
                  double r = currencyRateManager->rate(curr, refCurrency, refDate);
                  sumRight += amt * r;
              } else {
-                 sumRight += amt;
+                 ExceptionWithTitleText exception(
+                     QObject::tr("Currency Rate Error"),
+                     QObject::tr("A currency rate is required to convert %1 to %2 but no rate manager is available.")
+                         .arg(curr, refCurrency));
+                 exception.raise();
              }
         } else {
             sumRight += amt;
