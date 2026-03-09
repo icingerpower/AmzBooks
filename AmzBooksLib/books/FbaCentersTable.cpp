@@ -263,6 +263,7 @@ void FbaCentersTable::_fillIfEmpty()
         addCenter({"LUK2", "US", "", ""});
         addCenter({"MCO1", "US", "", ""});
         addCenter({"MDW4", "US", "", ""});
+        addCenter({"MIA1", "US", "", ""});
         addCenter({"MDW7", "US", "", ""});
         addCenter({"MEM4", "US", "", ""});
         addCenter({"MGE1", "US", "", ""});

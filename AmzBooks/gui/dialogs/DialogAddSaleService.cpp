@@ -2,6 +2,15 @@
 #include "ui_DialogAddSaleService.h"
 #include <QDialogButtonBox>
 #include <QPushButton>
+#include <QDoubleSpinBox>
+#include <QTableWidget>
+#include <QHeaderView>
+
+// Column indices in the articles table
+static constexpr int COL_DESCRIPTION = 0;
+static constexpr int COL_UNIT_PRICE  = 1;
+static constexpr int COL_QUANTITY    = 2;
+static constexpr int COL_TOTAL       = 3;
 
 DialogAddSaleService::DialogAddSaleService(ServiceClientManager *clientManager, QWidget *parent) :
     QDialog(parent),
@@ -13,15 +22,14 @@ DialogAddSaleService::DialogAddSaleService(ServiceClientManager *clientManager, 
     ui->comboBoxClient->setModel(m_clientManager);
     ui->comboBoxClient->setModelColumn(ServiceClientManager::ColClientName);
 
-    // Populate payment term combo from the canonical labels defined in ServiceClientManager
     ui->comboBoxPaymentTerm->addItems(ServiceClientManager::paymentTypeLabels());
     ui->comboBoxPaymentTerm->setCurrentIndex(static_cast<int>(PaymentType::EndOfNextMonth));
 
     ui->dateEdit->setDate(QDate::currentDate());
 
-    // OK starts disabled — requires valid input
     ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
 
+    _setupTable();
     _setupConnections();
     _updateCurrency();
 }
@@ -29,6 +37,57 @@ DialogAddSaleService::DialogAddSaleService(ServiceClientManager *clientManager, 
 DialogAddSaleService::~DialogAddSaleService()
 {
     delete ui;
+}
+
+void DialogAddSaleService::_setupTable()
+{
+    auto *t = ui->tableArticles;
+    t->setColumnCount(4);
+    t->setHorizontalHeaderLabels({tr("Description"), tr("Unit Price (TTC)"), tr("Qty"), tr("Total (TTC)")});
+    t->horizontalHeader()->setSectionResizeMode(COL_DESCRIPTION, QHeaderView::Stretch);
+    t->horizontalHeader()->setSectionResizeMode(COL_UNIT_PRICE,  QHeaderView::ResizeToContents);
+    t->horizontalHeader()->setSectionResizeMode(COL_QUANTITY,    QHeaderView::ResizeToContents);
+    t->horizontalHeader()->setSectionResizeMode(COL_TOTAL,       QHeaderView::ResizeToContents);
+    t->verticalHeader()->setVisible(false);
+
+    _addArticleRow();
+}
+
+void DialogAddSaleService::_addArticleRow(const QString &title, double unitPrice, double qty)
+{
+    auto *t = ui->tableArticles;
+    const int row = t->rowCount();
+    t->insertRow(row);
+
+    // Description — plain editable cell
+    t->setItem(row, COL_DESCRIPTION, new QTableWidgetItem(title));
+
+    // Unit price spin box
+    auto *priceBox = new QDoubleSpinBox;
+    priceBox->setRange(0.01, 9'999'999.99);
+    priceBox->setDecimals(2);
+    priceBox->setValue(unitPrice);
+    priceBox->setSuffix(QString(" %1").arg(getCurrency()));
+    connect(priceBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &DialogAddSaleService::_onTableDataChanged);
+    t->setCellWidget(row, COL_UNIT_PRICE, priceBox);
+
+    // Quantity spin box — 1 decimal, minimum 0.1
+    auto *qtyBox = new QDoubleSpinBox;
+    qtyBox->setRange(0.1, 9999.9);
+    qtyBox->setDecimals(1);
+    qtyBox->setSingleStep(0.1);
+    qtyBox->setValue(qty > 0.0 ? qty : 1.0);
+    connect(qtyBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
+            this, &DialogAddSaleService::_onTableDataChanged);
+    t->setCellWidget(row, COL_QUANTITY, qtyBox);
+
+    // Total — read-only computed cell
+    auto *totalItem = new QTableWidgetItem;
+    totalItem->setFlags(totalItem->flags() & ~Qt::ItemIsEditable);
+    t->setItem(row, COL_TOTAL, totalItem);
+
+    _onTableDataChanged();
 }
 
 void DialogAddSaleService::_setupConnections()
@@ -39,17 +98,17 @@ void DialogAddSaleService::_setupConnections()
     connect(ui->comboBoxClient, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &DialogAddSaleService::_updateCurrency);
 
-    connect(ui->lineEditReference,    &QLineEdit::textChanged,
-            this, &DialogAddSaleService::_updateOkButton);
-    connect(ui->lineEditServiceTitle, &QLineEdit::textChanged,
-            this, &DialogAddSaleService::_updateOkButton);
-    connect(ui->doubleSpinBoxUnitPrice, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, &DialogAddSaleService::_updateOkButton);
-    connect(ui->spinBoxQuantity, QOverload<int>::of(&QSpinBox::valueChanged),
+    connect(ui->lineEditReference, &QLineEdit::textChanged,
             this, &DialogAddSaleService::_updateOkButton);
 
     connect(ui->comboBoxPaymentTerm, QOverload<int>::of(&QComboBox::currentIndexChanged),
             this, &DialogAddSaleService::_updatePaymentDays);
+
+    connect(ui->tableArticles, &QTableWidget::itemChanged,
+            this, &DialogAddSaleService::_onTableDataChanged);
+
+    connect(ui->pushButtonAddArticle,    &QPushButton::clicked, this, &DialogAddSaleService::_addArticle);
+    connect(ui->pushButtonRemoveArticle, &QPushButton::clicked, this, &DialogAddSaleService::_removeArticle);
 }
 
 void DialogAddSaleService::_updatePaymentDays()
@@ -60,34 +119,80 @@ void DialogAddSaleService::_updatePaymentDays()
 
 void DialogAddSaleService::_updateCurrency()
 {
-    int row = ui->comboBoxClient->currentIndex();
-    if (row >= 0)
-        ui->labelCurrency->setText(m_clientManager->getCurrency(row));
+    const QString currency = getCurrency();
+    auto *t = ui->tableArticles;
+    for (int row = 0; row < t->rowCount(); ++row) {
+        if (auto *priceBox = qobject_cast<QDoubleSpinBox *>(t->cellWidget(row, COL_UNIT_PRICE)))
+            priceBox->setSuffix(QString(" %1").arg(currency));
+    }
+    _onTableDataChanged();
+}
+
+void DialogAddSaleService::_onTableDataChanged()
+{
+    _updateTotal();
+    _updateOkButton();
+}
+
+void DialogAddSaleService::_updateTotal()
+{
+    auto *t = ui->tableArticles;
+    double grand = 0.0;
+    for (int row = 0; row < t->rowCount(); ++row) {
+        auto *priceBox = qobject_cast<QDoubleSpinBox *>(t->cellWidget(row, COL_UNIT_PRICE));
+        auto *qtyBox   = qobject_cast<QDoubleSpinBox *>(t->cellWidget(row, COL_QUANTITY));
+        if (!priceBox || !qtyBox) continue;
+        const double total = priceBox->value() * qtyBox->value();
+        grand += total;
+        if (auto *item = t->item(row, COL_TOTAL))
+            item->setText(QString::number(total, 'f', 2));
+    }
+    ui->labelTotal->setText(tr("Total: %1 %2").arg(grand, 0, 'f', 2).arg(getCurrency()));
 }
 
 void DialogAddSaleService::_updateOkButton()
 {
-    bool valid = ui->doubleSpinBoxUnitPrice->value() > 0.0
-              && ui->spinBoxQuantity->value() > 0
-              && !ui->lineEditReference->text().trimmed().isEmpty()
-              && !ui->lineEditServiceTitle->text().trimmed().isEmpty();
+    const bool valid = !ui->lineEditReference->text().trimmed().isEmpty()
+                    && !getLineItems().isEmpty();
     ui->buttonBox->button(QDialogButtonBox::Ok)->setEnabled(valid);
 }
+
+void DialogAddSaleService::_addArticle()
+{
+    _addArticleRow();
+}
+
+void DialogAddSaleService::_removeArticle()
+{
+    auto *t = ui->tableArticles;
+    if (t->rowCount() <= 1) return; // keep at least one row
+    int row = t->currentRow();
+    if (row < 0) row = t->rowCount() - 1;
+    t->removeRow(row);
+    _onTableDataChanged();
+}
+
+// ── Setters ──────────────────────────────────────────────────────────────────
 
 void DialogAddSaleService::setDate(const QDate &date)
 {
     ui->dateEdit->setDate(date);
 }
 
-void DialogAddSaleService::setUnitPrice(double amount)
-{
-    ui->doubleSpinBoxUnitPrice->setValue(amount);
-}
-
 void DialogAddSaleService::setReference(const QString &ref)
 {
     ui->lineEditReference->setText(ref);
 }
+
+void DialogAddSaleService::setFirstArticleUnitPrice(double price)
+{
+    auto *t = ui->tableArticles;
+    if (t->rowCount() == 0) return;
+    if (auto *priceBox = qobject_cast<QDoubleSpinBox *>(t->cellWidget(0, COL_UNIT_PRICE)))
+        priceBox->setValue(price);
+}
+
+// ── Getters ──────────────────────────────────────────────────────────────────
 
 QString DialogAddSaleService::getSelectedClientName() const
 {
@@ -104,29 +209,14 @@ QDate DialogAddSaleService::getDate() const
     return ui->dateEdit->date();
 }
 
-double DialogAddSaleService::getUnitPrice() const
-{
-    return ui->doubleSpinBoxUnitPrice->value();
-}
-
-int DialogAddSaleService::getQuantity() const
-{
-    return ui->spinBoxQuantity->value();
-}
-
 QString DialogAddSaleService::getInvoiceId() const
 {
     return ui->lineEditReference->text();
 }
 
-QString DialogAddSaleService::getServiceTitle() const
-{
-    return ui->lineEditServiceTitle->text();
-}
-
 QString DialogAddSaleService::getCurrency() const
 {
-    int row = ui->comboBoxClient->currentIndex();
+    const int row = ui->comboBoxClient->currentIndex();
     if (row >= 0)
         return m_clientManager->getCurrency(row);
     return QString();
@@ -134,7 +224,7 @@ QString DialogAddSaleService::getCurrency() const
 
 QString DialogAddSaleService::getAccount() const
 {
-    int row = ui->comboBoxClient->currentIndex();
+    const int row = ui->comboBoxClient->currentIndex();
     if (row >= 0)
         return m_clientManager->getAccount(row);
     return QString();
@@ -153,4 +243,20 @@ int DialogAddSaleService::getPaymentDays() const
 bool DialogAddSaleService::getVatOnPayment() const
 {
     return ui->checkBoxVatOnPayment->isChecked();
+}
+
+QList<ServiceSalesBooksTable::SaleLineItemInput> DialogAddSaleService::getLineItems() const
+{
+    QList<ServiceSalesBooksTable::SaleLineItemInput> result;
+    auto *t = ui->tableArticles;
+    for (int row = 0; row < t->rowCount(); ++row) {
+        const auto *descItem = t->item(row, COL_DESCRIPTION);
+        const auto *priceBox = qobject_cast<QDoubleSpinBox *>(t->cellWidget(row, COL_UNIT_PRICE));
+        const auto *qtyBox   = qobject_cast<QDoubleSpinBox *>(t->cellWidget(row, COL_QUANTITY));
+        if (!descItem || !priceBox || !qtyBox) continue;
+        const QString title = descItem->text().trimmed();
+        if (title.isEmpty() || priceBox->value() <= 0.0 || qtyBox->value() <= 0.0) continue;
+        result.append({title, priceBox->value(), qtyBox->value()});
+    }
+    return result;
 }

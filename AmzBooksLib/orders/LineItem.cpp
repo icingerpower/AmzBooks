@@ -4,7 +4,7 @@ Result<LineItem> LineItem::create(QString sku,
                                   QString name,
                                   double taxedAmount,
                                   double vatRate,
-                                  int quantity)
+                                  double quantity)
 {
     Result<LineItem> result;
 
@@ -34,7 +34,7 @@ LineItem::LineItem(
         QString name,
         double taxedAmount,
         double vatRate,
-        int quantity)
+        double quantity)
     : m_sku(std::move(sku))
     , m_name(std::move(name))
     , m_quantity(quantity)
@@ -57,7 +57,7 @@ void LineItem::setName(const QString &name)
     m_name = name;
 }
 
-int LineItem::getQuantity() const noexcept
+double LineItem::getQuantity() const noexcept
 {
     return m_quantity;
 }
@@ -100,7 +100,7 @@ void LineItem::adjustTaxes(double delta)
 
 LineItem::LineItem(QString sku,
                    QString name,
-                   int quantity,
+                   double quantity,
                    Amount amount)
     : m_sku(std::move(sku))
     , m_name(std::move(name))
@@ -125,7 +125,7 @@ LineItem LineItem::fromJson(const QJsonObject &json)
     return LineItem(
         json["sku"].toString(),
         json["name"].toString(),
-        json["quantity"].toInt(),
+        json["quantity"].toDouble(),
         Amount(json["amountTaxed"].toDouble(), json["amountTaxes"].toDouble())
     );
 }

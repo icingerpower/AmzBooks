@@ -71,7 +71,7 @@ private slots:
         // Remove
         manager.removeClient(0);
         QCOMPARE(manager.rowCount(), 0);
-        
+
         ServiceClientManager manager3(tempDir.path());
         QCOMPARE(manager3.rowCount(), 0);
     }
@@ -80,13 +80,13 @@ private slots:
     {
          QTemporaryDir tempDir;
          if (!tempDir.isValid()) QFAIL("Could not create temp dir");
-         
+
          OrderManager orderManager(tempDir.path());
          orderManager.deleteDatabase(); // Ensure clean
-         
+
          ServiceClientManager clientManager(tempDir.path());
          clientManager.addClient("ClientA", "Service A", "FR", "FR123", "EUR");
-         
+
          ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
          VatResolver vatResolver(tempDir.path());
          TaxResolver taxResolver(tempDir.path());
@@ -94,8 +94,11 @@ private slots:
          QDate date(2023, 1, 15);
          QString expectedOrderId = "Service-20230115-ClientA";
 
+         using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
          // 1. Create Sale
-         table.createSale(&clientManager, 0, date, 600.0, "EUR", expectedOrderId, "Service A", 1, "", vatResolver, taxResolver);
+         table.createSale(&clientManager, 0, date, "EUR", expectedOrderId, "",
+                          {Item{"Service A", 600.0, 1.0}}, vatResolver, taxResolver);
 
          QCOMPARE(table.rowCount(), 1);
          QCOMPARE(orderManager.containsOrder(expectedOrderId), true);
@@ -110,21 +113,22 @@ private slots:
          // 2. Duplicate Check
          bool exceptionCaught = false;
          try {
-             table.createSale(&clientManager, 0, date, 600.0, "EUR", expectedOrderId, "Service A", 1, "", vatResolver, taxResolver);
+             table.createSale(&clientManager, 0, date, "EUR", expectedOrderId, "",
+                              {Item{"Service A", 600.0, 1.0}}, vatResolver, taxResolver);
          } catch (const ExceptionWithTitleText &e) {
              exceptionCaught = true;
          }
          QVERIFY(exceptionCaught);
-         
+
          // 3. Remove
          bool removed = table.remove(expectedOrderId);
          QVERIFY(removed);
          QCOMPARE(table.rowCount(), 0);
          QCOMPARE(orderManager.containsOrder(expectedOrderId), false);
     }
-    
+
     void test_persistence();
-    
+
     // ========== NEW TESTS FOR PAYMENT DATE FEATURE ==========
     void test_InvoicingInfo_paymentDate();
     void test_ServiceClientManager_paymentTypes();
@@ -153,7 +157,7 @@ void TestServiceSales::test_InvoicingInfo_paymentDate()
         InvoicingInfo info = *res.value;
         QCOMPARE(info.getPaymentDate(orderDate), orderDate);
     }
-    
+
     // VERIFY 2: InvoicingInfo with explicit payment date returns that date
     {
         QDate orderDate(2025, 3, 15);
@@ -163,7 +167,7 @@ void TestServiceSales::test_InvoicingInfo_paymentDate()
         InvoicingInfo info = *res.value;
         QCOMPARE(info.getPaymentDate(orderDate), paymentDate);
     }
-    
+
     // VERIFY 3: JSON round-trip without paymentDate
     {
         auto res = InvoicingInfo::create(nullptr, {}, "INV-003", "http://link.com", std::nullopt);
@@ -176,7 +180,7 @@ void TestServiceSales::test_InvoicingInfo_paymentDate()
         QCOMPARE(loaded.getPaymentDate(orderDate), orderDate);
         QCOMPARE(loaded.getInvoiceNumber().value(), "INV-003");
     }
-    
+
     // VERIFY 4: JSON round-trip with paymentDate
     {
         QDate paymentDate(2025, 5, 31);
@@ -197,50 +201,50 @@ void TestServiceSales::test_ServiceClientManager_paymentTypes()
     if (!tempDir.isValid()) QFAIL("Could not create temp dir");
 
     ServiceClientManager manager(tempDir.path());
-    
+
     // VERIFY 5: Add client with Instant payment (default)
     manager.addClient("Client1", "ServiceA", "FR", "FR111", "EUR");
     QCOMPARE(manager.getPaymentType(0), PaymentType::Instant);
     QCOMPARE(manager.getPaymentDays(0), 0);
-    
+
     // VERIFY 6: Add client with AfterXDays (30 days)
     manager.addClient("Client2", "ServiceB", "DE", "DE222", "EUR",
                       PaymentType::AfterXDays, 30);
     QCOMPARE(manager.getPaymentType(1), PaymentType::AfterXDays);
     QCOMPARE(manager.getPaymentDays(1), 30);
-    
+
     // VERIFY 7: Add client with EndOfNextMonth
     manager.addClient("Client3", "ServiceC", "US", "US333", "USD",
                       PaymentType::EndOfNextMonth, 0);
     QCOMPARE(manager.getPaymentType(2), PaymentType::EndOfNextMonth);
-    
+
     // VERIFY 8: calculatePaymentDate for Instant returns order date
     {
         QDate orderDate(2025, 6, 15);
         QCOMPARE(manager.calculatePaymentDate(0, orderDate), orderDate);
     }
-    
+
     // VERIFY 9: calculatePaymentDate for AfterXDays adds correct days
     {
         QDate orderDate(2025, 6, 15);
         QDate expected(2025, 7, 15); // + 30 days
         QCOMPARE(manager.calculatePaymentDate(1, orderDate), expected);
     }
-    
+
     // VERIFY 10: calculatePaymentDate for EndOfNextMonth (mid-month order)
     {
         QDate orderDate(2025, 6, 15);
         QDate expected(2025, 7, 31); // End of July
         QCOMPARE(manager.calculatePaymentDate(2, orderDate), expected);
     }
-    
+
     // VERIFY 11: calculatePaymentDate for EndOfNextMonth (end of month order)
     {
         QDate orderDate(2025, 1, 31);
         QDate expected(2025, 2, 28); // End of February (non-leap year 2025)
         QCOMPARE(manager.calculatePaymentDate(2, orderDate), expected);
     }
-    
+
     // VERIFY 12: Persistence - reload and verify payment types
     {
         ServiceClientManager manager2(tempDir.path());
@@ -256,14 +260,14 @@ void TestServiceSales::test_createSale_instantPayment()
 {
     QTemporaryDir tempDir;
     if (!tempDir.isValid()) QFAIL("Could not create temp dir");
-    
+
     OrderManager orderManager(tempDir.path());
     orderManager.deleteDatabase();
-    
+
     ServiceClientManager clientManager(tempDir.path());
     // Client with Instant payment (default)
     clientManager.addClient("InstantClient", "Consulting", "FR", "FR001", "EUR");
-    
+
     ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
     VatResolver vatResolver(tempDir.path());
     TaxResolver taxResolver(tempDir.path());
@@ -271,11 +275,13 @@ void TestServiceSales::test_createSale_instantPayment()
     QDate date(2025, 3, 15);
     QString expectedOrderId = QString("Service-%1-InstantClient").arg(date.toString("yyyyMMdd"));
 
-    table.createSale(&clientManager, 0, date, 500.0, "EUR", expectedOrderId, "Consulting", 1, "", vatResolver, taxResolver);
-    
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    table.createSale(&clientManager, 0, date, "EUR", expectedOrderId, "",
+                     {Item{"Consulting", 500.0, 1.0}}, vatResolver, taxResolver);
+
     // VERIFY 13: Sale created successfully
     QCOMPARE(table.rowCount(), 1);
-    
+
     // VERIFY 14: Order is recorded in OrderManager
     QVERIFY(orderManager.containsOrder(expectedOrderId));
 }
@@ -284,15 +290,15 @@ void TestServiceSales::test_createSale_afterXDays()
 {
     QTemporaryDir tempDir;
     if (!tempDir.isValid()) QFAIL("Could not create temp dir");
-    
+
     OrderManager orderManager(tempDir.path());
     orderManager.deleteDatabase();
-    
+
     ServiceClientManager clientManager(tempDir.path());
     // Client with 30 days payment
     clientManager.addClient("Net30Client", "Development", "DE", "DE001", "EUR",
                             PaymentType::AfterXDays, 30);
-    
+
     ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
     VatResolver vatResolver(tempDir.path());
     TaxResolver taxResolver(tempDir.path());
@@ -300,14 +306,16 @@ void TestServiceSales::test_createSale_afterXDays()
     QDate date(2025, 3, 1);
     QString expectedOrderId = QString("Service-%1-Net30Client").arg(date.toString("yyyyMMdd"));
 
-    table.createSale(&clientManager, 0, date, 1000.0, "EUR", expectedOrderId, "Development", 1, "", vatResolver, taxResolver);
-    
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    table.createSale(&clientManager, 0, date, "EUR", expectedOrderId, "",
+                     {Item{"Development", 1000.0, 1.0}}, vatResolver, taxResolver);
+
     // VERIFY 15: Sale created successfully
     QCOMPARE(table.rowCount(), 1);
-    
+
     // VERIFY 16: Order is registered correctly
     QVERIFY(orderManager.containsOrder(expectedOrderId));
-    
+
     // VERIFY extra: Payment type is correctly set for client
     QCOMPARE(clientManager.getPaymentType(0), PaymentType::AfterXDays);
     QDate expectedPaymentDate = date.addDays(30); // March 31
@@ -318,15 +326,15 @@ void TestServiceSales::test_createSale_endOfNextMonth()
 {
     QTemporaryDir tempDir;
     if (!tempDir.isValid()) QFAIL("Could not create temp dir");
-    
+
     OrderManager orderManager(tempDir.path());
     orderManager.deleteDatabase();
-    
+
     ServiceClientManager clientManager(tempDir.path());
     // Client with EndOfNextMonth payment
     clientManager.addClient("EOMClient", "Support", "US", "US001", "EUR",
                             PaymentType::EndOfNextMonth, 0);
-    
+
     ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
     VatResolver vatResolver(tempDir.path());
     TaxResolver taxResolver(tempDir.path());
@@ -334,14 +342,16 @@ void TestServiceSales::test_createSale_endOfNextMonth()
     QDate date(2025, 3, 15); // Mid March
     QString expectedOrderId = QString("Service-%1-EOMClient").arg(date.toString("yyyyMMdd"));
 
-    table.createSale(&clientManager, 0, date, 750.0, "EUR", expectedOrderId, "Support", 1, "", vatResolver, taxResolver);
-    
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    table.createSale(&clientManager, 0, date, "EUR", expectedOrderId, "",
+                     {Item{"Support", 750.0, 1.0}}, vatResolver, taxResolver);
+
     // VERIFY 17: Sale created successfully
     QCOMPARE(table.rowCount(), 1);
-    
+
     // VERIFY 18: Order is registered correctly
     QVERIFY(orderManager.containsOrder(expectedOrderId));
-    
+
     // VERIFY extra: Payment type is correctly set and calculated
     QCOMPARE(clientManager.getPaymentType(0), PaymentType::EndOfNextMonth);
     QDate expectedPaymentDate(2025, 4, 30); // End of April
@@ -352,23 +362,23 @@ void TestServiceSales::test_paymentDate_edgeCases()
 {
     QTemporaryDir tempDir;
     if (!tempDir.isValid()) QFAIL("Could not create temp dir");
-    
+
     ServiceClientManager manager(tempDir.path());
-    
+
     // Client with AfterXDays = 0 (should be same as instant)
     manager.addClient("ZeroDays", "Service", "FR", "FR000", "EUR",
                       PaymentType::AfterXDays, 0);
-    
+
     // VERIFY 19: AfterXDays with 0 days = instant (same date)
     {
         QDate orderDate(2025, 5, 10);
         QCOMPARE(manager.calculatePaymentDate(0, orderDate), orderDate);
     }
-    
+
     // Client with EndOfNextMonth - order at end of December
     manager.addClient("DecClient", "Service", "FR", "FR001", "EUR",
                       PaymentType::EndOfNextMonth, 0);
-    
+
     // VERIFY 20: EndOfNextMonth from December -> end of January next year
     {
         QDate orderDate(2025, 12, 31);
@@ -381,28 +391,31 @@ void TestServiceSales::test_persistence()
 {
      QTemporaryDir tempDir;
      if (!tempDir.isValid()) QFAIL("Could not create temp dir");
-     
+
      // 1. Setup Data
      {
          OrderManager orderManager(tempDir.path());
          orderManager.deleteDatabase();
-         
+
          ServiceClientManager clientManager(tempDir.path());
          clientManager.addClient("ClientB", "Service B", "DE", "DE123", "EUR");
-         
+
          ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
          VatResolver vatResolver(tempDir.path());
          TaxResolver taxResolver(tempDir.path());
 
+         using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
          // Add Service Sale
-         table.createSale(&clientManager, 0, QDate(2023, 5, 20), 1190.0, "EUR", "Service-20230520-ClientB", "Service B", 1, "", vatResolver, taxResolver);
-         
+         table.createSale(&clientManager, 0, QDate(2023, 5, 20), "EUR", "Service-20230520-ClientB", "",
+                          {Item{"Service B", 1190.0, 1.0}}, vatResolver, taxResolver);
+
          // Add Random Order (Amazon)
          ActivitySource sourceAmazon(ActivitySourceType::Report, "Amazon", "Report1");
-         
+
          auto actRes = Activity::create("AmazonOrder1", "Act1", "", QDateTime(QDate(2023, 5, 21), QTime(0,0)), QDateTime(QDate(2023, 5, 21), QTime(0,0)), "EUR", "FR", "DE", false, "DE",
                           Amount(50.0, 0.0), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
-         
+
          if (actRes.value) {
              QList<Activity> acts;
              acts.append(*actRes.value);
@@ -410,26 +423,26 @@ void TestServiceSales::test_persistence()
              orderManager.recordShipmentFromSource("AmazonOrder1", &sourceAmazon, &shipment, QDate(2023, 5, 21), false);
          }
      }
-     
+
      // 2. Reload and Verify
      {
          OrderManager orderManager(tempDir.path()); // Should load from DB
          ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
-         
+
          QCOMPARE(table.rowCount(), 0); // Initially empty until load() called
-         
+
          table.load(2023);
-         
+
          // Expecting ONLY the Service Sale (1 item)
          QCOMPARE(table.rowCount(), 1);
-         
+
          QModelIndex idx = table.index(0, 0);
          // Verify Invoice ID (bookId column 1?) - checking RowID
          QCOMPARE(table.getRowId(idx), "Service-20230520-ClientB");
-         
+
          // Check Label (Stored in subActivityId -> passed as Label to add())
          QCOMPARE(table.data(table.index(0, 3)).toString(), "Service B");
-         
+
          // Check Amount (grossAmount TTC: 1190)
          QCOMPARE(table.data(table.index(0, 1)).toDouble(), 1190.0);
      }
@@ -466,11 +479,14 @@ void TestServiceSales::test_createSale_withBookKeeping()
 
     ServiceSalesBooksTable serviceTable(nullptr, &orderManager, workingDir);
 
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
     const QDate saleDate(2025, 3, 15);
     serviceTable.createSale(
         &clientManager, 0,
-        saleDate, 1000.0, "EUR",
-        "INV-SERVICE-001", "Consulting", 1, "7060",
+        saleDate, "EUR",
+        "INV-SERVICE-001", "7060",
+        {Item{"Consulting", 1000.0, 1.0}},
         vatResolver, taxResolver
     );
 
@@ -572,12 +588,14 @@ void TestServiceSales::test_lineitem_and_quantity()
     const QDate date(2025, 6, 1);
     const QString orderId  = "SVC-001";
     const QString title    = "Premium Consulting";
-    const int     qty      = 3;
+    const double  qty      = 3.0;
     const double  unitTTC  = 120.0;          // per unit gross
     const double  totalTTC = unitTTC * qty;  // 360.0
 
-    table.createSale(&clientManager, 0, date, totalTTC, "EUR",
-                     orderId, title, qty, "", vatResolver, taxResolver);
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    table.createSale(&clientManager, 0, date, "EUR",
+                     orderId, "",
+                     {Item{title, unitTTC, qty}}, vatResolver, taxResolver);
 
     // VERIFY 1: sale was recorded in the table
     QCOMPARE(table.rowCount(), 1);
@@ -644,11 +662,13 @@ void TestServiceSales::test_noInvoices_and_recordInfo()
     const QDate saleDate(2025, 5, 10);
     const QString orderId  = "SVC-NOINV-001";
     const QString title    = "IT Consulting";
-    const int     qty      = 2;
+    const double  qty      = 2.0;
     const double  totalTTC = 600.0;   // 2 × 300 TTC
 
-    serviceTable.createSale(&clientManager, 0, saleDate, totalTTC, "EUR",
-                            orderId, title, qty, "", vatResolver, taxResolver,
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    serviceTable.createSale(&clientManager, 0, saleDate, "EUR",
+                            orderId, "",
+                            {Item{title, totalTTC / qty, qty}}, vatResolver, taxResolver,
                             PaymentType::AfterXDays, 30);
 
     QCOMPARE(serviceTable.rowCount(), 1);
@@ -770,7 +790,7 @@ void TestServiceSales::test_persistence_all_columns()
     const QString  currency   = "EUR";
     const QString  orderId    = "SVC-PERSIST-001";
     const QString  title      = "Software Development";
-    const int      qty        = 4;
+    const double   qty        = 4.0;
     const QString  account1   = "706000"; // bookkeeping account code
 
     // -----------------------------------------------------------------------
@@ -790,8 +810,10 @@ void TestServiceSales::test_persistence_all_columns()
 
         ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
 
-        table.createSale(&clientManager, 0, saleDate, totalTTC, currency,
-                         orderId, title, qty, account1, vatResolver, taxResolver);
+        using Item = ServiceSalesBooksTable::SaleLineItemInput;
+        table.createSale(&clientManager, 0, saleDate, currency,
+                         orderId, account1,
+                         {Item{title, totalTTC / qty, qty}}, vatResolver, taxResolver);
 
         // Sanity: sale is in table right after creation
         QCOMPARE(table.rowCount(), 1);
@@ -886,11 +908,14 @@ void TestServiceSales::test_deleteWithInvoice()
     const QDate   date    = QDate(2025, 7, 10);
     const QString orderId = "SVC-DEL-001";
 
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
     // -------------------------------------------------------------------
     // Step 1: Create the sale
     // -------------------------------------------------------------------
-    table.createSale(&clientManager, 0, date, 600.0, "EUR",
-                     orderId, "Software Dev", 1, "706000", vatResolver, taxResolver);
+    table.createSale(&clientManager, 0, date, "EUR",
+                     orderId, "706000",
+                     {Item{"Software Dev", 600.0, 1.0}}, vatResolver, taxResolver);
 
     // VERIFY 1: sale is present in the table
     QCOMPARE(table.rowCount(), 1);
@@ -921,7 +946,7 @@ void TestServiceSales::test_deleteWithInvoice()
     Address addr("Acme Corp", "1 Rue de la Paix", "", "", "Paris", "75000", "FR", "", "", "", "", "");
 
     const QString pdfPath1 = tempDir.filePath("inv1.pdf");
-    generator.generateInvoice(inv1, "", pdfPath1, addr, invInfo, orderId, orderManager);
+    generator.generateInvoice(inv1, "", pdfPath1, addr, invInfo, orderId, orderManager, date);
 
     // VERIFY 3: PDF was created → CSV and OrderManager were updated
     QVERIFY(QFile::exists(pdfPath1));
@@ -967,8 +992,9 @@ void TestServiceSales::test_deleteWithInvoice()
     // -------------------------------------------------------------------
     // Step 4: Recreate the sale with the same orderId
     // -------------------------------------------------------------------
-    table.createSale(&clientManager, 0, date, 600.0, "EUR",
-                     orderId, "Software Dev", 1, "706000", vatResolver, taxResolver);
+    table.createSale(&clientManager, 0, date, "EUR",
+                     orderId, "706000",
+                     {Item{"Software Dev", 600.0, 1.0}}, vatResolver, taxResolver);
 
     // VERIFY 11: sale is back in the table
     QCOMPARE(table.rowCount(), 1);
@@ -988,7 +1014,7 @@ void TestServiceSales::test_deleteWithInvoice()
     QVERIFY(resInfo2.ok());
     InvoicingInfo invInfo2 = *resInfo2.value;
     const QString pdfPath2 = tempDir.filePath("inv2.pdf");
-    generator.generateInvoice(inv2, "", pdfPath2, addr, invInfo2, orderId, orderManager);
+    generator.generateInvoice(inv2, "", pdfPath2, addr, invInfo2, orderId, orderManager, date);
 
     // VERIFY 13: second PDF was also created
     QVERIFY(QFile::exists(pdfPath2));
@@ -1022,8 +1048,11 @@ void TestServiceSales::test_vatOnPayment_true()
 
     const QDate date(2025, 9, 1);
     const QString orderId = "SVC-VOP-001";
-    table.createSale(&clientManager, 0, date, 600.0, "EUR",
-                     orderId, "Audit", 1, "706000", vatResolver, taxResolver,
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    table.createSale(&clientManager, 0, date, "EUR",
+                     orderId, "706000",
+                     {Item{"Audit", 600.0, 1.0}}, vatResolver, taxResolver,
                      /*paymentType=*/PaymentType::EndOfNextMonth, /*paymentDays=*/0,
                      /*vatOnPayment=*/true);
 
@@ -1063,8 +1092,11 @@ void TestServiceSales::test_vatOnPayment_false()
 
     const QDate date(2025, 9, 1);
     const QString orderId = "SVC-VOP-002";
-    table.createSale(&clientManager, 0, date, 600.0, "EUR",
-                     orderId, "Audit", 1, "706000", vatResolver, taxResolver,
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    table.createSale(&clientManager, 0, date, "EUR",
+                     orderId, "706000",
+                     {Item{"Audit", 600.0, 1.0}}, vatResolver, taxResolver,
                      /*paymentType=*/PaymentType::EndOfNextMonth, /*paymentDays=*/0,
                      /*vatOnPayment=*/false);
 
@@ -1107,12 +1139,15 @@ void TestServiceSales::test_createSale_paymentTerm()
 
     const QDate date(2025, 3, 15);
 
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
     // --- 1. Instant: payment date equals the order date → no separate date stored ---
     {
         ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
         const QString orderId = "TERM-INSTANT-001";
-        table.createSale(&clientManager, 0, date, 600.0, "EUR",
-                         orderId, "Dev", 1, "706000", vatResolver, taxResolver,
+        table.createSale(&clientManager, 0, date, "EUR",
+                         orderId, "706000",
+                         {Item{"Dev", 600.0, 1.0}}, vatResolver, taxResolver,
                          /*paymentType=*/PaymentType::Instant,
                          /*paymentDays=*/0);
 
@@ -1127,8 +1162,9 @@ void TestServiceSales::test_createSale_paymentTerm()
     {
         ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
         const QString orderId = "TERM-30DAYS-001";
-        table.createSale(&clientManager, 0, date, 600.0, "EUR",
-                         orderId, "Dev", 1, "706000", vatResolver, taxResolver,
+        table.createSale(&clientManager, 0, date, "EUR",
+                         orderId, "706000",
+                         {Item{"Dev", 600.0, 1.0}}, vatResolver, taxResolver,
                          /*paymentType=*/PaymentType::AfterXDays,
                          /*paymentDays=*/30);
 
@@ -1143,8 +1179,9 @@ void TestServiceSales::test_createSale_paymentTerm()
     {
         ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
         const QString orderId = "TERM-EOM-001";
-        table.createSale(&clientManager, 0, date, 600.0, "EUR",
-                         orderId, "Dev", 1, "706000", vatResolver, taxResolver,
+        table.createSale(&clientManager, 0, date, "EUR",
+                         orderId, "706000",
+                         {Item{"Dev", 600.0, 1.0}}, vatResolver, taxResolver,
                          /*paymentType=*/PaymentType::EndOfNextMonth,
                          /*paymentDays=*/0);
 
@@ -1184,8 +1221,11 @@ void TestServiceSales::test_serviceSalesTable_extraColumns()
 
     const QDate date(2025, 6, 10);
     const QString orderId = "COL-TEST-001";
-    table.createSale(&clientManager, 0, date, 1200.0, "EUR",
-                     orderId, "My Service Title", 1, "706000",
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    table.createSale(&clientManager, 0, date, "EUR",
+                     orderId, "706000",
+                     {Item{"My Service Title", 1200.0, 1.0}},
                      vatResolver, taxResolver,
                      /*paymentType=*/PaymentType::EndOfNextMonth,
                      /*paymentDays=*/0,

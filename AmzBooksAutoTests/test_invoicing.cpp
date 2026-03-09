@@ -89,6 +89,13 @@ private slots:
     // Regression: stale OM entry written under Amazon order ID must not poison lookups
     void test_refundInvoiceNumbers_staleOmData();
 
+    // Regression: service sale getInvoicingInfo must not return null before invoice is generated
+    void test_serviceSale_getInvoicingInfo_beforeInvoiceGeneration();
+
+    // Feature: multiple articles and fractional quantity in a service sale
+    void test_serviceSale_multipleArticles();
+    void test_serviceSale_fractionalQuantity();
+
 private:
     QTemporaryDir *m_tempDir = nullptr;
 };
@@ -537,8 +544,8 @@ void TestInvoicing::test_persistence()
         InvoicingInfo info = *resInfo.value;
         Address addr("", "", "", "", "", "", "", "", "", "", "", "");
         OrderManager orderManager(tempDir.path());
-        generator.generateInvoice(inv1, "", tempDir.filePath("inv1.pdf"), addr, info, "ORD-1", orderManager);
-        generator.generateInvoice(inv2, "", tempDir.filePath("inv2.pdf"), addr, info, "ORD-2", orderManager);
+        generator.generateInvoice(inv1, "", tempDir.filePath("inv1.pdf"), addr, info, "ORD-1", orderManager, QDate(2026, 10, 1));
+        generator.generateInvoice(inv2, "", tempDir.filePath("inv2.pdf"), addr, info, "ORD-2", orderManager, QDate(2026, 10, 2));
 
         // VERIFY 38: Row count before save (and after implicit save via generateInvoice)
         QCOMPARE(generator.rowCount(), 2);
@@ -704,7 +711,7 @@ void TestInvoicing::test_generateInvoice()
     
     // Generate Invoice
     OrderManager orderManager(m_tempDir->path());
-    generator.generateInvoice(invoiceNum, "", pdfPath, addr, info, orderId, orderManager);
+    generator.generateInvoice(invoiceNum, "", pdfPath, addr, info, orderId, orderManager, date);
     
     // VERIFY 46: PDF file created
     QVERIFY(QFile::exists(pdfPath));
@@ -765,7 +772,7 @@ void TestInvoicing::test_deleteAndRecreateInvoice()
     InvoicingInfo info = *resInfo.value;
     Address addr("Client Corp", "1 Rue Test", "", "", "Paris", "75001", "FR", "", "", "", "", "");
     const QString pdfPath1 = tempDir.filePath("inv1.pdf");
-    generator.generateInvoice(inv1, "", pdfPath1, addr, info, saleId, orderManager);
+    generator.generateInvoice(inv1, "", pdfPath1, addr, info, saleId, orderManager, date);
 
     // VERIFY 54: PDF was created (which means CSV was saved and OrderManager was updated)
     QVERIFY(QFile::exists(pdfPath1));
@@ -792,7 +799,7 @@ void TestInvoicing::test_deleteAndRecreateInvoice()
     QVERIFY(resInfo2.ok());
     InvoicingInfo info2 = *resInfo2.value;
     const QString pdfPath2 = tempDir.filePath("inv2.pdf");
-    generator.generateInvoice(inv2, "", pdfPath2, addr, info2, saleId, orderManager);
+    generator.generateInvoice(inv2, "", pdfPath2, addr, info2, saleId, orderManager, date);
 
     // VERIFY 58: second PDF was also created
     QVERIFY(QFile::exists(pdfPath2));
@@ -837,10 +844,11 @@ void TestInvoicing::test_twoIndependentSales_noFractureOrigine()
     const double amount = 600.0;
 
     // Two independent sales: same date and amount, but different order IDs
-    serviceTable.createSale(&clientManager, 0, date, amount, "EUR",
-                            "ORDER-A", "Consulting", 1, "706000", vatResolver, taxResolver);
-    serviceTable.createSale(&clientManager, 0, date, amount, "EUR",
-                            "ORDER-B", "Consulting", 1, "706000", vatResolver, taxResolver);
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    serviceTable.createSale(&clientManager, 0, date, "EUR", "ORDER-A", "706000",
+                            {Item{"Consulting", amount, 1.0}}, vatResolver, taxResolver);
+    serviceTable.createSale(&clientManager, 0, date, "EUR", "ORDER-B", "706000",
+                            {Item{"Consulting", amount, 1.0}}, vatResolver, taxResolver);
 
     QCOMPARE(serviceTable.rowCount(), 2);
 
@@ -1810,6 +1818,167 @@ void TestInvoicing::test_refundInvoiceNumbers_staleOmData()
     // NOT -R05/-R06 relative to the stale wrong number.
     QCOMPARE(invoiceNumbers[0], saleInvoice + "-R01");
     QCOMPARE(invoiceNumbers[1], saleInvoice + "-R02");
+}
+
+// ===========================================================================
+// test_serviceSale_getInvoicingInfo_beforeInvoiceGeneration
+//
+// Regression: for a service sale the shipment id equals the order id (both are
+// the orderId).  The guard inside getInvoicingInfo used to ask
+//   SELECT 1 FROM shipments WHERE order_id = <rootId>
+// which found the service sale's own row (because its order_id = id = orderId)
+// and mistakenly concluded that rootId was an "Amazon order ID", falling
+// through to the fallback that only returns info when an invoice number
+// already exists.  Result: getInvoicingInfo() returned nullptr for a brand-new
+// service sale → "Missing invoicing info for …" during invoice generation.
+//
+// After the fix the guard additionally checks id != rootId, so the service
+// sale's own row no longer triggers the false-positive and the invoicing info
+// is returned correctly.
+// ===========================================================================
+void TestInvoicing::test_serviceSale_getInvoicingInfo_beforeInvoiceGeneration()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("GRDF", "Energy consulting", "FR", "FR12345", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    vatResolver.addRate(QDate(2026, 1, 1), "FR", SaleType::Service, 0.20);
+
+    TaxResolver taxResolver(tempDir.path());
+
+    ServiceSalesBooksTable serviceTable(nullptr, &orderManager, tempDir.path());
+
+    const QDate date(2026, 1, 1);
+    const QString orderId = "2620045-ICINGER-GRDF-2026-01";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    serviceTable.createSale(&clientManager, 0, date, "EUR", orderId, "706000",
+                            {Item{"Energy consulting", 1200.0, 1.0}},
+                            vatResolver, taxResolver);
+
+    // Before fix: getInvoicingInfo returned nullptr because the guard query
+    // found the service sale's own shipment and mistook the orderId for an
+    // Amazon order ID, then fell through to the fallback that requires an
+    // invoice number to already exist.
+    auto info = orderManager.getInvoicingInfo(orderId);
+    QVERIFY2(!info.isNull(),
+        "getInvoicingInfo must return the InvoicingInfo recorded by createSale "
+        "even before an invoice number has been assigned");
+
+    // The info must carry the line item recorded by createSale
+    QVERIFY(!info->getItems().isEmpty());
+
+    // The invoice number must not be set yet (it is assigned later by generateInvoice)
+    QVERIFY(!info->getInvoiceNumber().has_value() || info->getInvoiceNumber()->isEmpty());
+}
+
+// ===========================================================================
+// test_serviceSale_multipleArticles
+//
+// A sale with two articles must produce an InvoicingInfo that carries both
+// line items and whose total matches the sum of the individual amounts.
+// ===========================================================================
+void TestInvoicing::test_serviceSale_multipleArticles()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("ACME", "Consulting", "FR", "FR99999", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    vatResolver.addRate(QDate(2026, 1, 1), "FR", SaleType::Service, 0.20);
+
+    TaxResolver taxResolver(tempDir.path());
+
+    ServiceSalesBooksTable serviceTable(nullptr, &orderManager, tempDir.path());
+
+    const QDate date(2026, 3, 1);
+    const QString orderId = "MULTI-ARTICLE-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    serviceTable.createSale(&clientManager, 0, date, "EUR", orderId, "706000",
+                            {Item{"Consulting day",  1000.0, 2.0},
+                             Item{"Travel expenses",  150.0, 1.0}},
+                            vatResolver, taxResolver);
+
+    QCOMPARE(serviceTable.rowCount(), 1);
+
+    auto info = orderManager.getInvoicingInfo(orderId);
+    QVERIFY2(!info.isNull(), "InvoicingInfo must exist after createSale");
+
+    // Two line items must be stored
+    QCOMPARE(info->getItems().size(), 2);
+    QCOMPARE(info->getItems()[0].getName(), QString("Consulting day"));
+    QCOMPARE(info->getItems()[1].getName(), QString("Travel expenses"));
+    QCOMPARE(info->getItems()[0].getQuantity(), 2.0);
+    QCOMPARE(info->getItems()[1].getQuantity(), 1.0);
+
+    // Total TTC must equal 2*1000 + 1*150 = 2150
+    const double expectedTotal = 2.0 * 1000.0 + 1.0 * 150.0;
+    double actualTotal = 0.0;
+    for (const auto &item : info->getItems())
+        actualTotal += item.getTotalTaxed();
+    QVERIFY(qAbs(actualTotal - expectedTotal) < 0.01);
+}
+
+// ===========================================================================
+// test_serviceSale_fractionalQuantity
+//
+// A line item with quantity 1.5 must be stored, serialised, and reloaded
+// with the same value — ensuring the double round-trip through JSON is correct.
+// ===========================================================================
+void TestInvoicing::test_serviceSale_fractionalQuantity()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("Beta Corp", "Training", "FR", "FR11111", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    vatResolver.addRate(QDate(2026, 1, 1), "FR", SaleType::Service, 0.20);
+
+    TaxResolver taxResolver(tempDir.path());
+
+    ServiceSalesBooksTable serviceTable(nullptr, &orderManager, tempDir.path());
+
+    const QDate date(2026, 4, 1);
+    const QString orderId = "FRAC-QTY-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    serviceTable.createSale(&clientManager, 0, date, "EUR", orderId, "706000",
+                            {Item{"Training session", 800.0, 1.5}},
+                            vatResolver, taxResolver);
+
+    // Quantity must survive the round-trip through OrderManager (JSON)
+    auto info = orderManager.getInvoicingInfo(orderId);
+    QVERIFY(!info.isNull());
+    QVERIFY(!info->getItems().isEmpty());
+    QCOMPARE(info->getItems().first().getQuantity(), 1.5);
+
+    // JSON round-trip for the LineItem itself
+    auto lineItemRes = LineItem::create("SKU", "Test", 800.0, 0.20, 1.5);
+    QVERIFY(lineItemRes.ok());
+    const LineItem &original = *lineItemRes.value;
+    QCOMPARE(original.getQuantity(), 1.5);
+
+    QJsonObject json = original.toJson();
+    LineItem reloaded = LineItem::fromJson(json);
+    QCOMPARE(reloaded.getQuantity(), 1.5);
+    QVERIFY(qAbs(reloaded.getTotalTaxed() - original.getTotalTaxed()) < 0.001);
 }
 
 QTEST_MAIN(TestInvoicing)

@@ -16,6 +16,7 @@
 #include "CountriesEu.h"
 #include "orders/InvoicingInfo.h"
 #include "orders/Address.h"
+#include "ExceptionWithTitleText.h"
 
 // Static shortcut maps - centralized for easy maintenance
 // Add new values here when needed - no risk of missing values due to fallback
@@ -179,7 +180,7 @@ int InvoiceGenerator::_getNextSequenceForContext(const QString &contextKey)
     
     // Scan existing records to find max sequence for this context
     int maxSeq = 0;
-    for (const auto &record : m_data) {
+    for (const auto &record : std::as_const(m_data)) {
         if (record.invoiceNumber.startsWith(contextKey)) {
             // Extract sequence number from end, format: contextKey-NNN
             QString numPart = record.invoiceNumber.mid(contextKey.length() + 1);
@@ -437,8 +438,10 @@ void InvoiceGenerator::generateInvoice(
     QString companyName = "Your Company Name"; // Default
     QString companyAddress = "";
 
-    // Use CompanyAddressTable for current address; fall back to current date if not supplied
-    QDate actualInvoiceDate = invoiceDate.isValid() ? invoiceDate : QDate::currentDate();
+    if (!invoiceDate.isValid())
+        throw ExceptionWithTitleText(tr("Invalid Invoice Date"),
+                                     tr("The invoice date is invalid. This is a bug — please report it."));
+    QDate actualInvoiceDate = invoiceDate;
     if (m_companyAddress) {
         companyName = m_companyAddress->getCompanyName(actualInvoiceDate);
         QString street1 = m_companyAddress->getStreet1(actualInvoiceDate);
@@ -612,7 +615,7 @@ void InvoiceGenerator::generateInvoice(
     for (const auto &item : invoicingInfo.getItems()) {
         double ht = item.getAmountUntaxed();
         double tax = item.getTaxes();
-        int quantity = item.getQuantity();
+        double quantity = item.getQuantity();
         
         // Wait, LineItem uses Amount structure? No, getAmountTaxed returns double.
         // Assuming single currency for all items.
@@ -639,7 +642,7 @@ void InvoiceGenerator::generateInvoice(
             </tr>
         )")
         .arg(item.getName(),
-             QString::number(item.getQuantity()),
+             QString::number(item.getQuantity(), 'f', 1),
              QString::number(vatRate, 'f', 2),
              QString::number(ht, 'f', 2),
              QString::number(tax, 'f', 2),

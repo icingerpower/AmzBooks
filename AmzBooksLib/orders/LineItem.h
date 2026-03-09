@@ -19,12 +19,12 @@ public:
                                    QString name,
                                    double taxedAmount,
                                    double vatRate,
-                                   int quantity);
+                                   double quantity);
 
     const QString& getSku() const noexcept;
     const QString& getName() const noexcept;
     void setName(const QString &name);
-    int getQuantity() const noexcept;
+    double getQuantity() const noexcept;
     double getAmountUntaxed() const noexcept;
     double getAmountTaxed() const noexcept;
     double getTaxes() const noexcept;
@@ -40,18 +40,18 @@ public:
 protected:
     LineItem(QString sku,
              QString name,
-             int quantity,
+             double quantity,
              Amount amount);
 
     LineItem(QString sku,
              QString name,
              double taxedAmount,
              double vatRate,
-             int quantity);
+             double quantity);
 
     QString m_sku;
     QString m_name;
-    int m_quantity;
+    double m_quantity;
     Amount m_amount;
 };
 

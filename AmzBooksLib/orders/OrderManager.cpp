@@ -1342,13 +1342,18 @@ QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfo(const QString &ship
     q.addBindValue(rootId);
     if (q.exec() && q.next()) {
         // Guard: verify that rootId is not being used as an Amazon order ID.
-        // If there are shipments whose order_id equals rootId, then rootId is an
-        // Amazon order ID (not a proper shipment root).  In that case, the entry
-        // was written under the wrong key by a previous broken run of generateInvoice
-        // (which used getEventId() instead of getActivityId() for recordInvoicingInfo).
+        // If there are shipments whose order_id equals rootId AND whose id is
+        // different from rootId, then rootId is an Amazon order ID (not a proper
+        // shipment root).  In that case, the entry was written under the wrong key
+        // by a previous broken run of generateInvoice (which used getEventId()
+        // instead of getActivityId() for recordInvoicingInfo).
         // Fall through to the order-level fallback to find the correct entry.
+        //
+        // We must exclude id = rootId to avoid a false positive for service sales,
+        // where the shipment id equals the order id (both are the orderId).
         QSqlQuery guardQ(m_db);
-        guardQ.prepare("SELECT 1 FROM shipments WHERE order_id = ? LIMIT 1");
+        guardQ.prepare("SELECT 1 FROM shipments WHERE order_id = ? AND id != ? LIMIT 1");
+        guardQ.addBindValue(rootId);
         guardQ.addBindValue(rootId);
         if (!(guardQ.exec() && guardQ.next())) {
             // rootId is a proper shipment root — use this entry

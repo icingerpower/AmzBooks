@@ -2,6 +2,7 @@
 #define DIALOGADDSALESERVICE_H
 
 #include "books/ServiceClientManager.h"
+#include "books/ServiceSalesBooksTable.h"
 #include <QDialog>
 #include <QDate>
 
@@ -19,33 +20,40 @@ public:
 
     // Setters for pre-filling
     void setDate(const QDate &date);
-    void setUnitPrice(double amount);
     void setReference(const QString &ref);
+    // Pre-fills the unit price of the first article row (used when opening from a bank entry)
+    void setFirstArticleUnitPrice(double price);
 
     // Getters
     QString getSelectedClientName() const;
-    QDate getDate() const;
-    double getUnitPrice() const;
-    int getQuantity() const;
+    int     getSelectedClientRow() const;
+    QDate   getDate() const;
     QString getInvoiceId() const;
-    QString getServiceTitle() const;
     QString getCurrency() const;
     QString getAccount() const;
     PaymentType getPaymentType() const;
-    int getPaymentDays() const;
-    bool getVatOnPayment() const;
-    int getSelectedClientRow() const;
+    int     getPaymentDays() const;
+    bool    getVatOnPayment() const;
+
+    // Returns one entry per article row with non-empty title and positive price/qty
+    QList<ServiceSalesBooksTable::SaleLineItemInput> getLineItems() const;
 
 private slots:
     void _updateCurrency();
     void _updateOkButton();
     void _updatePaymentDays();
+    void _addArticle();
+    void _removeArticle();
+    void _onTableDataChanged();
 
 private:
     Ui::DialogAddSaleService *ui;
     ServiceClientManager *m_clientManager;
 
     void _setupConnections();
+    void _setupTable();
+    void _addArticleRow(const QString &title = {}, double unitPrice = 0.0, double qty = 1.0);
+    void _updateTotal();
 };
 
 #endif // DIALOGADDSALESERVICE_H

@@ -172,12 +172,10 @@ bool ServiceSalesBooksTable::setData(const QModelIndex &index, const QVariant &v
 void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManager
                                         , int clientRow
                                         , const QDate &date
-                                        , double taxedAmount
                                         , const QString &currency
                                         , const QString &orderId
-                                        , const QString &serviceTitle
-                                        , int quantity
                                         , const QString &account
+                                        , const QList<SaleLineItemInput> &lineItems
                                         , const VatResolver &vatResolver
                                         , const TaxResolver &taxResolver
                                         , PaymentType paymentType
@@ -185,10 +183,14 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
                                         , bool vatOnPayment
                                         , const std::function<bool()> &onMissingVatRate)
 {
-    if (!clientManager) return;
+    if (!clientManager || lineItems.isEmpty()) return;
 
-    const QString &clientName = clientManager->getClientName(clientRow);
     const QString &serviceLabel = clientManager->getServiceLabel(clientRow);
+
+    // Total taxed amount = sum of (unitPrice × quantity) across all line items
+    double taxedAmount = 0.0;
+    for (const auto &item : lineItems)
+        taxedAmount += item.unitPriceTaxed * item.quantity;
     const QString &country = clientManager->getCountry(clientRow);
 
     // Calculate payment date from the explicit payment term
@@ -206,9 +208,6 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         break;
     }
     }
-
-    // 1. Generate Order ID — "Service-{Date}-{ClientName}"
-    //QString orderId = QString("Service-%1-%2").arg(date.toString("yyyyMMdd"), clientName).replace(" ", "-");
 
     if (m_orderManager->containsOrder(orderId)) {
         ExceptionWithTitleText exception(tr("Order Exists"), tr("The order ID %1 already exists.").arg(orderId));
@@ -325,14 +324,17 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     // 6. Create and record InvoicingInfo with payment date
     // Use paymentDate only if it differs from orderDate (non-instant payment)
     std::optional<QDate> optPaymentDate = (paymentDate != date) ? std::optional<QDate>(paymentDate) : std::nullopt;
-    
-    double unitTaxedAmount = taxedAmount / quantity;
-    auto lineItemRes = LineItem::create(QString{}, serviceTitle, unitTaxedAmount, vatRate, quantity);
-    if (!lineItemRes.ok()) {
-        QString err = lineItemRes.errors.isEmpty() ? "Unknown" : lineItemRes.errors.first().message;
-        ExceptionWithTitleText(tr("Invalid Line Item"), err).raise();
+
+    QList<LineItem> invoiceLineItems;
+    for (const auto &item : lineItems) {
+        auto lineItemRes = LineItem::create(QString{}, item.title, item.unitPriceTaxed, vatRate, item.quantity);
+        if (!lineItemRes.ok()) {
+            QString err = lineItemRes.errors.isEmpty() ? "Unknown" : lineItemRes.errors.first().message;
+            ExceptionWithTitleText(tr("Invalid Line Item"), err).raise();
+        }
+        invoiceLineItems.append(lineItemRes.value.value());
     }
-    auto resInfo = InvoicingInfo::create(&shipment, {lineItemRes.value.value()}, std::nullopt, std::nullopt, optPaymentDate);
+    auto resInfo = InvoicingInfo::create(&shipment, invoiceLineItems, std::nullopt, std::nullopt, optPaymentDate);
     if (!resInfo.ok()) {
         QString err = resInfo.errors.isEmpty() ? "Unknown" : resInfo.errors.first().message;
         ExceptionWithTitleText(tr("Invalid Invoicing Info"), err).raise();
@@ -354,8 +356,11 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         , currency
     );
 
-    // 8. Populate extra columns (title, vatOnPayment, paymentTerm)
-    _setExtra(orderId, serviceTitle, vatOnPayment, _paymentTermStr(date, paymentDate));
+    // 8. Populate extra columns — title shows first item (or all joined if multiple)
+    const QString displayTitle = lineItems.size() == 1
+        ? lineItems.first().title
+        : lineItems.first().title + tr(" (+%1 more)").arg(lineItems.size() - 1);
+    _setExtra(orderId, displayTitle, vatOnPayment, _paymentTermStr(date, paymentDate));
 }
 
 bool ServiceSalesBooksTable::remove(const QString &rowId)

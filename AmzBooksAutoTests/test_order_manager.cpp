@@ -3423,16 +3423,17 @@ void TestOrderManager::test_removeShipmentsRefunds_createdAfter()
         q.exec("UPDATE shipments SET inserted_at = '2024-01-01T10:00:00' WHERE id = 'act_s1'");
     }
 
-    // 2. Shipment created today (Draft)
-    Shipment s2 = createShip("s2");
-    manager.recordShipmentFromSource("ord2", &source, &s2, QDate());
-
     // 3. Shipment created today (Published) -> Should NOT be deleted
+    //    Insert s3 BEFORE publishing so that publish() sets it to Published.
     Shipment s3 = createShip("s3");
     manager.recordShipmentFromSource("ord3", &source, &s3, QDate());
-    
+
     QDate pubDate2(2024, 12, 31);
     manager.publish(pubDate2);
+
+    // 2. Shipment created today (Draft) -> Insert AFTER publish so it stays Draft
+    Shipment s2 = createShip("s2");
+    manager.recordShipmentFromSource("ord2", &source, &s2, QDate());
 
     // Validate pre-state
     {

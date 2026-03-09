@@ -621,6 +621,7 @@ void PaneBookKeeping::generateInvoices()
                     }
 
                     const Address &addressTo = entry.addressTo ? *entry.addressTo : emptyAddr;
+                    auto invoiceDate = shipment->getActivities().first().getDateTime().date();
 
                     // Sanitize invoice number for use as a filename
                     QString sanitized = invoiceNumber;
@@ -651,7 +652,7 @@ void PaneBookKeeping::generateInvoices()
                         // via JOIN on COALESCE(root_id, id) = shipment_root_id.
                         generator.generateInvoice(invoiceNumber, prevNumber, pdfPath,
                                                    addressTo, *info, orderId, *m_orderManager,
-                                                   QDate(), activityId);
+                                                   invoiceDate, activityId);
                         generated++;
                     } catch (const std::exception &ex) {
                         qWarning() << "[generateInvoices] Failed for" << orderId << ":" << ex.what();
@@ -1579,12 +1580,10 @@ void PaneBookKeeping::serviceAddSale()
                 &clientManager,
                 dialog.getSelectedClientRow(),
                 dialog.getDate(),
-                dialog.getUnitPrice() * dialog.getQuantity(),
                 dialog.getCurrency(),
                 dialog.getInvoiceId(),
-                dialog.getServiceTitle(),
-                dialog.getQuantity(),
                 dialog.getAccount(),
+                dialog.getLineItems(),
                 vatResolver,
                 taxResolver,
                 dialog.getPaymentType(),
@@ -1721,7 +1720,7 @@ void PaneBookKeeping::serviceCreateFromSelection()
 
     DialogAddSaleService dialog(&clientManager, this);
 
-    dialog.setUnitPrice(qAbs(totalAmount));
+    dialog.setFirstArticleUnitPrice(qAbs(totalAmount));
     dialog.setReference(labels.join(" + "));
     dialog.setDate(date);
 
@@ -1732,12 +1731,10 @@ void PaneBookKeeping::serviceCreateFromSelection()
                 &clientManager,
                 dialog.getSelectedClientRow(),
                 dialog.getDate(),
-                dialog.getUnitPrice() * dialog.getQuantity(),
                 dialog.getCurrency(),
                 dialog.getInvoiceId(),
-                dialog.getServiceTitle(),
-                dialog.getQuantity(),
                 dialog.getAccount(),
+                dialog.getLineItems(),
                 vatResolver,
                 taxResolver,
                 dialog.getPaymentType(),

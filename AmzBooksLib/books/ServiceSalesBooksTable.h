@@ -36,14 +36,21 @@ public:
     // nullptr (the default) the CSV is left untouched.
     void setInvoiceGenerator(InvoiceGenerator *generator) { m_invoiceGenerator = generator; }
 
+    // One article line in a service sale (title, unit price TTC, quantity with 1 decimal)
+    struct SaleLineItemInput {
+        QString title;
+        double unitPriceTaxed = 0.0;
+        double quantity       = 1.0;
+    };
+
     // Custom Methods
     void createSale(const ServiceClientManager *clientManager
                     , int clientRow
                     , const QDate &date
-                    , double taxedAmount
                     , const QString &currency
                     , const QString &orderId
-                    , const QString &serviceTitle, int quantity, const QString &account
+                    , const QString &account
+                    , const QList<SaleLineItemInput> &lineItems
                     , const VatResolver &vatResolver
                     , const TaxResolver &taxResolver
                     , PaymentType paymentType = PaymentType::EndOfNextMonth
