@@ -189,7 +189,7 @@ void BooksConnections::tryToConnect(
     // Check Equality
     double amountDiff = std::abs(sumLeft) - std::abs(sumRight);
     double maxAbs = std::max(std::abs(sumLeft), std::abs(sumRight));
-    double tolerance = std::max(0.005, 0.01 * maxAbs);
+    double tolerance = std::max(0.005, 0.02 * maxAbs);
 
     if (std::abs(amountDiff) > tolerance) {
         double diffEur = toEurApprox(std::abs(amountDiff), refCurrency);
@@ -285,6 +285,16 @@ bool BooksConnections::contains(const QString &booksTableId, const QString &rowI
 {
     const auto &id = _getId(booksTableId, rowId);
     return m_id_id.contains(id);
+}
+
+bool BooksConnections::containsSelf(const QString &booksTableId, const QString &rowId) const
+{
+    const auto &id = _getId(booksTableId, rowId);
+    if (!m_id_id.contains(id))
+        return false;
+    // otherId format is "tableId_rowId"; self-entry always uses "EntrySelfTable" as tableId
+    const auto &otherId = m_id_id[id];
+    return otherId.startsWith("EntrySelfTable_");
 }
 
 void BooksConnections::associateTablesToIds(

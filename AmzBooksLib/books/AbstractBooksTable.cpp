@@ -292,6 +292,11 @@ QVariant AbstractBooksTable::data(const QModelIndex &index, int role) const
     else if (role == Qt::BackgroundRole)
     {
         const auto &rowId = getRowId(index);
+        if (m_bookConnections->containsSelf(getId(), rowId))
+        {
+            static QBrush selfGreenColor{QColor{120, 175, 168}};  // blue-green: connected to self-entry
+            return selfGreenColor;
+        }
         if (m_bookConnections->contains(getId(), rowId))
         {
             static QBrush greenColor{QColor{163, 177, 138}};

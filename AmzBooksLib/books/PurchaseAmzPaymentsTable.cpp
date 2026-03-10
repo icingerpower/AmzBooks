@@ -1,4 +1,6 @@
 #include "PurchaseAmzPaymentsTable.h"
+#include "CompanyInfosTable.h"
+#include "CurrencyRateManager.h"
 #include <QFileInfo>
 
 PurchaseAmzPaymentsTable::PurchaseAmzPaymentsTable(
@@ -10,11 +12,30 @@ PurchaseAmzPaymentsTable::PurchaseAmzPaymentsTable(
 {
     m_manager  = new PurchaseAmzPaymentsManager(workingDir, this);
     m_settings = new AmzPaymentSettings(workingDir, this);
+
+    CompanyInfosTable companyInfos{workingDir};
+    m_companyCurrency = companyInfos.getCurrency();
+    m_currencyRateManager = new CurrencyRateManager(workingDir, companyInfos.getApiKeyFixer(), this);
 }
 
 QString PurchaseAmzPaymentsTable::getId() const
 {
     return "amazon-payments";
+}
+
+static void storeConverted(QHash<QString, double> &convertedAmounts,
+                           const QString &rowId,
+                           const AmzPaymentInfo &info,
+                           const QString &companyCurrency,
+                           CurrencyRateManager *crm)
+{
+    if (!info.dateTo.isValid())
+        return;
+    try {
+        convertedAmounts[rowId] = crm->convert(info.paid, info.paidCurrency, companyCurrency, info.dateTo);
+    } catch (...) {
+        // rate not available
+    }
 }
 
 void PurchaseAmzPaymentsTable::load(int year)
@@ -38,6 +59,8 @@ void PurchaseAmzPaymentsTable::load(int year)
             0.0,  // no VAT on disbursements
             "",
             info.paidCurrency);
+
+        storeConverted(m_convertedAmounts, rowId, info, m_companyCurrency, m_currencyRateManager);
     }
 }
 
@@ -66,6 +89,8 @@ void PurchaseAmzPaymentsTable::add(const QString &sourceFilePath, const AmzPayme
         0.0,
         "",
         info.paidCurrency);
+
+    storeConverted(m_convertedAmounts, rowId, info, m_companyCurrency, m_currencyRateManager);
 }
 
 void PurchaseAmzPaymentsTable::removePayment(const QModelIndex &index)
@@ -81,9 +106,9 @@ void PurchaseAmzPaymentsTable::removePayment(const QString &rowId)
         remove(rowId);
 }
 
-// AbstractBooksTable has 6 standard columns; add 5 Amazon-specific extras:
-//   dateTo, balanceStart, balanceEnd, expenses, refundedExpenses
-static const int EXTRA_COLS = 5;
+// AbstractBooksTable has 9 standard columns; add 6 Amazon-specific extras:
+//   convertedAmount, dateFrom, balanceStart, balanceEnd, expenses, refundedExpenses
+static const int EXTRA_COLS = 6;
 
 int PurchaseAmzPaymentsTable::columnCount(const QModelIndex &parent) const
 {
@@ -97,11 +122,12 @@ QVariant PurchaseAmzPaymentsTable::headerData(int section,
     if (orientation == Qt::Horizontal && role == Qt::DisplayRole) {
         int base = AbstractBooksTable::columnCount();
         switch (section - base) {
-        case 0: return tr("Date From");
-        case 1: return tr("Balance Start");
-        case 2: return tr("Balance End");
-        case 3: return tr("Expenses");
-        case 4: return tr("Refunded");
+        case 0: return tr("Converted Amount");
+        case 1: return tr("Date From");
+        case 2: return tr("Balance Start");
+        case 3: return tr("Balance End");
+        case 4: return tr("Expenses");
+        case 5: return tr("Refunded");
         }
     }
     return AbstractBooksTable::headerData(section, orientation, role);
@@ -131,18 +157,24 @@ QVariant PurchaseAmzPaymentsTable::data(const QModelIndex &index, int role) cons
     AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(rowId);
 
     switch (index.column() - base) {
-    case 0: return info.dateFrom;
-    case 1: return QString("%1 %2")
+    case 0: {
+        if (!m_convertedAmounts.contains(rowId))
+            return QString();
+        double c = m_convertedAmounts[rowId];
+        return QString("%1 %2").arg(c, 0, 'f', 2).arg(m_companyCurrency);
+    }
+    case 1: return info.dateFrom;
+    case 2: return QString("%1 %2")
                         .arg(info.balanceStart, 0, 'f', 2)
                         .arg(info.balanceStartCurrency);
-    case 2: return QString("%1 %2")
+    case 3: return QString("%1 %2")
                         .arg(info.balanceEnd, 0, 'f', 2)
                         .arg(info.balanceEndCurrency);
-    case 3: return info.hasExpenses
+    case 4: return info.hasExpenses
                 ? QString("%1 %2").arg(info.expenses, 0, 'f', 2)
                                    .arg(info.expensesCurrency)
                 : QString();
-    case 4: return info.hasRefundedExpenses
+    case 5: return info.hasRefundedExpenses
                 ? QString("%1 %2").arg(info.refundedExpenses, 0, 'f', 2)
                                    .arg(info.refundedExpensesCurrency)
                 : QString();

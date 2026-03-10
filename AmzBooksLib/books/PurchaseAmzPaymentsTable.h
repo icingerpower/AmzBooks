@@ -5,6 +5,10 @@
 #include "AmzPaymentSettings.h"
 #include "PurchaseAmzPaymentsManager.h"
 
+#include <QHash>
+
+class CurrencyRateManager;
+
 class PurchaseAmzPaymentsTable : public AbstractBooksTable
 {
     Q_OBJECT
@@ -32,6 +36,9 @@ private:
     PurchaseAmzPaymentsManager *m_manager;
     AmzPaymentSettings         *m_settings;
     QDir m_workingDir;
+    QString m_companyCurrency;
+    CurrencyRateManager *m_currencyRateManager;
+    QHash<QString, double> m_convertedAmounts;
 };
 
 #endif // PURCHASEAMZPAYMENTSTABLE_H
