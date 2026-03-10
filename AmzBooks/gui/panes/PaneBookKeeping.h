@@ -28,6 +28,7 @@ public:
 private:
     Ui::PaneBookKeeping *ui;
     void _createBanks();
+    void _deleteBooksTables();
     void _createBooksTables();
     void generateSaleReports(const QDir &dirTo);
     void _initYears();

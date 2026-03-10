@@ -145,6 +145,7 @@ private slots:
     void test_vatOnPayment_false();
     void test_createSale_paymentTerm();
     void test_serviceSalesTable_extraColumns();
+    void test_load_dec31_included();
 };
 
 void TestServiceSales::test_InvoicingInfo_paymentDate()
@@ -1336,6 +1337,40 @@ void TestServiceSales::test_serviceSalesTable_extraColumns()
         QCOMPARE(table2.data(t2Term,   Qt::DisplayRole).toString(), QString("After 30 days"));
         QCOMPARE(table2.data(t2Vop,    Qt::EditRole).toBool(), false);
     }
+}
+
+void TestServiceSales::test_load_dec31_included()
+{
+    // Regression test: a sale on Dec 31 must appear when loading that year.
+    // The SQL filter "event_date <= '2025-12-31'" fails for stored ISO datetimes
+    // like "2025-12-31T00:00:00" because 'T' > end-of-string lexicographically.
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("TestClient", "Service X", "FR", "FR123", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+
+    const QDate dec31(2025, 12, 31);
+    const QString orderId = "Service-20251231-TestClient";
+
+    {
+        ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+        using Item = ServiceSalesBooksTable::SaleLineItemInput;
+        table.createSale(&clientManager, 0, dec31, "EUR", orderId, "",
+                         {Item{"Service X", 100.0, 1.0}}, vatResolver, taxResolver);
+    }
+
+    // Reload and load year 2025 — Dec 31 entry must be included
+    ServiceSalesBooksTable table2(nullptr, &orderManager, tempDir.path());
+    table2.load(2025);
+    QCOMPARE(table2.rowCount(), 1);
+    QCOMPARE(table2.data(table2.index(0, 0)).toDate(), dec31);
 }
 
 QTEST_MAIN(TestServiceSales)

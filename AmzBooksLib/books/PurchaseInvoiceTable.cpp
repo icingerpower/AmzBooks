@@ -18,7 +18,6 @@ QString PurchaseInvoiceTable::getId() const
 
 void PurchaseInvoiceTable::load(int year)
 {
-    clear();
     QDate start(year, 1, 1);
     QDate end(year, 12, 31);
     

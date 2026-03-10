@@ -47,11 +47,11 @@ double PurchaseAmzPaymentsManager::toEur(double amount, const QString &currency)
     return amount;
 }
 
-// Parse "1311.19USD" → amount=1311.19, currency="USD"
+// Parse "1311.19USD" or "-487.84SEK" → amount, currency
 static bool parseAmountCurrency(const QString &token,
                                 double &amount, QString &currency)
 {
-    static QRegularExpression rx("^([0-9]+(?:\\.[0-9]*)?)([A-Z]+)$");
+    static QRegularExpression rx("^(-?[0-9]+(?:\\.[0-9]*)?)([A-Z]+)$");
     QRegularExpressionMatch m = rx.match(token);
     if (!m.hasMatch())
         return false;
@@ -291,7 +291,7 @@ QString PurchaseAmzPaymentsManager::encode(const AmzPaymentInfo &info)
 
 QString PurchaseAmzPaymentsManager::getRelativePath(const AmzPaymentInfo &info)
 {
-    return QString("amazon-payments/%1").arg(info.dateFrom.year());
+    return QString("amazon-payments/%1").arg(info.dateTo.year());
 }
 
 void PurchaseAmzPaymentsManager::add(const QString &sourceFilePath, const AmzPaymentInfo &info)
@@ -428,7 +428,7 @@ QList<AmzPaymentInfo> PurchaseAmzPaymentsManager::getPayments(
 {
     QList<AmzPaymentInfo> result;
     for (const AmzPaymentInfo &info : m_data) {
-        if (info.dateFrom >= from && info.dateFrom <= to)
+        if (info.dateTo >= from && info.dateTo <= to)
             result.append(info);
     }
     return result;

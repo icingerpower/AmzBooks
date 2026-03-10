@@ -81,7 +81,7 @@ PaneBookKeeping::PaneBookKeeping(QWidget *parent) :
     m_orderManager = new OrderManager(workingDir);
 
     _initYears();
-    _createBooksTables();
+    //_createBooksTables();
     _setSubButtonsEnabled(false);
     _connectSlots();
 }
@@ -108,15 +108,20 @@ void PaneBookKeeping::showEvent(QShowEvent *event)
 void PaneBookKeeping::loadYearSelected()
 {
     setCursor(Qt::WaitCursor);
+    _deleteBooksTables();
+    _createBooksTables();
     _setSubButtonsEnabled(true);
     _updateServiceButtonsEnabled();
     bool yearOk = false;
     int year = ui->comboBoxYear->currentText().toInt(&yearOk);
     Q_ASSERT(yearOk);
     auto allBooksTables = getAllBookTables();
-    for (auto &booksTable : allBooksTables)
-    {
+    for (auto &booksTable : allBooksTables) {
         booksTable->load(year);
+    }
+    auto nonBankBooksTables = getAllNonBankTables();
+    for (auto &booksTable : nonBankBooksTables) {
+        booksTable->load(year - 1);
     }
     setCursor(Qt::ArrowCursor);
 }
@@ -1074,10 +1079,13 @@ void PaneBookKeeping::associate()
             }
         }
 
-        // Check if we have at least two tables with selections
-        if (tableIndexes.size() < 2) {
-            QMessageBox::warning(this, tr("Insufficient Selection"), 
-                tr("Please select rows from at least two tables (bank and book tables) to associate."));
+        // Check if we have at least two rows selected in total
+        int totalRows = 0;
+        for (const auto &sel : tableIndexes)
+            totalRows += sel.size();
+        if (totalRows < 2) {
+            QMessageBox::warning(this, tr("Insufficient Selection"),
+                tr("Please select at least two rows (from one or more tables) to associate."));
             return;
         }
 
@@ -1574,7 +1582,7 @@ void PaneBookKeeping::serviceAddSale()
     };
 
     DialogAddSaleService dialog(&clientManager, this);
-    if (dialog.exec() == QDialog::Accepted) {
+    while (dialog.exec() == QDialog::Accepted) {
         try {
             serviceTable->createSale(
                 &clientManager,
@@ -1591,6 +1599,7 @@ void PaneBookKeeping::serviceAddSale()
                 dialog.getVatOnPayment(),
                 onMissingVatRate
             );
+            break;
         } catch (const ExceptionWithTitleText &e) {
             QMessageBox::warning(this, e.errorTitle(), e.errorText());
         } catch (const std::exception &e) {
@@ -1945,15 +1954,31 @@ void PaneBookKeeping::_createBanks()
     }
 }
 
+void PaneBookKeeping::_deleteBooksTables()
+{
+    auto allBookTables = getAllBookTables();
+    for (auto bookTable : allBookTables) {
+        if (bookTable != nullptr) {
+            QTableView *tableView = dynamic_cast<QTableView *>(bookTable->parent());
+            if (tableView != nullptr) {
+                tableView->setModel(nullptr);
+                bookTable->deleteLater();
+            }
+        }
+    }
+}
+
 void PaneBookKeeping::_createBooksTables()
 {
     _createBanks();
     QDir workingDir{WorkingDirectoryManager::instance()->workingDir()};
 
     // Self entries
-    auto selfEntriesTable = new EntrySelfTable(workingDir, ui->tableSelfEntry);
-    ui->tableSelfEntry->setModel(selfEntriesTable);
-    ui->tableSelfEntry->horizontalHeader()->resizeSection(0, 250);
+    if (ui->tableSelfEntry->model() == nullptr) {
+        auto selfEntriesTable = new EntrySelfTable(workingDir, ui->tableSelfEntry);
+        ui->tableSelfEntry->setModel(selfEntriesTable);
+        ui->tableSelfEntry->horizontalHeader()->resizeSection(0, 250);
+    }
 
     // Purchases
     auto purchaseTable = new PurchaseInvoiceTable(m_booksConnections, workingDir, ui->tableInvoices);

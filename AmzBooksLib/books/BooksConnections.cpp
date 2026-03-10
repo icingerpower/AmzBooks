@@ -11,6 +11,27 @@
 
 #include "BooksConnections.h"
 
+// Fixed approximate EUR conversion rates (mirrors PurchaseAmzPaymentsManager::toEur)
+static double toEurApprox(double amount, const QString &currency)
+{
+    if (currency == "EUR") return amount;
+    if (currency == "USD") return amount * 0.92;
+    if (currency == "GBP") return amount * 1.16;
+    if (currency == "CAD") return amount * 0.68;
+    if (currency == "JPY") return amount * 0.0062;
+    if (currency == "AUD") return amount * 0.60;
+    if (currency == "MXN") return amount * 0.046;
+    if (currency == "SEK") return amount * 0.087;
+    if (currency == "PLN") return amount * 0.23;
+    if (currency == "TRY") return amount * 0.027;
+    if (currency == "AED") return amount * 0.25;
+    if (currency == "SAR") return amount * 0.24;
+    if (currency == "SGD") return amount * 0.69;
+    if (currency == "BRL") return amount * 0.17;
+    if (currency == "INR") return amount * 0.011;
+    return amount;
+}
+
 BooksConnections::BooksConnections(const QDir &workingDir)
 {
     m_filePathCsv = workingDir.absoluteFilePath("booksConnections.csv");
@@ -171,12 +192,17 @@ void BooksConnections::tryToConnect(
     double tolerance = std::max(0.005, 0.01 * maxAbs);
 
     if (std::abs(amountDiff) > tolerance) {
-         ExceptionWithTitleText exception(QObject::tr("Book Equality Error"), 
-            QObject::tr("Amounts do not match: %1 vs %2 (Ref Currency: %3) (Diff %4 > Tol %5)")
+        double diffEur = toEurApprox(std::abs(amountDiff), refCurrency);
+        QString eurSuffix = (refCurrency != "EUR")
+            ? QObject::tr(", ~%1 EUR").arg(diffEur, 0, 'f', 2)
+            : QString();
+        ExceptionWithTitleText exception(QObject::tr("Book Equality Error"),
+            QObject::tr("Amounts do not match: %1 vs %2 (Ref Currency: %3) (Diff %4 > Tol %5%6)")
                                     .arg(sumLeft).arg(sumRight)
                                     .arg(refCurrency)
-                                    .arg(amountDiff).arg(tolerance));
-         exception.raise();
+                                    .arg(amountDiff).arg(tolerance)
+                                    .arg(eurSuffix));
+        exception.raise();
     }
     
     // Connect Cartesian Product

@@ -1530,7 +1530,10 @@ QMultiMap<QDateTime, QSharedPointer<Shipment>> OrderManager::getShipmentAndRefun
         queryStr += QString(" AND s.event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
     }
     if (dateTo.isValid()) {
-        queryStr += QString(" AND s.event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
+        // Use strict-less-than against the next day so that ISO datetime strings
+        // stored as "YYYY-MM-DDThh:mm:ss" on the boundary day are included.
+        // ("2025-12-31T00:00:00" <= "2025-12-31" is false; "< 2026-01-01" is true.)
+        queryStr += QString(" AND s.event_date < '%1'").arg(dateTo.addDays(1).toString(Qt::ISODate));
     }
 
     QSqlQuery query(m_db);
@@ -1628,7 +1631,10 @@ QHash<ActivitySource, QMultiMap<QDateTime, QSharedPointer<Shipment>>> OrderManag
         queryStr += QString(" AND s.event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
     }
     if (dateTo.isValid()) {
-        queryStr += QString(" AND s.event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
+        // Use strict-less-than against the next day so that ISO datetime strings
+        // stored as "YYYY-MM-DDThh:mm:ss" on the boundary day are included.
+        // ("2025-12-31T00:00:00" <= "2025-12-31" is false; "< 2026-01-01" is true.)
+        queryStr += QString(" AND s.event_date < '%1'").arg(dateTo.addDays(1).toString(Qt::ISODate));
     }
 
     QSqlQuery query(m_db);
@@ -1913,7 +1919,10 @@ QHash<ActivitySource, QHash<QString, QMultiMap<QDateTime, QSharedPointer<Shipmen
         queryStr += QString(" AND s.event_date >= '%1'").arg(dateFrom.toString(Qt::ISODate));
     }
     if (dateTo.isValid()) {
-        queryStr += QString(" AND s.event_date <= '%1'").arg(dateTo.toString(Qt::ISODate));
+        // Use strict-less-than against the next day so that ISO datetime strings
+        // stored as "YYYY-MM-DDThh:mm:ss" on the boundary day are included.
+        // ("2025-12-31T00:00:00" <= "2025-12-31" is false; "< 2026-01-01" is true.)
+        queryStr += QString(" AND s.event_date < '%1'").arg(dateTo.addDays(1).toString(Qt::ISODate));
     }
 
     QSqlQuery query(m_db);

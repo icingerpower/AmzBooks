@@ -19,7 +19,6 @@ QString PurchaseAmzPaymentsTable::getId() const
 
 void PurchaseAmzPaymentsTable::load(int year)
 {
-    clear();
     QDate start(year, 1, 1);
     QDate end(year, 12, 31);
 
@@ -30,7 +29,7 @@ void PurchaseAmzPaymentsTable::load(int year)
         QString rowId = QFileInfo(info.filePath).fileName();
 
         AbstractBooksTable::add(rowId, "",
-            info.dateFrom,
+            info.dateTo,
             info.paid,
             info.paidCurrency,
             QString("Amazon payment – %1").arg(info.countryCode),
@@ -58,7 +57,7 @@ void PurchaseAmzPaymentsTable::add(const QString &sourceFilePath, const AmzPayme
 
     // Insert a single row using beginInsertRows / endInsertRows (via AbstractBooksTable::add)
     AbstractBooksTable::add(rowId, "",
-        info.dateFrom,
+        info.dateTo,
         info.paid,
         info.paidCurrency,
         QString("Amazon payment \u2013 %1").arg(info.countryCode),
@@ -98,7 +97,7 @@ QVariant PurchaseAmzPaymentsTable::headerData(int section,
     if (orientation == Qt::Horizontal && role == Qt::DisplayRole) {
         int base = AbstractBooksTable::columnCount();
         switch (section - base) {
-        case 0: return tr("Date To");
+        case 0: return tr("Date From");
         case 1: return tr("Balance Start");
         case 2: return tr("Balance End");
         case 3: return tr("Expenses");
@@ -132,7 +131,7 @@ QVariant PurchaseAmzPaymentsTable::data(const QModelIndex &index, int role) cons
     AmzPaymentInfo info = PurchaseAmzPaymentsManager::decode(rowId);
 
     switch (index.column() - base) {
-    case 0: return info.dateTo;
+    case 0: return info.dateFrom;
     case 1: return QString("%1 %2")
                         .arg(info.balanceStart, 0, 'f', 2)
                         .arg(info.balanceStartCurrency);

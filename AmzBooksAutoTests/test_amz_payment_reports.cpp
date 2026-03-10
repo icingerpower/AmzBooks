@@ -125,6 +125,8 @@ private slots:
     void test_verify_encode_decode_several_currencies();
     void test_verify_model_rowcount_and_header();
     void test_verify_invalid_filenames_throw();
+    void test_verify_relative_path_uses_dateto_year();
+    void test_verify_negative_paid_amount_parses();
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -827,6 +829,43 @@ void TestAmazonPaymentReports::test_verify_invalid_filenames_throw()
     // Bad date-from (30th of Feb)
     QVERIFY(tryDecode("payment_com_2026_02_30__to__2026_02_28"
                       "__balance-begin-100.00USD__balance-end-100.00USD__0.00USD"));
+}
+
+void TestAmazonPaymentReports::test_verify_relative_path_uses_dateto_year()
+{
+    // Same-year payment: folder = dateTo year (2026)
+    AmzPaymentInfo sameYear;
+    sameYear.dateFrom = QDate(2026, 1, 7);
+    sameYear.dateTo   = QDate(2026, 1, 21);
+    QCOMPARE(PurchaseAmzPaymentsManager::getRelativePath(sameYear),
+             QString("amazon-payments/2026"));
+
+    // Cross-year payment (Dec 2025 → Jan 2026): folder must be 2026, not 2025
+    AmzPaymentInfo crossYear;
+    crossYear.dateFrom = QDate(2025, 12, 23);
+    crossYear.dateTo   = QDate(2026, 1, 20);
+    QCOMPARE(PurchaseAmzPaymentsManager::getRelativePath(crossYear),
+             QString("amazon-payments/2026"));
+}
+
+void TestAmazonPaymentReports::test_verify_negative_paid_amount_parses()
+{
+    // A negative paid amount (e.g. Amazon claws back money) must decode without throwing.
+    // Filename token: "-487.84SEK"
+    const QString fname =
+        "payment_se_2026_01_07__to__2026_01_21"
+        "__balance-begin-1000.00SEK__balance-end-500.00SEK__-487.84SEK";
+
+    AmzPaymentInfo info;
+    bool threw = false;
+    try {
+        info = PurchaseAmzPaymentsManager::decode(fname);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY(!threw);
+    QVERIFY(qAbs(info.paid - (-487.84)) < 0.01);
+    QCOMPARE(info.paidCurrency, QString("SEK"));
 }
 
 QTEST_MAIN(TestAmazonPaymentReports)
