@@ -6,6 +6,7 @@
 #include "BooksConnections.h"
 
 #include "AbstractBooksTable.h"
+#include "orders/Shipment.h"
 
 const QVariantList AbstractBooksTable::COL_NAMES = {
     AbstractBooksTable::tr("Date"),
@@ -35,6 +36,11 @@ AbstractBooksTable::AbstractBooksTable(
 {
     m_settingsFilePath = workingDir.absoluteFilePath("booksTables.ini");
     m_bookConnections = bookConnections;
+}
+
+/*static*/ bool AbstractBooksTable::isGroupedOrders(const Shipment *shipment)
+{
+    return shipment && shipment->isGrouped();
 }
 
 void AbstractBooksTable::init()

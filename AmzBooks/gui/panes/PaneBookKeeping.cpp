@@ -50,6 +50,7 @@
 #include "gui/dialogs/DialogAddSaleService.h"
 #include "gui/dialogs/DialogVatParams.h"
 #include "books/ServiceSalesBooksTable.h"
+#include "books/UngroupedOrderTable.h"
 #include "books/ServiceClientManager.h"
 #include "gui/delegates/ComboBoxDelegate.h"
 #include "books/VatResolver.h"
@@ -1998,6 +1999,12 @@ void PaneBookKeeping::_createBooksTables()
     ui->tableAmzPayments->setModel(amzPaymentsTable);
     ui->tableAmzPayments->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui->tableAmzPayments->setSelectionMode(QAbstractItemView::ExtendedSelection);
+
+    // E-commerce (ungrouped) orders
+    auto ecomSalesTable = new UngroupedOrderTable(m_booksConnections, m_orderManager, workingDir, ui->tableEcomSales);
+    ui->tableEcomSales->setModel(ecomSalesTable);
+    ui->tableEcomSales->setSelectionBehavior(QAbstractItemView::SelectRows);
+    ui->tableEcomSales->setSelectionMode(QAbstractItemView::ExtendedSelection);
 }
 
 void PaneBookKeeping::_initYears()

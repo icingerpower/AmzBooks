@@ -81,6 +81,7 @@ InventoryMoveTree::InventoryMoveTree(const QDir &purchaseDir,
     // Debounce: wait for the directory to be quiet for 300 ms before rebuilding.
     // This collapses rapid bursts (e.g. several CSV files copied at once) into
     // a single rebuild once the burst settles.
+    Q_ASSERT(purchaseDir.path() != ".");
     m_rebuildTimer->setInterval(300);
     m_rebuildTimer->setSingleShot(true);
     connect(m_rebuildTimer, &QTimer::timeout, this, &InventoryMoveTree::rebuild);

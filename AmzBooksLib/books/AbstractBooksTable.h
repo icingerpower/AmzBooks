@@ -6,6 +6,7 @@
 #include <QDate>
 
 class BooksConnections;
+class Shipment;
 
 class AbstractBooksTable : public QAbstractTableModel
 {
@@ -44,6 +45,8 @@ public:
     QString getLabel(int row) const;
     QString getAccount1(int row) const;
     QString getAccount2(int row) const;
+
+    static bool isGroupedOrders(const Shipment *shipment);
 
     virtual QString getId() const = 0;
     virtual void load(int year) = 0;

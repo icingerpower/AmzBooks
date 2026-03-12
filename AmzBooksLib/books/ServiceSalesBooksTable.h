@@ -20,9 +20,10 @@ public:
     static constexpr QLatin1StringView CHANNEL_SALE{"Service"};
 
     // Extra column indices (appended after the 9 base columns)
-    static const int IND_TITLE         = 9;
-    static const int IND_VAT_ON_PAYMENT = 10;
-    static const int IND_PAYMENT_TERM  = 11;
+    static const int IND_REFERENCE      = 9;
+    static const int IND_TITLE          = 10;
+    static const int IND_VAT_ON_PAYMENT = 11;
+    static const int IND_PAYMENT_TERM   = 12;
     explicit ServiceSalesBooksTable(
             const BooksConnections *bookConnections
             , OrderManager *orderManager
@@ -72,10 +73,10 @@ private:
     OrderManager *m_orderManager;
     InvoiceGenerator *m_invoiceGenerator = nullptr;
 
-    // rowId → {title, vatOnPayment (bool), paymentTerm (QString)}
+    // rowId → {reference, title, vatOnPayment (bool), paymentTerm (QString)}
     QHash<QString, QVariantList> m_extraData;
 
-    void _setExtra(const QString &rowId, const QString &title, bool vatOnPayment, const QString &paymentTerm);
+    void _setExtra(const QString &rowId, const QString &reference, const QString &title, bool vatOnPayment, const QString &paymentTerm);
     static QString _paymentTermStr(const QDate &orderDate, const QDate &paymentDate);
 };
 

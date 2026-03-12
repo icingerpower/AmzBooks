@@ -34,11 +34,12 @@ QString ServiceSalesBooksTable::getId() const
 // ---------------------------------------------------------------------------
 
 void ServiceSalesBooksTable::_setExtra(const QString &rowId,
+                                       const QString &reference,
                                        const QString &title,
                                        bool vatOnPayment,
                                        const QString &paymentTerm)
 {
-    m_extraData[rowId] = QVariantList{title, vatOnPayment, paymentTerm};
+    m_extraData[rowId] = QVariantList{reference, title, vatOnPayment, paymentTerm};
 }
 
 /*static*/ QString ServiceSalesBooksTable::_paymentTermStr(const QDate &orderDate,
@@ -62,12 +63,13 @@ void ServiceSalesBooksTable::_setExtra(const QString &rowId,
 
 int ServiceSalesBooksTable::columnCount(const QModelIndex &parent) const
 {
-    return AbstractBooksTable::columnCount(parent) + 3;
+    return AbstractBooksTable::columnCount(parent) + 4;
 }
 
 QVariant ServiceSalesBooksTable::headerData(int section, Qt::Orientation orientation, int role) const
 {
     if (orientation == Qt::Horizontal && role == Qt::DisplayRole) {
+        if (section == IND_REFERENCE)      return tr("Reference");
         if (section == IND_TITLE)          return tr("Title");
         if (section == IND_VAT_ON_PAYMENT) return tr("VAT on Payment");
         if (section == IND_PAYMENT_TERM)   return tr("Payment Term");
@@ -80,25 +82,29 @@ QVariant ServiceSalesBooksTable::data(const QModelIndex &index, int role) const
     if (!index.isValid()) return QVariant{};
 
     const int col = index.column();
-    if (col < IND_TITLE)
+    if (col < IND_REFERENCE)
         return AbstractBooksTable::data(index, role);
 
     const QString rowId = getRowId(index);
     if (!m_extraData.contains(rowId)) return QVariant{};
     const QVariantList &extra = m_extraData[rowId];
 
-    if (col == IND_TITLE) {
+    if (col == IND_REFERENCE) {
         return (role == Qt::DisplayRole || role == Qt::EditRole)
                ? extra[0] : QVariant{};
     }
+    if (col == IND_TITLE) {
+        return (role == Qt::DisplayRole || role == Qt::EditRole)
+               ? extra[1] : QVariant{};
+    }
     if (col == IND_VAT_ON_PAYMENT) {
-        if (role == Qt::EditRole)   return extra[1].toBool();
-        if (role == Qt::DisplayRole) return extra[1].toBool() ? tr("Yes") : tr("No");
+        if (role == Qt::EditRole)   return extra[2].toBool();
+        if (role == Qt::DisplayRole) return extra[2].toBool() ? tr("Yes") : tr("No");
         return QVariant{};
     }
     if (col == IND_PAYMENT_TERM) {
         return (role == Qt::DisplayRole || role == Qt::EditRole)
-               ? extra[2] : QVariant{};
+               ? extra[3] : QVariant{};
     }
     return QVariant{};
 }
@@ -106,7 +112,7 @@ QVariant ServiceSalesBooksTable::data(const QModelIndex &index, int role) const
 Qt::ItemFlags ServiceSalesBooksTable::flags(const QModelIndex &index) const
 {
     Qt::ItemFlags f = AbstractBooksTable::flags(index);
-    if (index.isValid() && index.column() >= IND_TITLE)
+    if (index.isValid() && index.column() >= IND_REFERENCE)
         f |= Qt::ItemIsEditable;
     return f;
 }
@@ -116,7 +122,7 @@ bool ServiceSalesBooksTable::setData(const QModelIndex &index, const QVariant &v
     if (!index.isValid() || role != Qt::EditRole) return false;
 
     const int col = index.column();
-    if (col < IND_TITLE) return false;
+    if (col < IND_REFERENCE) return false;
 
     const QString rowId = getRowId(index);
     if (!m_extraData.contains(rowId)) return false;
@@ -126,11 +132,19 @@ bool ServiceSalesBooksTable::setData(const QModelIndex &index, const QVariant &v
 
     QVariantList &extra = m_extraData[rowId];
 
+    if (col == IND_REFERENCE) {
+        const QString newRef = value.toString();
+        info->setReference(newRef);
+        m_orderManager->recordInvoicingInfo(rowId, info.data());
+        extra[0] = newRef;
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        return true;
+    }
     if (col == IND_TITLE) {
         const QString newTitle = value.toString();
         info->setItemName(0, newTitle);
         m_orderManager->recordInvoicingInfo(rowId, info.data());
-        extra[0] = newTitle;
+        extra[1] = newTitle;
         emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
         return true;
     }
@@ -138,7 +152,7 @@ bool ServiceSalesBooksTable::setData(const QModelIndex &index, const QVariant &v
         const bool newVop = value.toBool();
         info->setVatOnPayment(newVop);
         m_orderManager->recordInvoicingInfo(rowId, info.data());
-        extra[1] = newVop;
+        extra[2] = newVop;
         emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
         return true;
     }
@@ -162,7 +176,7 @@ bool ServiceSalesBooksTable::setData(const QModelIndex &index, const QVariant &v
         }
         info->setPaymentDate(newPayDate);
         m_orderManager->recordInvoicingInfo(rowId, info.data());
-        extra[2] = term;
+        extra[3] = term;
         emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
         return true;
     }
@@ -340,6 +354,7 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
         ExceptionWithTitleText(tr("Invalid Invoicing Info"), err).raise();
     }
     resInfo.value->setVatOnPayment(vatOnPayment);
+    resInfo.value->setReference(orderId);
     m_orderManager->recordInvoicingInfo(activityId, &resInfo.value.value());
 
     // 7. Add to AbstractBooksTable (gross amount = net + vat)
@@ -360,7 +375,7 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     const QString displayTitle = lineItems.size() == 1
         ? lineItems.first().title
         : lineItems.first().title + tr(" (+%1 more)").arg(lineItems.size() - 1);
-    _setExtra(orderId, displayTitle, vatOnPayment, _paymentTermStr(date, paymentDate));
+    _setExtra(orderId, orderId, displayTitle, vatOnPayment, _paymentTermStr(date, paymentDate));
 }
 
 bool ServiceSalesBooksTable::remove(const QString &rowId)
@@ -429,15 +444,22 @@ void ServiceSalesBooksTable::load(int year)
         // Populate extra columns from persisted InvoicingInfo
         const QString rowId = act.getEventId();
         auto info = m_orderManager->getInvoicingInfo(rowId);
+        QString reference;
         QString title;
         bool vatOnPayment = false;
         QDate payDate = orderDate;
         if (info) {
+            reference = info->getReference();
             vatOnPayment = info->getVatOnPayment();
             payDate = info->getPaymentDate(orderDate);
-            if (!info->getItems().isEmpty())
+            if (!info->getItems().isEmpty()) {
                 title = info->getItems().first().getName();
+            }
         }
-        _setExtra(rowId, title, vatOnPayment, _paymentTermStr(orderDate, payDate));
+        // Fall back to rowId if no reference was persisted (legacy data)
+        if (reference.isEmpty()) {
+            reference = rowId;
+        }
+        _setExtra(rowId, reference, title, vatOnPayment, _paymentTermStr(orderDate, payDate));
     }
 }

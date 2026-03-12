@@ -27,6 +27,9 @@ public:
     bool getVatOnPayment() const { return m_vatOnPayment; }
     void setVatOnPayment(bool vatOnPayment) { m_vatOnPayment = vatOnPayment; }
 
+    QString getReference() const { return m_reference; }
+    void setReference(const QString &reference) { m_reference = reference; }
+
     /// Renames the line item at position index without touching its amounts.
     void setItemName(int index, const QString &name);
 
@@ -52,6 +55,7 @@ private:
     std::optional<QString> m_invoiceLink;
     std::optional<QDate> m_paymentDate;
     bool m_vatOnPayment = false;
+    QString m_reference;
 };
 
 #endif // INVOICINGINFO_H

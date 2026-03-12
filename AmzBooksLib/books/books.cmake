@@ -95,6 +95,8 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/AmzPaymentSettings.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ImportPriceTable.h
     ${CMAKE_CURRENT_LIST_DIR}/ImportPriceTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/UngroupedOrderTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/UngroupedOrderTable.cpp
 )
 
 

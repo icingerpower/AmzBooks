@@ -117,6 +117,12 @@ WidgetPurchases::~WidgetPurchases()
     delete ui;
 }
 
+bool WidgetPurchases::isInitialized() const
+{
+    return !ui->lineEditInventoryFolder->text().isEmpty()
+           && !ui->lineEditPurchaseFolder->text().isEmpty();
+}
+
 // ── Slots ─────────────────────────────────────────────────────────────────────
 
 void WidgetPurchases::_connectSlots()

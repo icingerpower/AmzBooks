@@ -27,6 +27,7 @@ public:
     explicit WidgetPurchases(QWidget *parent = nullptr);
     ~WidgetPurchases();
 
+    bool isInitialized() const;
     QStringList getCsvFilePaths() const;
     QDir        getPurchaseDir() const;
 

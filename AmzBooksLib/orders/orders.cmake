@@ -74,4 +74,6 @@ SET(ORDERS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/ImporterFileTemuOrders.h
     ${CMAKE_CURRENT_LIST_DIR}/ImporterFileTemuVatEu.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ImporterFileTemuVatEu.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterFileCommerceHQ.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterFileCommerceHQ.h
 )

@@ -1234,8 +1234,25 @@ void TestServiceSales::test_serviceSalesTable_extraColumns()
 
     QCOMPARE(table.rowCount(), 1);
 
-    // VERIFY 1: column count includes the 3 extra columns (9 base + 3)
-    QCOMPARE(table.columnCount(), 12);
+    // VERIFY 1: column count includes the 4 extra columns (9 base + 4)
+    QCOMPARE(table.columnCount(), 13);
+
+    // VERIFY 1b: header and data for Reference column
+    QCOMPARE(table.headerData(ServiceSalesBooksTable::IND_REFERENCE,
+                              Qt::Horizontal, Qt::DisplayRole).toString(),
+             QString("Reference"));
+    {
+        const QModelIndex idxRef = table.index(0, ServiceSalesBooksTable::IND_REFERENCE);
+        QCOMPARE(table.data(idxRef, Qt::DisplayRole).toString(), orderId);
+        QVERIFY(table.flags(idxRef) & Qt::ItemIsEditable);
+
+        // Edit reference
+        QVERIFY(table.setData(idxRef, QVariant("NEW-REF"), Qt::EditRole));
+        QCOMPARE(table.data(idxRef, Qt::DisplayRole).toString(), QString("NEW-REF"));
+        auto infoRef = orderManager.getInvoicingInfo(orderId);
+        QVERIFY(!infoRef.isNull());
+        QCOMPARE(infoRef->getReference(), QString("NEW-REF"));
+    }
 
     // VERIFY 2: header for Title column
     QCOMPARE(table.headerData(ServiceSalesBooksTable::IND_TITLE,
@@ -1330,9 +1347,11 @@ void TestServiceSales::test_serviceSalesTable_extraColumns()
         ServiceSalesBooksTable table2(nullptr, &orderManager, tempDir.path());
         table2.load(2025);
         QCOMPARE(table2.rowCount(), 1);
+        const QModelIndex t2Ref   = table2.index(0, ServiceSalesBooksTable::IND_REFERENCE);
         const QModelIndex t2Title = table2.index(0, ServiceSalesBooksTable::IND_TITLE);
         const QModelIndex t2Term  = table2.index(0, ServiceSalesBooksTable::IND_PAYMENT_TERM);
         const QModelIndex t2Vop   = table2.index(0, ServiceSalesBooksTable::IND_VAT_ON_PAYMENT);
+        QCOMPARE(table2.data(t2Ref,    Qt::DisplayRole).toString(), QString("NEW-REF"));
         QCOMPARE(table2.data(t2Title,  Qt::DisplayRole).toString(), QString("Updated Title"));
         QCOMPARE(table2.data(t2Term,   Qt::DisplayRole).toString(), QString("After 30 days"));
         QCOMPARE(table2.data(t2Vop,    Qt::EditRole).toBool(), false);

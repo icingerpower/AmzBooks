@@ -142,7 +142,8 @@ QJsonObject InvoicingInfo::toJson() const
     if (m_invoiceLink) json["invoiceLink"] = *m_invoiceLink;
     if (m_paymentDate) json["paymentDate"] = m_paymentDate->toString(Qt::ISODate);
     if (m_vatOnPayment) json["vatOnPayment"] = true;
-    
+    if (!m_reference.isEmpty()) json["reference"] = m_reference;
+
     QJsonArray itemsArr;
     for (const auto &item : m_items) {
         itemsArr.append(item.toJson());
@@ -175,8 +176,14 @@ InvoicingInfo InvoicingInfo::fromJson(const QJsonObject &json)
     bool vatOnPayment = false;
     if (json.contains("vatOnPayment")) vatOnPayment = json["vatOnPayment"].toBool();
 
+    QString reference;
+    if (json.contains("reference")) {
+        reference = json["reference"].toString();
+    }
+
     // Create with null shipment, we just hold data
     InvoicingInfo info(nullptr, items, number, link, paymentDate);
     info.m_vatOnPayment = vatOnPayment;
+    info.m_reference = reference;
     return info;
 }

@@ -194,6 +194,11 @@ add_custom_command(TARGET TestFileImportTemuOrders POST_BUILD
     $<TARGET_FILE_DIR:TestFileImportTemuOrders>/data/temu-orders
 )
 
+add_executable(TestFileImportCommerceHQ test_file_import_commerceHQ.cpp)
+add_test(NAME TestFileImportCommerceHQ COMMAND TestFileImportCommerceHQ)
+target_link_libraries(TestFileImportCommerceHQ PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib QCoro::Core)
+target_include_directories(TestFileImportCommerceHQ PRIVATE ../AmzBooksLib ../../common)
+
 add_executable(TestImporterFileTemuVatEu test_importer_file_temu_vat_eu.cpp)
 add_test(NAME TestImporterFileTemuVatEu COMMAND TestImporterFileTemuVatEu)
 target_link_libraries(TestImporterFileTemuVatEu PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib QCoro::Core)
@@ -216,6 +221,11 @@ add_executable(TestServiceSales test_service_sales.cpp)
 add_test(NAME TestServiceSales COMMAND TestServiceSales)
 target_link_libraries(TestServiceSales PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib)
 target_include_directories(TestServiceSales PRIVATE ../AmzBooksLib)
+
+add_executable(TestUngroupedOrderTable test_ungrouped_order_table.cpp)
+add_test(NAME TestUngroupedOrderTable COMMAND TestUngroupedOrderTable)
+target_link_libraries(TestUngroupedOrderTable PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib)
+target_include_directories(TestUngroupedOrderTable PRIVATE ../AmzBooksLib)
 
 add_executable(TestInvoicing test_invoicing.cpp)
 add_test(NAME TestInvoicing COMMAND TestInvoicing)

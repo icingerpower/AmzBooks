@@ -29,9 +29,9 @@ int main(int argc, char *argv[])
     }
     CompanyInfosTable companyInfos{WorkingDirectoryManager::instance()
                                        ->workingDir()};
-    if (!companyInfos.hadData())
+    DialogCompanyInfos dialogCompanyInfos;
+    if (!companyInfos.hadData() || !dialogCompanyInfos.isInitialized())
     {
-        DialogCompanyInfos dialogCompanyInfos;
         dialogCompanyInfos.exec();
         if (dialogCompanyInfos.result() == QDialog::Rejected)
         {

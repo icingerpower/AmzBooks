@@ -20,8 +20,21 @@ DialogCompanyInfos::~DialogCompanyInfos()
     delete ui;
 }
 
+bool DialogCompanyInfos::isInitialized() const
+{
+    return ui->tabPurchase->isInitialized();
+}
+
 void DialogCompanyInfos::accept()
 {
+    if (!ui->tabPurchase->isInitialized())
+    {
+        QMessageBox::information(
+            this,
+            tr("Purchase folders missing"),
+            tr("You need to select the 2 purchase folders"));
+        return;
+    }
     if (!ui->widgetInfos->hasVatNumberCompanyCountry())
     {
         QMessageBox::information(

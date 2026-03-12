@@ -15,6 +15,8 @@ public:
     explicit DialogCompanyInfos(QWidget *parent = nullptr);
     ~DialogCompanyInfos();
 
+    bool isInitialized() const;
+
 public slots:
     void accept() override;
 
