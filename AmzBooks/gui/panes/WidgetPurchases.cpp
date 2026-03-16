@@ -29,6 +29,7 @@ struct ErrorEntry {
 
 QSharedPointer<ImportPriceTable> WidgetPurchases::s_importPriceTable;
 QString                          WidgetPurchases::s_importPriceTableDir;
+QList<WidgetPurchases*>          WidgetPurchases::s_widgetPurchasesInstances;
 
 // ── Construction / destruction ────────────────────────────────────────────────
 
@@ -39,6 +40,8 @@ QString                          WidgetPurchases::s_importPriceTableDir;
     m_fileModelInventory(new QFileSystemModel(this))
 {
     ui->setupUi(this);
+
+    s_widgetPurchasesInstances.append(this);
 
     m_fileModel->setNameFilters(QStringList() << "*.csv" << "*.CSV");
     m_fileModel->setNameFilterDisables(false);
@@ -114,6 +117,7 @@ QString                          WidgetPurchases::s_importPriceTableDir;
 
 WidgetPurchases::~WidgetPurchases()
 {
+    s_widgetPurchasesInstances.removeAll(this);
     delete ui;
 }
 
@@ -152,6 +156,22 @@ void WidgetPurchases::_connectSlots()
     // of which WidgetPurchases instance triggered the change.
     connect(s_importPriceTable.get(), &ImportPriceTable::pricesChanged,
             this, [this]{ _refreshShippingSpinBoxes(); });
+
+    connect(ui->lineEditPurchaseFolder, &QLineEdit::textChanged, this, [this](const QString &path) {
+        QSettings settings;
+        settings.setValue("purchases/lastFolder", path);
+        for (auto *instance : s_widgetPurchasesInstances) {
+            instance->onFolderChanged(path);
+        }
+    });
+
+    connect(ui->lineEditInventoryFolder, &QLineEdit::textChanged, this, [this](const QString &path) {
+        QSettings settings;
+        settings.setValue("purchases/lastInventoryFolder", path);
+        for (auto *instance : s_widgetPurchasesInstances) {
+            instance->onInventoryFolderChanged(path);
+        }
+    });
 }
 
 void WidgetPurchases::_refreshShippingSpinBoxes()
@@ -178,10 +198,7 @@ void WidgetPurchases::selectFolder()
                                                     m_currentDir,
                                                     QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
     if (!dir.isEmpty()) {
-        onFolderChanged(dir);
-
-        QSettings settings;
-        settings.setValue("purchases/lastFolder", m_currentDir);
+        ui->lineEditPurchaseFolder->setText(dir);
     }
 }
 
@@ -191,17 +208,17 @@ void WidgetPurchases::selectInventoryFolder()
                                                     m_inventoryDir,
                                                     QFileDialog::ShowDirsOnly | QFileDialog::DontResolveSymlinks);
     if (!dir.isEmpty()) {
-        onInventoryFolderChanged(dir);
-
-        QSettings settings;
-        settings.setValue("purchases/lastInventoryFolder", m_inventoryDir);
+        ui->lineEditInventoryFolder->setText(dir);
     }
 }
 
 void WidgetPurchases::onFolderChanged(const QString &path)
 {
     m_currentDir = path;
-    ui->lineEditPurchaseFolder->setText(m_currentDir);
+    if (ui->lineEditPurchaseFolder->text() != m_currentDir) {
+        const QSignalBlocker blocker(ui->lineEditPurchaseFolder);
+        ui->lineEditPurchaseFolder->setText(m_currentDir);
+    }
 
     ui->treeViewCsvFiles->setModel(m_fileModel);
     m_fileModel->setRootPath(m_currentDir);
@@ -211,7 +228,10 @@ void WidgetPurchases::onFolderChanged(const QString &path)
 void WidgetPurchases::onInventoryFolderChanged(const QString &path)
 {
     m_inventoryDir = path;
-    ui->lineEditInventoryFolder->setText(m_inventoryDir);
+    if (ui->lineEditInventoryFolder->text() != m_inventoryDir) {
+        const QSignalBlocker blocker(ui->lineEditInventoryFolder);
+        ui->lineEditInventoryFolder->setText(m_inventoryDir);
+    }
 
     ui->treeViewInventoryCsvFiles->setModel(m_fileModelInventory);
     m_fileModelInventory->setRootPath(m_inventoryDir);

@@ -73,8 +73,6 @@ QVariant OrderTable::headerData(int section, Qt::Orientation orientation, int ro
             if (section >= 0 && section < COL_NAMES.size()) {
                 return COL_NAMES[section];
             }
-        } else {
-            return QString::number(section + 1);
         }
     }
     return QVariant();

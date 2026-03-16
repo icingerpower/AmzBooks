@@ -60,7 +60,8 @@ private slots:
     void test_invoice_save_load_full_fields();
     void test_invoice_proportion_encode_decode();
     void test_invoice_extra_tokens();
-    
+    void test_invoice_negative_amount_refund();
+
     // JournalEntryFactory tests
     void test_factory_purchase_no_conversion();
     void test_factory_purchase_with_conversion();
@@ -95,6 +96,9 @@ private slots:
     void test_invoice_mixed_currency_vat_sek_total_eur();
     void test_invoice_same_currency_sek_rate_computed();
     void test_invoice_four_currency_variants_same_eur_amounts();
+    void test_invoice_gbp_negative_vat_and_total_with_conversion();
+    void test_factory_purchase_dual_amount_uses_invoice_rate();
+    void test_abstract_books_table_sort_by_date();
 
     // ── Amazon Payment filename parsing ──────────────────────────────────────
     // 20 situations that could cause incorrect handling:
@@ -660,6 +664,88 @@ void TestBookEntries::test_invoice_extra_tokens()
     // And prefix/suffix
     QVERIFY(encoded5.startsWith("2025-06-15__607000__MultiMix__Supp__"));
     QVERIFY(encoded5.endsWith("__245.5EUR.pdf"));
+}
+
+void TestBookEntries::test_invoice_negative_amount_refund()
+{
+    // Case 1: Decode a filename with a negative total (purchase refund).
+    // VAT amounts in tokens are always stored positive; the negative total signals the refund.
+    const QString fileName = "2024-03-15__607000__refund-label__Supplier__FR-TVA20-20.0EUR__-120.0EUR.pdf";
+    const PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date, QDate(2024, 3, 15));
+    QCOMPARE(info.account, QString("607000"));
+    QCOMPARE(info.totalAmount, -120.0);
+    QCOMPARE(info.rawTotalAmount, QString("-120.0"));
+    QCOMPARE(info.currency, QString("EUR"));
+
+    // VAT is positive in country_vatRate_vat even for a refund
+    QVERIFY(info.country_vatRate_vat.contains("FR"));
+    const auto &frVat = info.country_vatRate_vat["FR"];
+    QCOMPARE(frVat.size(), 1);
+    QCOMPARE(frVat[frVat.keys().first()], 20.0);
+
+    // rawVatAmount must also be set (positive)
+    QCOMPARE(info.rawVatAmount, QString("20"));
+
+    // Roundtrip encode → same filename
+    const QString encoded = PurchaseInvoiceManager::encode(info);
+    QCOMPARE(encoded, fileName);
+
+    // Case 2: Negative total with no VAT
+    const QString fileNameNoVat = "2024-03-15__607000__refund-fees__Bank__-50.0EUR.pdf";
+    const PurchaseInformation infoNoVat = PurchaseInvoiceManager::decode(fileNameNoVat);
+    QCOMPARE(infoNoVat.totalAmount, -50.0);
+    QVERIFY(infoNoVat.country_vatRate_vat.isEmpty());
+    QCOMPARE(PurchaseInvoiceManager::encode(infoNoVat), fileNameNoVat);
+
+    // Case 3: Factory produces a reversed (credit-side expense) entry for a refund
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    {
+        QFile companyFile(dir.filePath("company.csv"));
+        QVERIFY(companyFile.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&companyFile);
+        out << "Id;Parameter;Value\n";
+        out << "Currency;Currency;EUR\n";
+        out << "Country;Country Code;FR\n";
+    }
+
+    CompanyInfosTable companyInfos(dir);
+    CurrencyRateManager currencyManager(dir, "");
+    BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountPurchaseTable purchaseAccounts(dir, "FR");
+    JournalTable journalTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts,
+                                &purchaseAccounts, &journalTable);
+
+    const auto entry = factory.createEntry(info);
+    QVERIFY(!entry.isNull());
+
+    // Expense account (607000) must appear on the credit side for a refund
+    bool foundExpenseCredit = false;
+    for (const auto &line : entry->getCredits()) {
+        if (line.account == "607000") {
+            foundExpenseCredit = true;
+            QCOMPARE(line.currency_amount["EUR"], 100.0); // HT = 120 - 20
+        }
+    }
+    QVERIFY(foundExpenseCredit);
+
+    // Supplier must appear on the debit side
+    bool foundSupplierDebit = false;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == "Supplier") {
+            foundSupplierDebit = true;
+            QCOMPARE(line.currency_amount["EUR"], 120.0);
+        }
+    }
+    QVERIFY(foundSupplierDebit);
+
+    // Entry must balance
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
 }
 
 void TestBookEntries::test_invoice_model_loading()
@@ -1624,7 +1710,7 @@ void TestBookEntries::test_factory_bank_entry()
     
     // 3. Create entry for expense (negative amount - money out)
     QString expenseAccount = "607000"; // Purchases account
-    auto expenseEntry = factory.createEntry(&bankTable, expenseAccount, 0);
+    auto expenseEntry = factory.createEntry(&bankTable, expenseAccount, 1);
     QVERIFY(!expenseEntry.isNull());
     
     // 4. Verify debit/credit sums are equal
@@ -1659,7 +1745,7 @@ void TestBookEntries::test_factory_bank_entry()
     
     // 8. Create entry for revenue (positive amount - money in)
     QString revenueAccount = "706000"; // Service revenue
-    auto revenueEntry = factory.createEntry(&bankTable, revenueAccount, 1);
+    auto revenueEntry = factory.createEntry(&bankTable, revenueAccount, 0);
     QVERIFY(!revenueEntry.isNull());
     
     // 9. Verify revenue amount
@@ -2970,6 +3056,125 @@ void TestBookEntries::test_invoice_four_currency_variants_same_eur_amounts()
         QVERIFY2(qAbs(expenseEur - 13.15) < 0.01,
                  qPrintable(fileName + QString(": expense EUR %1 ≠ 13.15").arg(expenseEur)));
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: GBP invoice with double-dash negative VAT token and negative total
+//       Filename: FR-TVA--0.17EUR encodes a VAT token whose amount part ("0.17EUR")
+//       is positive in the parsed structure (the leading minus is consumed by the
+//       split on '-'); the invoice is a refund because totalAmount < 0.
+//
+//       Fake exchange rate: 1 GBP = 1.2 EUR.
+//       Expected amounts (both on credit side — "2 negative amounts"):
+//         • Expense (622201) : 0.87 EUR  (0.72833 GBP × 1.2, rounded)
+//         • VAT    (445660)  : 0.17 EUR  (already in EUR, no conversion)
+//         • Supplier debit   : 1.04 EUR  (0.87 GBP × 1.2)
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_invoice_gbp_negative_vat_and_total_with_conversion()
+{
+    const QString fileName =
+        "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8372__FAMZMK__FR-TVA--0.17EUR__-0.87GBP.pdf";
+
+    // ── Decode ────────────────────────────────────────────────────────────────
+    const PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    QCOMPARE(info.date,            QDate(2026, 1, 31));
+    QCOMPARE(info.account,         QString("622201"));
+    QCOMPARE(info.label,           QString("frais-vente-FR-CN-AEU-2026-8372"));
+    QCOMPARE(info.accountSupplier, QString("FAMZMK"));
+    QCOMPARE(info.totalAmount,     -0.87);
+    QCOMPARE(info.rawTotalAmount,  QString("-0.87"));
+    QCOMPARE(info.currency,        QString("GBP"));
+    QCOMPARE(info.vatTokens.size(),    1);
+    QCOMPARE(info.vatTokens.first(),   QString("FR-TVA--0.17EUR"));
+    QCOMPARE(info.rawVatAmount,    QString("-0.17"));
+    QCOMPARE(info.vatCurrency,     QString("EUR"));
+    QCOMPARE(info.vatCountry,      QString("FR"));
+
+    // FAMZMK: capturedStart("MZ") = 2 < 3 → no route from supplier.
+    // Label ends with "-8372" → no -XX-YY suffix → no route from label either.
+    QVERIFY(info.countryCodeFrom.isEmpty());
+    QVERIFY(info.countryCodeTo.isEmpty());
+
+    // Double-dash in "FR-TVA--0.17EUR" → rawVatAmount = "-0.17" (sign preserved).
+    // country_vatRate_vat still stores absolute value 0.17; rate deduced from untaxed = 0.87 − 0.17 = 0.70 → ≈ 24.3%.
+    QVERIFY(info.country_vatRate_vat.contains("FR"));
+    const auto &frRates = info.country_vatRate_vat["FR"];
+    QCOMPARE(frRates.size(), 1);
+    QCOMPARE(frRates.values().first(), 0.17);
+
+    // ── Encode round-trip ─────────────────────────────────────────────────────
+    QCOMPARE(PurchaseInvoiceManager::encode(info), fileName);
+
+    // ── Factory: refund entry — both VAT and expense go to credit ("negative") ─
+    // Fake rate: 1 GBP = 1.2 EUR.
+    // isRefund = true  →  expense (622201) + VAT on credit side; supplier on debit.
+    //
+    // vatCurrency = "EUR" (≠ total currency "GBP"), so in the factory:
+    //   totalVat (in GBP) = 0.17 × 1.0 / 1.2 ≈ 0.1417 GBP
+    //   totalHT           = 0.87 − 0.1417 ≈ 0.7283 GBP
+    //
+    // Credit side:
+    //   expense (622201) : 0.7283 GBP × 1.2 = 0.874 → rounded = 0.87 EUR
+    //   VAT    (445660)  : 0.17 EUR  (no conversion, vatCurrency == companyCurrency)
+    // Debit side:
+    //   supplier (FAMZMK): 0.87 GBP × 1.2 = 1.044 → rounded = 1.04 EUR
+    // Balance: 0.87 + 0.17 = 1.04 ✓
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-01-31", "GBP", "EUR", 1.2);
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    // JEF computes the rate with currency conversion (vatCurrency=EUR=companyCurrency):
+    // totalHT = 0.87 GBP - 0.17 EUR / 1.2 = 0.72833 GBP
+    // untaxedCC = 0.72833 × 1.2 = 0.874 EUR → rate = 0.17 / 0.874 ≈ 19.5% = 0.195
+    pa.addAccount("FR", 0.195, "445660", "445710");
+    JournalTable jt(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt);
+
+    const auto entry = f.createEntry(info);
+    QVERIFY(!entry.isNull());
+
+    // For a refund both the expense and VAT lines are on the credit side
+    // (the "2 negative amounts" — negative from the expense-account perspective).
+    QCOMPARE(entry->getCredits().size(), 2); // expense + VAT
+    QCOMPARE(entry->getDebits().size(),  1); // supplier
+
+    bool foundExpenseCredit = false;
+    bool foundVatCredit     = false;
+    for (const auto &line : entry->getCredits()) {
+        if (line.account == "622201") {
+            foundExpenseCredit = true;
+            QVERIFY2(qAbs(line.currency_amount.value("EUR") - 0.87) < 0.01,
+                     "Expense EUR amount should be ≈ 0.87");
+        }
+        if (line.account == "445660") {
+            foundVatCredit = true;
+            QVERIFY2(qAbs(line.currency_amount.value("EUR") - 0.17) < 0.001,
+                     "VAT EUR amount should be 0.17");
+        }
+    }
+    QVERIFY(foundExpenseCredit);
+    QVERIFY(foundVatCredit);
+
+    bool foundSupplierDebit = false;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == "FAMZMK") {
+            foundSupplierDebit = true;
+            QVERIFY2(qAbs(line.currency_amount.value("EUR") - 1.04) < 0.01,
+                     "Supplier EUR amount should be ≈ 1.04");
+        }
+    }
+    QVERIFY(foundSupplierDebit);
+
+    // Entry must balance
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -5155,6 +5360,154 @@ void TestBookEntries::test_associate_usd_invoice_usd_bank_with_api_key_blocker()
     QVERIFY2(!threw, "Same-currency USD-USD must succeed even with an empty API key");
     QVERIFY(connections.contains("BookForAssoc", "INVOICE_USD_002"));
     QVERIFY(connections.contains("BankForAssoc", "BANK_USD_003"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Regression: dual-amount VAT token must drive currencyRate for ALL journal
+// lines, not just the VAT line.
+//
+// Invoice: 2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8372__FAMZMK__
+//          FR-TVA--0.17EUR_-0.15GBP__-0.87GBP.pdf
+//
+// Token FR-TVA--0.17EUR_-0.15GBP encodes:
+//   company VAT = 0.17 EUR,  source VAT = 0.15 GBP  → implied rate = 0.17/0.15 = 1.1333
+//
+// We inject a deliberately wrong CRM rate (1.5) so that any line which still
+// uses CRM produces a wrong EUR amount; the test catches that via explicit
+// amount checks and the debit == credit balance assertion.
+//
+// Expected (rate = 1.1333):
+//   Debit  FAMZMK : 0.87 GBP × 1.1333 → 0.99 EUR
+//   Credit 622201 : 0.72 GBP × 1.1333 → 0.82 EUR
+//   Credit 445660 : 0.15 GBP × 1.1333 → 0.17 EUR   (exactly, no rounding)
+//   CreditSum = 0.82 + 0.17 = 0.99 == DebitSum ✓
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_purchase_dual_amount_uses_invoice_rate()
+{
+    const QString fileName =
+        "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8372__FAMZMK"
+        "__FR-TVA--0.17EUR_-0.15GBP__-0.87GBP.pdf";
+
+    const PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+
+    // Sanity-check the decode
+    QCOMPARE(info.totalAmount,  -0.87);
+    QCOMPARE(info.currency,     QString("GBP"));
+    QVERIFY(info.country_vatRate_vatCompany.contains("FR"));
+
+    // Set up environment: CRM has a deliberately wrong GBP→EUR rate (1.5).
+    // If the factory falls back to CRM for the expense/supplier lines the amounts
+    // will differ from the expected values, and the entry will not balance.
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    crm.importRate("2026-01-31", "GBP", "EUR", 1.5); // wrong — should NOT be used
+
+    BooksAccountsSalesTable sa(dir);
+    // Default FR table includes 20 % (0.2) account; tolerance 0.99 % covers the
+    // 0.208 key computed from 0.15 / 0.72 = 20.8 %.
+    BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir);
+    JournalEntryFactory factory(&crm, &ci, &sa, &pa, &jt);
+
+    const auto entry = factory.createEntry(info);
+    QVERIFY(!entry.isNull());
+
+    // isRefund → expense + VAT on credit side, supplier on debit
+    QCOMPARE(entry->getCredits().size(), 2);
+    QCOMPARE(entry->getDebits().size(),  1);
+
+    // ── Credit lines ─────────────────────────────────────────────────────────
+    double expenseEur = 0.0;
+    double vatEur     = 0.0;
+    bool foundExpense = false;
+    bool foundVat     = false;
+    for (const auto &line : entry->getCredits()) {
+        if (line.account == "622201") {
+            foundExpense = true;
+            expenseEur = line.currency_amount.value("EUR");
+            // With correct rate 1.1333: 0.72 × 1.1333 = 0.816 → rounded to 0.82
+            // With wrong CRM rate 1.5 : 0.72 × 1.5    = 1.08
+            QVERIFY2(qAbs(expenseEur - 0.82) < 0.005,
+                     qPrintable(QString("Expense EUR should be ≈ 0.82 (dual rate), got %1").arg(expenseEur)));
+            QVERIFY2(!line.title.contains("@ 1.5"),
+                     "Expense line must not use the CRM rate 1.5");
+        }
+        if (line.account == "445660") {
+            foundVat = true;
+            vatEur = line.currency_amount.value("EUR");
+            // 0.15 GBP × 1.1333 = 0.17 EUR exactly
+            QVERIFY2(qAbs(vatEur - 0.17) < 0.001,
+                     qPrintable(QString("VAT EUR should be 0.17, got %1").arg(vatEur)));
+            QVERIFY2(!line.title.contains("@ 1.5"),
+                     "VAT line must not use the CRM rate 1.5");
+        }
+    }
+    QVERIFY(foundExpense);
+    QVERIFY(foundVat);
+
+    // ── Debit line ────────────────────────────────────────────────────────────
+    bool foundSupplier = false;
+    for (const auto &line : entry->getDebits()) {
+        if (line.account == "FAMZMK") {
+            foundSupplier = true;
+            const double supplierEur = line.currency_amount.value("EUR");
+            // With correct rate 1.1333: 0.87 × 1.1333 = 0.986 → rounded to 0.99
+            // With wrong CRM rate 1.5 : 0.87 × 1.5    = 1.305 → rounded to 1.31
+            QVERIFY2(qAbs(supplierEur - 0.99) < 0.005,
+                     qPrintable(QString("Supplier EUR should be ≈ 0.99 (dual rate), got %1").arg(supplierEur)));
+            QVERIFY2(!line.title.contains("@ 1.5"),
+                     "Supplier line must not use the CRM rate 1.5");
+        }
+    }
+    QVERIFY(foundSupplier);
+
+    // ── Balance ───────────────────────────────────────────────────────────────
+    // With the correct rate the entry is exactly balanced (0.99 == 0.82 + 0.17).
+    // With the CRM rate the entry would be unbalanced (1.31 ≠ 1.08 + 0.17 = 1.25).
+    QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: AbstractBooksTable::sortByDate() sorts rows most-recent first.
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_abstract_books_table_sort_by_date()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    BooksConnections connections(dir);
+    BookTableForAssoc table(&connections, dir);
+    table.init();
+
+    // Insert rows in arbitrary date order
+    table.add("id1", "", QDate(2025, 6, 15),  10.0, "EUR", "June",     "601", "401", 0.0, "", "");
+    table.add("id2", "", QDate(2026, 1, 31),  20.0, "EUR", "January",  "602", "402", 0.0, "", "");
+    table.add("id3", "", QDate(2024, 12,  1),  5.0, "EUR", "December", "603", "403", 0.0, "", "");
+    table.add("id4", "", QDate(2026, 3,  10), 30.0, "EUR", "March",    "604", "404", 0.0, "", "");
+
+    // Verify pre-sort state (rows are inserted at position 0, so last added is first)
+    QCOMPARE(table.rowCount(), 4);
+
+    table.sortByDate();
+
+    // After sort: most recent first
+    QCOMPARE(table.rowCount(), 4);
+    QCOMPARE(table.getDate(0), QDate(2026, 3, 10));
+    QCOMPARE(table.getDate(1), QDate(2026, 1, 31));
+    QCOMPARE(table.getDate(2), QDate(2025, 6, 15));
+    QCOMPARE(table.getDate(3), QDate(2024, 12,  1));
+
+    // Row data is carried with the sort
+    QCOMPARE(table.getLabel(0), QString("March"));
+    QCOMPARE(table.getLabel(1), QString("January"));
+    QCOMPARE(table.getLabel(2), QString("June"));
+    QCOMPARE(table.getLabel(3), QString("December"));
 }
 
 QTEST_MAIN(TestBookEntries)

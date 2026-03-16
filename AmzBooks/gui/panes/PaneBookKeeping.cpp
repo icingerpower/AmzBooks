@@ -124,6 +124,9 @@ void PaneBookKeeping::loadYearSelected()
     for (auto &booksTable : nonBankBooksTables) {
         booksTable->load(year - 1);
     }
+    for (auto &booksTable : allBooksTables) {
+        booksTable->sortByDate();
+    }
     setCursor(Qt::ArrowCursor);
 }
 
@@ -221,7 +224,7 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     auto *purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
     QList<PurchaseInformation> invoices;
     if (purchaseTable) {
-        invoices = purchaseTable->manager().getInvoices(from, to);
+        invoices = purchaseTable->getInvoices(from, to);
         qDebug() << "[PaneBookKeeping] Loaded Invoices. Count:" << invoices.size();
     } else {
         qDebug() << "[PaneBookKeeping] Warning: purchaseTable is null!";
@@ -1290,13 +1293,14 @@ void PaneBookKeeping::purchaseAdd()
         
         const CompanyInfosTable companyInfos{WorkingDirectoryManager::instance()->workingDir()};
         const QString companyCurrency = companyInfos.getCurrency();
-        
+
         const BookAccountPurchaseTable purchaseAccountTable{WorkingDirectoryManager::instance()->workingDir(), companyInfos.getCompanyCountryCode()};
-        
+        const CurrencyRateManager currencyRateManager{WorkingDirectoryManager::instance()->workingDir(), companyInfos.getApiKeyFixer()};
+
         PurchaseInformation info = PurchaseInvoiceManager::decode(fi.fileName(), &purchaseAccountTable);
 
         while (true) {
-            DialogEditPurchase editDialog(info, companyCurrency, this);
+            DialogEditPurchase editDialog(info, companyCurrency, &purchaseAccountTable, &currencyRateManager, this);
             if (editDialog.exec() != QDialog::Accepted) {
                 return;
             }
@@ -1318,7 +1322,7 @@ void PaneBookKeeping::purchaseAdd()
             }
 
             if (info.countryCodeFrom.isEmpty() && info.countryCodeTo.isEmpty()) {
-                if (purchaseTable->manager().isSupplierWithCountries(info.accountSupplier)) {
+                if (purchaseTable->isSupplierWithCountries(info.accountSupplier)) {
                     if (QMessageBox::question(
                             this,
                             tr("Missing Country"),
@@ -1335,9 +1339,9 @@ void PaneBookKeeping::purchaseAdd()
             break;
         }
 
-        purchaseTable->manager().add(fileName, info);
+        purchaseTable->addInvoice(fileName, info);
         // Reload table for the year of the invoice
-        purchaseTable->load(info.date.year());
+        //purchaseTable->load(info.date.year());
 
         // Also ensure UI year is correct? Or just warn if added to a different year?
         if (ui->comboBoxYear->currentText().toInt() != info.date.year()) {
@@ -1347,7 +1351,7 @@ void PaneBookKeeping::purchaseAdd()
                 .arg(ui->comboBoxYear->currentText()));
         } else {
              // Refresh current view
-             purchaseTable->load(info.date.year());
+             //purchaseTable->load(info.date.year());
         }
 
     } catch (const ExceptionWithTitleText &e) {
@@ -1375,10 +1379,11 @@ void PaneBookKeeping::purchaseAddMany()
 
     const CompanyInfosTable companyInfos{WorkingDirectoryManager::instance()->workingDir()};
     const QString companyCurrency = companyInfos.getCurrency();
-    
-    const BookAccountPurchaseTable purchaseAccountTable{WorkingDirectoryManager::instance()->workingDir(), companyInfos.getCompanyCountryCode()};
 
-    DialogEditPurchases dialog(&purchaseAccountTable, fileNames, companyCurrency, this);
+    const BookAccountPurchaseTable purchaseAccountTable{WorkingDirectoryManager::instance()->workingDir(), companyInfos.getCompanyCountryCode()};
+    const CurrencyRateManager currencyRates{WorkingDirectoryManager::instance()->workingDir(), companyInfos.getApiKeyFixer()};
+
+    DialogEditPurchases dialog(&purchaseAccountTable, fileNames, companyCurrency, &currencyRates, this);
     if (dialog.exec() == QDialog::Accepted) {
         auto purchaseTable = static_cast<PurchaseInvoiceTable *>(ui->tableInvoices->model());
         QList<PurchaseInformation> invoicesToAdd = dialog.getInfos();
@@ -1389,7 +1394,7 @@ void PaneBookKeeping::purchaseAddMany()
         for (const PurchaseInformation &info : std::as_const(invoicesToAdd)) {
             if (info.countryCodeFrom.isEmpty() && info.countryCodeTo.isEmpty()) {
                 if (!confirmedSuppliers.contains(info.accountSupplier)
-                        && purchaseTable->manager().isSupplierWithCountries(info.accountSupplier)) {
+                        && purchaseTable->isSupplierWithCountries(info.accountSupplier)) {
                     if (QMessageBox::question(
                             this,
                             tr("Missing Country"),
@@ -1417,7 +1422,7 @@ void PaneBookKeeping::purchaseAddMany()
         int errCount = 0;
         for (PurchaseInformation info : invoicesToAdd) {
             try {
-                purchaseTable->manager().add(info.filePath, info);
+                purchaseTable->addInvoice(info.filePath, info);
                 count++;
             } catch (...) {
                 errCount++;
@@ -1425,7 +1430,7 @@ void PaneBookKeeping::purchaseAddMany()
         }
 
         // Reload current view
-        purchaseTable->load(ui->comboBoxYear->currentText().toInt());
+        //purchaseTable->load(ui->comboBoxYear->currentText().toInt());
 
         QString msg = tr("Added %1 invoices.").arg(count);
         if (errCount > 0) {
@@ -1445,41 +1450,15 @@ void PaneBookKeeping::purchaseRemove()
         return;
     }
 
-    if (QMessageBox::question(this, tr("Confirm Removal"),
-                              tr("Are you sure you want to remove %1 invoices? "
-                                 "This will delete the files from disk.")
-                              .arg(selection.size()))
-        != QMessageBox::Yes) {
-        return;
-    }
+    auto answer = QMessageBox::question(this, tr("Remove invoices ?"),
+        tr("Are you sure you want to remove the %1 selected invoice(s) ?").arg(selection.size()));
 
-    // Sort selection reverse to remove safely?
-    // removeInvoice uses rowId and manager removal, so index validity changes are tricky if we rely on indices.
-    // However, PurchaseInvoiceTable::removeInvoice takes a QModelIndex.
-    // If we remove one, indices shift.
-    // Better strategy: Collect Row IDs first.
-
-    QStringList rowIds;
-    for (const QModelIndex &idx : std::as_const(selection)) {
-        rowIds << purchaseTable->getRowId(idx);
-    }
-
-    for (const QString &id : std::as_const(rowIds)) {
-        if (m_booksConnections->contains(purchaseTable->getId(), id)) {
-            // Find the index for the current id to disconnect
-            for (const QModelIndex &idx : std::as_const(selection)) {
-                if (purchaseTable->getRowId(idx) == id) {
-                    m_booksConnections->disconnect(purchaseTable, idx);
-                    break;
-                }
-            }
+    if (answer == QMessageBox::Yes) {
+        // Remove in reverse order so indexes remain valid
+        for (int i = selection.size() - 1; i >= 0; --i) {
+            purchaseTable->removeInvoice(selection[i]);
         }
-        purchaseTable->manager().remove(id);
     }
-
-    // Reload to refresh view properly (or trust manager remove logic if it was robust enough for batch)
-    // PurchaseInvoiceTable::load clears and reloads.
-    purchaseTable->load(ui->comboBoxYear->currentText().toInt());
 }
 
 void PaneBookKeeping::bankAdd()

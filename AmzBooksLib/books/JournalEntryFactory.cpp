@@ -53,6 +53,31 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
         );
     }
 
+    // When dual-amount VAT tokens are present the company/source ratio gives the
+    // exact exchange rate that the supplier used for this specific invoice — more
+    // precise than the generic CRM daily rate.  Override currencyRate so that the
+    // expense and supplier lines (computed below) use the same rate as the VAT line.
+    if (purchaseInformation.currency != companyCurrency
+            && !purchaseInformation.country_vatRate_vatCompany.isEmpty()) {
+        double totalSourceVat  = 0.0;
+        double totalCompanyVat = 0.0;
+        for (auto itC = purchaseInformation.country_vatRate_vatCompany.constBegin();
+             itC != purchaseInformation.country_vatRate_vatCompany.constEnd(); ++itC) {
+            const QString &cKey = itC.key();
+            for (auto itR = itC.value().constBegin(); itR != itC.value().constEnd(); ++itR) {
+                const QString &rKey = itR.key();
+                if (purchaseInformation.country_vatRate_vat.contains(cKey)
+                        && purchaseInformation.country_vatRate_vat[cKey].contains(rKey)) {
+                    totalSourceVat  += qAbs(purchaseInformation.country_vatRate_vat[cKey][rKey]);
+                    totalCompanyVat += qAbs(itR.value());
+                }
+            }
+        }
+        if (totalSourceVat > 1e-9) {
+            currencyRate = totalCompanyVat / totalSourceVat;
+        }
+    }
+
     // Get VAT currency conversion rate — may differ from the total currency
     QString vatCurrency = purchaseInformation.vatCurrency.isEmpty()
                           ? purchaseInformation.currency
@@ -149,26 +174,101 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
         const auto &rateMap = itCountry.value();
         
         for (auto itRate = rateMap.constBegin(); itRate != rateMap.constEnd(); ++itRate) {
-            double vatRate = itRate.key().toDouble();
             double vatAmount = itRate.value();
-            
+
             // Fallback empty fields to company country for VAT lookup
             QString companyCountry = m_companyInfos->getCompanyCountryCode();
             QString countryCode = purchaseInformation.countryCodeTo.isEmpty() ? companyCountry : purchaseInformation.countryCodeTo;
+
+            // When vatCurrency matches the invoice currency the rate stored in the map
+            // key is already correct (explicit or computed from same-currency amounts).
+            // When they differ the stored rate was computed by dividing amounts in
+            // different currencies and may be wrong; recompute it here using the CRM.
+            // Rule: if one side is already in companyCurrency keep it and convert the
+            // other; otherwise convert vatAmount to invoice currency via companyCurrency.
+            double vatRate;
+            // untaxedNormInCompany is totalHT expressed in companyCurrency — used below
+            // to back-calculate the true vatCurrencyRate from the matched VAT rate.
+            double untaxedNormInCompany = totalHT * currencyRate;
+            if (vatCurrency == purchaseInformation.currency) {
+                vatRate = itRate.key().toDouble();
+            } else {
+                double vatAmountNorm, untaxedNorm;
+                if (vatCurrency == companyCurrency) {
+                    vatAmountNorm = vatAmount;
+                    untaxedNorm   = totalHT * currencyRate;
+                } else if (purchaseInformation.currency == companyCurrency) {
+                    vatAmountNorm     = vatAmount * vatCurrencyRate;
+                    untaxedNorm       = totalHT;
+                    untaxedNormInCompany = totalHT; // invoice == company
+                } else {
+                    vatAmountNorm = (currencyRate > 0.0) ? vatAmount * vatCurrencyRate / currencyRate : vatAmount;
+                    untaxedNorm   = totalHT;
+                    // untaxedNormInCompany = totalHT * currencyRate (default above is correct)
+                }
+                vatRate = (untaxedNorm > 0.001)
+                          ? qRound(vatAmountNorm / untaxedNorm * 10000.0) / 10000.0
+                          : itRate.key().toDouble();
+            }
+
+            QString vatDebit6;
+            QString vatCredit4;
+            double effectiveVatCurrencyRate = vatCurrencyRate;
+
+            // Check for dual-amount token: company-currency VAT is available for this entry.
+            // When present, the exact exchange rate is vatAmountCompany / vatAmountSource,
+            // and the VAT rate key from the map is already accurate (computed from
+            // same-currency amounts). No Closest lookup needed.
+            const auto &vatCompanyMap = purchaseInformation.country_vatRate_vatCompany;
+            const bool hasDualAmount = vatCompanyMap.contains(country)
+                                       && vatCompanyMap[country].contains(itRate.key());
+            if (hasDualAmount) {
+                // Dual-amount token: conversion rate is exact (company / source).
+                // Account lookup still uses Closest because small amounts round the
+                // rate key imprecisely (e.g. 0.15 / 0.72 = 20.8% instead of 20%).
+                vatRate = itRate.key().toDouble();
+                const double vatAmountCompany = vatCompanyMap[country][itRate.key()];
+                const double toleranceDual    = (vatAmountCompany < 2.0) ? 0.99 : 0.4;
+                const auto debit6Result  = m_purchaseBookAccounts->getAccountsDebit6Closest(purchaseInformation.vatCountry, vatRate, toleranceDual);
+                const auto credit4Result = m_purchaseBookAccounts->getAccountsCredit4Closest(purchaseInformation.vatCountry, vatRate, toleranceDual);
+                vatDebit6  = debit6Result.account;
+                vatCredit4 = credit4Result.account;
+                if (vatAmount > 1e-9) {
+                    effectiveVatCurrencyRate = vatAmountCompany / vatAmount;
+                }
+            } else if (vatCurrency != purchaseInformation.currency) {
+                // Currencies differ but no dual amounts: use Closest lookup (legacy files).
+                // Tolerance: 0.4% normally; widen to 0.99% for small VAT amounts (< 2
+                // company-currency units) where rounding causes proportionally larger drift.
+                const double vatAmountInCompany = (vatCurrency == companyCurrency)
+                                                  ? vatAmount
+                                                  : vatAmount * vatCurrencyRate;
+                const double tolerance = (vatAmountInCompany < 2.0) ? 0.99 : 0.4;
+                // Back-calculate the implied conversion rate from the matched stored VAT rate.
+                const auto debit6Result  = m_purchaseBookAccounts->getAccountsDebit6Closest(purchaseInformation.vatCountry, vatRate, tolerance);
+                const auto credit4Result = m_purchaseBookAccounts->getAccountsCredit4Closest(purchaseInformation.vatCountry, vatRate, tolerance);
+                vatDebit6  = debit6Result.account;
+                vatCredit4 = credit4Result.account;
+                if (vatCurrency != companyCurrency && vatAmount > 1e-9) {
+                    effectiveVatCurrencyRate = debit6Result.matchedRate * untaxedNormInCompany / vatAmount;
+                }
+            } else {
+                vatDebit6  = m_purchaseBookAccounts->getAccountsDebit6(purchaseInformation.vatCountry, vatRate);
+                vatCredit4 = m_purchaseBookAccounts->getAccountsCredit4(purchaseInformation.vatCountry, vatRate);
+            }
             
-            QString vatDebit6 = m_purchaseBookAccounts->getAccountsDebit6(purchaseInformation.vatCountry, vatRate);
-            QString vatCredit4 = m_purchaseBookAccounts->getAccountsCredit4(purchaseInformation.vatCountry, vatRate);
-            
-            // Normal purchase VAT — use vatCurrency (may differ from total currency)
+            // Normal purchase VAT — use vatCurrency (may differ from total currency).
+            // effectiveVatCurrencyRate is derived from the matched stored VAT rate when
+            // currencies differ, giving a more precise conversion than CurrencyRateManager.
             JournalEntry::EntryLine vatLine;
             vatLine.title = commonTitle;
             vatLine.account = vatDebit6;
             vatLine.currency_amount[vatCurrency] = vatAmount;
 
             if (isRefund) {
-                entry->addCreditRight(vatLine, vatCurrency, vatCurrencyRate);
+                entry->addCreditRight(vatLine, vatCurrency, effectiveVatCurrencyRate);
             } else {
-                entry->addDebitLeft(vatLine, vatCurrency, vatCurrencyRate);
+                entry->addDebitLeft(vatLine, vatCurrency, effectiveVatCurrencyRate);
             }
         }
     }

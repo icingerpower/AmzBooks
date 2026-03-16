@@ -74,15 +74,16 @@ QStringList CountriesEu::getCurrencies()
     };
 }
 
-QStringList CountriesEu::getCurrenciesWorld()
+const QSet<QString>& CountriesEu::getCurrenciesWorld()
 {
-    return {
+    static const QSet<QString> currencies = {
         "EUR", "GBP", "USD", "CAD", "AUD", "NZD", "CHF",
         "NOK", "SEK", "DKK",
         "BGN", "CZK", "HUF", "PLN", "RON",
         "JPY", "CNY", "HKD", "SGD",
         "TRY", "MXN", "BRL"
     };
+    return currencies;
 }
 const QStringList CountriesEu::DEFAULT_AMAZON_SITES = {
     "amazon.ca",

@@ -9,6 +9,8 @@ namespace Ui {
 class DialogEditPurchase;
 }
 
+class BookAccountPurchaseTable;
+class CurrencyRateManager;
 class QComboBox;
 class QLineEdit;
 class QPushButton;
@@ -21,6 +23,8 @@ class DialogEditPurchase : public QDialog
 public:
     explicit DialogEditPurchase(const PurchaseInformation &info,
                                 const QString &companyCurrency,
+                                const BookAccountPurchaseTable *purchaseTable = nullptr,
+                                const CurrencyRateManager *currencyRateManager = nullptr,
                                 QWidget *parent = nullptr);
     ~DialogEditPurchase();
 
@@ -31,25 +35,32 @@ private slots:
 
 private:
     struct VatRow {
-        QWidget     *rowWidget    = nullptr;
-        QComboBox   *comboCountry = nullptr;
-        QLineEdit   *editRate     = nullptr;
-        QLineEdit   *editAmount   = nullptr;
-        QComboBox   *comboCurrency= nullptr;
-        QPushButton *btnRemove    = nullptr;
+        QWidget     *rowWidget          = nullptr;
+        QComboBox   *comboCountry       = nullptr;
+        QLineEdit   *editRate           = nullptr;
+        QLineEdit   *editAmount         = nullptr;
+        QComboBox   *comboCurrency      = nullptr;
+        // Company-currency equivalent of the VAT amount (dual-amount token support).
+        // Shown as an optional second amount field. When non-empty and vatCurrency
+        // differs from companyCurrency, a dual-amount token is emitted on save.
+        QLineEdit   *editAmountCompany  = nullptr;
+        QPushButton *btnRemove          = nullptr;
     };
 
     Ui::DialogEditPurchase *ui;
     PurchaseInformation m_info;
     QString m_companyCurrency;
+    const BookAccountPurchaseTable *m_purchaseTable       = nullptr;
+    const CurrencyRateManager      *m_currencyRateManager = nullptr;
     QVBoxLayout *m_vatLayout = nullptr;
     QList<VatRow> m_vatRows;
 
     void _setupCurrencies(const QString &companyCurrency, const QString &invoiceCurrency);
-    void _addVatRow(const QString &country = {},
-                    const QString &rate    = {},
-                    const QString &amount  = {},
-                    const QString &currency= {});
+    void _addVatRow(const QString &country       = {},
+                    const QString &rate          = {},
+                    const QString &amount        = {},
+                    const QString &currency      = {},
+                    const QString &amountCompany = {});
     void _removeVatRow(QWidget *rowWidget);
     QComboBox *_makeCountryCombo(const QString &selected) const;
     QComboBox *_makeVatCurrencyCombo(const QString &selected) const;

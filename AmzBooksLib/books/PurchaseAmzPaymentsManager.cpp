@@ -7,6 +7,7 @@
 #include <QtMath>
 
 #include "ExceptionWithTitleText.h"
+#include "CountriesEu.h"
 
 // ---------------------------------------------------------------------------
 // Approximate EUR conversion rates (fixed – not real-time)
@@ -217,6 +218,23 @@ AmzPaymentInfo PurchaseAmzPaymentsManager::decode(const QString &filePath)
                 .arg(filePath));
         ex.raise();
     }
+
+    // ── Currency validation ────────────────────────────────────────────────────
+    const QSet<QString> &validCurrencies = CountriesEu::getCurrenciesWorld();
+    auto checkCurrency = [&](const QString &currency, const QString &context) {
+        if (!currency.isEmpty() && !validCurrencies.contains(currency)) {
+            ExceptionWithTitleText ex(
+                QObject::tr("Unknown Currency"),
+                QObject::tr("'%1': currency '%2' in %3 is not a recognised world currency.")
+                    .arg(filePath, currency, context));
+            ex.raise();
+        }
+    };
+    checkCurrency(info.paidCurrency,              QObject::tr("paid amount"));
+    checkCurrency(info.balanceStartCurrency,       QObject::tr("balance-begin"));
+    checkCurrency(info.balanceEndCurrency,         QObject::tr("balance-end"));
+    checkCurrency(info.expensesCurrency,           QObject::tr("expenses"));
+    checkCurrency(info.refundedExpensesCurrency,   QObject::tr("refunded-expenses"));
 
     // ── Threshold validation ───────────────────────────────────────────────────
     // Only meaningful when both balance tokens are present.

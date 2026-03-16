@@ -24,7 +24,7 @@ private slots:
                           "Linux: export FIXER_IO_API_KEY=your_key\n"
                           "Windows: set FIXER_IO_API_KEY=your_key\n"
                           "Tests will fail without this key.";
-            QFAIL(qPrintable(msg));
+            QSKIP(qPrintable(msg));
         }
         
         QDir dir(QCoreApplication::applicationDirPath());

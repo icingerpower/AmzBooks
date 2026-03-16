@@ -17,6 +17,11 @@ struct PurchaseInformation {
     QString accountSupplier;
     QStringList vatTokens;
     QHash<QString, QHash<QString, double>> country_vatRate_vat;
+    // For dual-amount VAT tokens (e.g. "FR-TVA-2.21EUR_9.28PLN"): VAT expressed in
+    // company currency, keyed identically to country_vatRate_vat. Empty for classic
+    // single-amount tokens. When non-empty, JournalEntryFactory uses the ratio
+    // vatCompany/vatSource as the exact exchange rate instead of CurrencyRateManager.
+    QHash<QString, QHash<QString, double>> country_vatRate_vatCompany;
     double totalAmount = 0.0;
     QString rawTotalAmount; // To preserve formatting (e.g. "10.0")
     QString currency;

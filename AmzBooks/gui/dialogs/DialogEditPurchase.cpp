@@ -9,7 +9,11 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QtMath>
+#include <algorithm>
 #include "CountriesEu.h"
+#include "books/BookAccountPurchaseTable.h"
+#include "CurrencyRateManager.h"
+#include "ExceptionWithTitleText.h"
 
 // ── helpers ────────────────────────────────────────────────────────────────────
 
@@ -41,11 +45,15 @@ static void parseVatToken(const QString &token,
 
 DialogEditPurchase::DialogEditPurchase(const PurchaseInformation &info,
                                        const QString &companyCurrency,
+                                       const BookAccountPurchaseTable *purchaseTable,
+                                       const CurrencyRateManager *currencyRateManager,
                                        QWidget *parent) :
     QDialog(parent),
     ui(new Ui::DialogEditPurchase),
     m_info(info),
-    m_companyCurrency(companyCurrency)
+    m_companyCurrency(companyCurrency),
+    m_purchaseTable(purchaseTable),
+    m_currencyRateManager(currencyRateManager)
 {
     ui->setupUi(this);
 
@@ -67,14 +75,29 @@ DialogEditPurchase::DialogEditPurchase(const PurchaseInformation &info,
     // Populate one row per VAT token; fall back to one empty row
     if (info.vatTokens.isEmpty()) {
         const QString defaultCurrency = info.vatCurrency.isEmpty() ? companyCurrency : info.vatCurrency;
-        _addVatRow({}, {}, info.rawVatAmount, defaultCurrency);
+        _addVatRow({}, {}, info.rawVatAmount, defaultCurrency, {});
     } else {
         for (const QString &token : info.vatTokens) {
             QString c, r, a, cur;
             parseVatToken(token, c, r, a, cur);
-            if (cur.isEmpty())
+            if (cur.isEmpty()) {
                 cur = info.vatCurrency.isEmpty() ? companyCurrency : info.vatCurrency;
-            _addVatRow(c, r, a, cur);
+            }
+            // For dual-amount tokens, extract the company-currency amount
+            QString amountCompany;
+            if (token.contains('_')) {
+                const int underscoreIdx = token.lastIndexOf('_');
+                const QString companyHalf = token.left(underscoreIdx);
+                static QRegularExpression regexAmt2(QStringLiteral("([0-9.]+)([A-Z]*)"));
+                const QStringList halfParts = companyHalf.split('-');
+                if (!halfParts.isEmpty()) {
+                    const QRegularExpressionMatch mc = regexAmt2.match(halfParts.last());
+                    if (mc.hasMatch()) {
+                        amountCompany = mc.captured(1);
+                    }
+                }
+            }
+            _addVatRow(c, r, a, cur, amountCompany);
         }
     }
 
@@ -94,11 +117,14 @@ DialogEditPurchase::~DialogEditPurchase()
 
 void DialogEditPurchase::_setupCurrencies(const QString &companyCurrency, const QString &invoiceCurrency)
 {
-    QStringList currencies = CountriesEu::getCurrenciesWorld();
+    QStringList currencies(CountriesEu::getCurrenciesWorld().begin(),
+                           CountriesEu::getCurrenciesWorld().end());
+    std::sort(currencies.begin(), currencies.end());
     currencies.removeAll(companyCurrency);
     currencies.prepend(companyCurrency);
-    if (!invoiceCurrency.isEmpty() && !currencies.contains(invoiceCurrency))
+    if (!invoiceCurrency.isEmpty() && !currencies.contains(invoiceCurrency)) {
         currencies.append(invoiceCurrency);
+    }
 
     ui->comboCurrency->addItems(currencies);
 
@@ -119,11 +145,14 @@ QComboBox *DialogEditPurchase::_makeCountryCombo(const QString &selected) const
 
 QComboBox *DialogEditPurchase::_makeVatCurrencyCombo(const QString &selected) const
 {
-    QStringList currencies = CountriesEu::getCurrenciesWorld();
+    QStringList currencies(CountriesEu::getCurrenciesWorld().begin(),
+                           CountriesEu::getCurrenciesWorld().end());
+    std::sort(currencies.begin(), currencies.end());
     currencies.removeAll(m_companyCurrency);
     currencies.prepend(m_companyCurrency);
-    if (!selected.isEmpty() && !currencies.contains(selected))
+    if (!selected.isEmpty() && !currencies.contains(selected)) {
         currencies.append(selected);
+    }
 
     auto *combo = new QComboBox;
     combo->addItems(currencies);
@@ -136,7 +165,8 @@ QComboBox *DialogEditPurchase::_makeVatCurrencyCombo(const QString &selected) co
 // ── dynamic VAT rows ───────────────────────────────────────────────────────────
 
 void DialogEditPurchase::_addVatRow(const QString &country, const QString &rate,
-                                     const QString &amount,  const QString &currency)
+                                     const QString &amount,  const QString &currency,
+                                     const QString &amountCompany)
 {
     VatRow row;
     row.rowWidget = new QWidget;
@@ -155,10 +185,18 @@ void DialogEditPurchase::_addVatRow(const QString &country, const QString &rate,
 
     row.editAmount = new QLineEdit(amount);
     row.editAmount->setPlaceholderText(tr("Amount"));
-    row.editAmount->setToolTip(tr("VAT amount"));
+    row.editAmount->setToolTip(tr("VAT amount (in VAT currency)"));
 
     row.comboCurrency = _makeVatCurrencyCombo(currency);
     row.comboCurrency->setFixedWidth(90);
+
+    row.editAmountCompany = new QLineEdit(amountCompany);
+    row.editAmountCompany->setPlaceholderText(tr("%1 amt").arg(m_companyCurrency));
+    row.editAmountCompany->setFixedWidth(90);
+    row.editAmountCompany->setToolTip(
+        tr("VAT amount in company currency (%1). Fill when VAT currency differs "
+           "from company currency to store the exact exchange rate.")
+            .arg(m_companyCurrency));
 
     row.btnRemove = new QPushButton(tr("×"));
     row.btnRemove->setFixedWidth(28);
@@ -168,6 +206,7 @@ void DialogEditPurchase::_addVatRow(const QString &country, const QString &rate,
     hLayout->addWidget(row.editRate);
     hLayout->addWidget(row.editAmount);
     hLayout->addWidget(row.comboCurrency);
+    hLayout->addWidget(row.editAmountCompany);
     hLayout->addWidget(row.btnRemove);
 
     m_vatRows.append(row);
@@ -207,34 +246,58 @@ PurchaseInformation DialogEditPurchase::getInfo() const
     // Rebuild VAT data from dynamic rows
     info.vatTokens.clear();
     info.country_vatRate_vat.clear();
-
-    static QRegularExpression regexAmt(QStringLiteral("([0-9.]+)([A-Z]*)"));
+    info.country_vatRate_vatCompany.clear();
 
     for (const VatRow &row : m_vatRows) {
-        const QString country  = row.comboCountry->currentText();
-        const QString rate     = row.editRate->text().trimmed();
-        const QString amount   = row.editAmount->text().trimmed();
-        const QString currency = row.comboCurrency->currentText();
+        const QString country       = row.comboCountry->currentText();
+        const QString rate          = row.editRate->text().trimmed();
+        const QString amount        = row.editAmount->text().trimmed();
+        const QString currency      = row.comboCurrency->currentText();
+        const QString amountCompany = row.editAmountCompany->text().trimmed();
 
-        if (amount.isEmpty()) continue;
+        if (amount.isEmpty()) {
+            continue;
+        }
+
+        // Preserve sign: negative VAT is valid for refund invoices (encodes as double-dash)
+        const double vatAmountVal         = amount.toDouble();
+        const double vatAmountAbs         = qAbs(vatAmountVal);
+        const QString vatAmountStr        = QString::number(vatAmountVal); // signed, for token
+        const double  vatAmountCompanyVal = amountCompany.isEmpty()
+                                            ? 0.0
+                                            : amountCompany.toDouble();
+        const double  vatAmountCompanyAbs = qAbs(vatAmountCompanyVal);
+        const bool hasDualAmount = !amountCompany.isEmpty()
+                                   && currency != m_companyCurrency;
 
         const QString vatLabel = rate.isEmpty() ? QStringLiteral("TVA")
                                                  : QStringLiteral("TVA") + rate;
         QString token;
         if (country.isEmpty()) {
-            token = QStringLiteral("%1-%2%3").arg(vatLabel, amount, currency);
+            token = QStringLiteral("%1-%2%3").arg(vatLabel, vatAmountStr, currency);
         } else {
-            token = QStringLiteral("%1-%2-%3%4").arg(country, vatLabel, amount, currency);
+            if (hasDualAmount) {
+                token = QStringLiteral("%1-%2-%3%4_%5%6")
+                            .arg(country, vatLabel,
+                                 QString::number(vatAmountCompanyVal), m_companyCurrency,
+                                 vatAmountStr, currency);
+            } else {
+                token = QStringLiteral("%1-%2-%3%4").arg(country, vatLabel, vatAmountStr, currency);
+            }
             const QString rateKey = rate.isEmpty()
                                     ? QString()
                                     : QString::number(rate.toDouble(), 'f', 2);
-            info.country_vatRate_vat[country][rateKey] += amount.toDouble();
+            info.country_vatRate_vat[country][rateKey] += vatAmountAbs;
+            if (hasDualAmount) {
+                info.country_vatRate_vatCompany[country][rateKey] += vatAmountCompanyAbs;
+            }
         }
         info.vatTokens << token;
     }
 
     // Derive simple aggregated fields for backwards compatibility
     if (!info.vatTokens.isEmpty()) {
+        static QRegularExpression regexAmt(QStringLiteral("([0-9.]+)([A-Z]*)"));
         double  totalVat      = 0.0;
         QString firstCurrency;
         QString firstCountry;
@@ -290,5 +353,40 @@ void DialogEditPurchase::_onAccepted()
                              tr("Amount must not be zero."));
         return;
     }
+
+    // When VAT currency differs from the invoice currency, snap the rate field to
+    // the nearest stored rate via Closest lookup. This covers both legacy
+    // single-amount files and dual-amount files where small amounts can still
+    // round the computed rate away from the configured value (e.g. 0.15/0.72 = 20.8%).
+    // For dual-amount rows the company amount is used for the tolerance decision.
+    if (m_purchaseTable) {
+        const QString invoiceCurrency = ui->comboCurrency->currentText();
+        for (VatRow &row : m_vatRows) {
+            const QString vatCurrency = row.comboCurrency->currentText();
+            if (vatCurrency == invoiceCurrency) {
+                continue;
+            }
+            const QString country = row.comboCountry->currentText();
+            const QString rateStr = row.editRate->text().trimmed();
+            if (rateStr.isEmpty()) {
+                continue;
+            }
+            const double rate = qRound(rateStr.toDouble() * 100.0) / 100.0 / 100.0;
+            // Use company amount for tolerance when available (more meaningful than source)
+            const QString companyAmtStr = row.editAmountCompany->text().trimmed();
+            const double  amtForTol     = companyAmtStr.isEmpty()
+                                          ? qAbs(row.editAmount->text().trimmed().toDouble())
+                                          : qAbs(companyAmtStr.toDouble());
+            const double tolerance = (amtForTol < 2.0) ? 0.99 : 0.4;
+            try {
+                const auto result = m_purchaseTable->getAccountsDebit6Closest(country, rate, tolerance);
+                row.editRate->setText(QString::number(result.matchedRate * 100.0, 'f', 2));
+            } catch (const ExceptionWithTitleText &e) {
+                QMessageBox::warning(this, e.errorTitle(), e.errorText());
+                return;
+            }
+        }
+    }
+
     accept();
 }

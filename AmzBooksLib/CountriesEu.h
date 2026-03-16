@@ -57,8 +57,9 @@ public:
     // Returns list of currencies for GB and EU countries
     static QStringList getCurrencies();
 
-    // Returns a broader list of world currencies (western + major trading partners)
-    static QStringList getCurrenciesWorld();
+    // Returns a broader set of world currencies (western + major trading partners).
+    // Returns a QSet for O(1) membership testing.
+    static const QSet<QString>& getCurrenciesWorld();
 
     static const QStringList DEFAULT_AMAZON_SITES;
 

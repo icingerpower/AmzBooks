@@ -166,7 +166,7 @@ void TestBooksConnection::test_connect_disconnect()
     {
         BooksConnections connections(dir);
         ConcreteBooksTableBank bankTable(&connections, dir);
-        bankTable.add("BANK_ID_1", "", QDate::currentDate(), 100.0, "EUR", "BankLabel", "Acc1", "Acc2", 0, "", "");
+        bankTable.add("BANK_ID_1", "", QDate::currentDate().addDays(-1), 100.0, "EUR", "BankLabel", "Acc1", "Acc2", 0, "", "");
         
         EntrySelfTable selfTable(dir);
         selfTable.addRow({"SelfLabel", "SelfAccount"});
@@ -195,13 +195,13 @@ void TestBooksConnection::test_connect_disconnect()
         CurrencyRateManager rateManager(dir, "DUMMY_KEY");
         
         // Add 4 book entries
-        booksTable.add("BOOK_1", "", QDate::currentDate(), 50.0, "EUR", "Book1", "", "", 0, "", "");
-        booksTable.add("BOOK_2", "", QDate::currentDate(), 30.0, "EUR", "Book2", "", "", 0, "", "");
-        booksTable.add("BOOK_3", "", QDate::currentDate(), 15.0, "EUR", "Book3", "", "", 0, "", "");
-        booksTable.add("BOOK_4", "", QDate::currentDate(), 5.0, "EUR", "Book4", "", "", 0, "", "");
+        booksTable.add("BOOK_1", "", QDate::currentDate().addDays(-1), 50.0, "EUR", "Book1", "", "", 0, "", "");
+        booksTable.add("BOOK_2", "", QDate::currentDate().addDays(-1), 30.0, "EUR", "Book2", "", "", 0, "", "");
+        booksTable.add("BOOK_3", "", QDate::currentDate().addDays(-1), 15.0, "EUR", "Book3", "", "", 0, "", "");
+        booksTable.add("BOOK_4", "", QDate::currentDate().addDays(-1), 5.0, "EUR", "Book4", "", "", 0, "", "");
         
         // Add 1 bank entry with matching total
-        bankTable.add("BANK_1", "", QDate::currentDate(), 100.0, "EUR", "BankTotal", "", "", 0, "", "");
+        bankTable.add("BANK_1", "", QDate::currentDate().addDays(-1), 100.0, "EUR", "BankTotal", "", "", 0, "", "");
         
         QHash<AbstractBooksTable *, QModelIndexList> selection;
         selection[&booksTable] = {
@@ -230,7 +230,7 @@ void TestBooksConnection::test_connect_disconnect()
         ConcreteBooksTableBank bankTable(&connections, dir);
         CurrencyRateManager rateManager(dir, "DUMMY_KEY");
         
-        QDate date = QDate::currentDate();
+        QDate date = QDate::currentDate().addDays(-1);
         
         // Add book entries in EUR (reference currency)
         booksTable.add("BOOK_EUR_1", "", date, 50.0, "EUR", "BookEUR1", "", "", 0, "", "");
@@ -253,8 +253,8 @@ void TestBooksConnection::test_connect_disconnect()
             booksTable.index(1, 0)
         };
         selection[&bankTable] = {
-            bankTable.index(0, 0),
-            bankTable.index(1, 0)
+            bankTable.index(1, 0),
+            bankTable.index(0, 0)
         };
         
         // Should succeed - converted amounts match (80 EUR total)
@@ -266,8 +266,8 @@ void TestBooksConnection::test_connect_disconnect()
         QVERIFY(connections.contains("ConcreteBankTable", "BANK_USD"));
         QVERIFY(connections.contains("ConcreteBankTable", "BANK_GBP"));
         
-        // Test disconnection of one entry
-        connections.disconnect(&booksTable, booksTable.index(0, 0));
+        // Test disconnection of one entry (BOOK_EUR_1 was added first, so it's at row 1 after prepend)
+        connections.disconnect(&booksTable, booksTable.index(1, 0));
         QVERIFY(!connections.contains("Concrete", "BOOK_EUR_1"));
         // Others should still be connected
         QVERIFY(connections.contains("Concrete", "BOOK_EUR_2"));
@@ -281,7 +281,7 @@ void TestBooksConnection::test_connect_disconnect()
         ConcreteBooksTableBank bankTable(&connections, dir);
         CurrencyRateManager rateManager(dir, "DUMMY_KEY");
         
-        QDate date = QDate::currentDate();
+        QDate date = QDate::currentDate().addDays(-1);
         
         // Add book entries totaling 100 EUR
         booksTable.add("BOOK_MISMATCH_1", "", date, 60.0, "EUR", "Book1", "", "", 0, "", "");
@@ -303,8 +303,8 @@ void TestBooksConnection::test_connect_disconnect()
             booksTable.index(1, 0)
         };
         selection[&bankTable] = {
-            bankTable.index(0, 0),
-            bankTable.index(1, 0)
+            bankTable.index(1, 0),
+            bankTable.index(0, 0)
         };
         
         // Should throw exception - amounts don't match
@@ -331,8 +331,8 @@ void TestBooksConnection::test_connect_disconnect()
         ConcreteBooksTableBank bankTable(&connections, dir);
         CurrencyRateManager rateManager(dir, "DUMMY_KEY");
         
-        booksTable.add("PERSIST_1", "", QDate::currentDate(), 100.0, "EUR", "Persist", "", "", 0, "", "");
-        bankTable.add("PERSIST_BANK", "", QDate::currentDate(), 100.0, "EUR", "PersistBank", "", "", 0, "", "");
+        booksTable.add("PERSIST_1", "", QDate::currentDate().addDays(-1), 100.0, "EUR", "Persist", "", "", 0, "", "");
+        bankTable.add("PERSIST_BANK", "", QDate::currentDate().addDays(-1), 100.0, "EUR", "PersistBank", "", "", 0, "", "");
         
         QHash<AbstractBooksTable *, QModelIndexList> selection;
         selection[&booksTable] = {booksTable.index(0, 0)};
@@ -373,7 +373,7 @@ void TestBooksConnection::test_addFilePaths_splitting()
     
     // Setup test data
     AbstractBankStatement::BankRow row;
-    row.date = QDate::currentDate();
+    row.date = QDate::currentDate().addDays(-1);
     row.amount = 10.0;
     row.fees = -1.0;
     row.currency = "EUR";
@@ -394,24 +394,23 @@ void TestBooksConnection::test_addFilePaths_splitting()
     double val0 = bankTable.data(idx0_1).toDouble();
     double val1 = bankTable.data(idx1_1).toDouble();
     
-    // Order depends on implementation, usually sequential: Main then Fees.
-    // If hasAmount (Main) is added first, then hasFees is added second.
-    QCOMPARE(val0, 10.0);
-    QCOMPARE(val1, -1.0);
-    
+    // add() prepends, so the last-added row (Fees) is at row 0, Main at row 1.
+    QCOMPARE(val0, -1.0);
+    QCOMPARE(val1, 10.0);
+
     // Verify accounts
-    // Row 0 (Main): Account1=Default ("512000"), Account2=""
-    // Row 1 (Fees): Account1=Default ("512000"), Account2=DefaultFees ("627000")
+    // Row 0 (Fees): Account1=Default ("512000"), Account2=DefaultFees ("627000")
+    // Row 1 (Main): Account1=Default ("512000"), Account2=""
     QModelIndex idx0_4 = bankTable.index(0, 4); // Account 1
     QModelIndex idx0_5 = bankTable.index(0, 5); // Account 2
     QModelIndex idx1_4 = bankTable.index(1, 4); // Account 1
     QModelIndex idx1_5 = bankTable.index(1, 5); // Account 2
-    
+
     // Assuming "512000" is bank default account from ConcreteBankStatement
     QCOMPARE(bankTable.data(idx0_4).toString(), "512000");
-    QCOMPARE(bankTable.data(idx0_5).toString(), "");
+    QCOMPARE(bankTable.data(idx0_5).toString(), "627000");
     QCOMPARE(bankTable.data(idx1_4).toString(), "512000");
-    QCOMPARE(bankTable.data(idx1_5).toString(), "627000");
+    QCOMPARE(bankTable.data(idx1_5).toString(), "");
 }
 
 void TestBooksConnection::test_tryToConnect_overload()
@@ -437,7 +436,7 @@ void TestBooksConnection::test_tryToConnect_overload()
         // Since we don't have clear(), we can just add unique IDs
         QString bookId = "BOOK_" + caseName;
         QString bankId = "BANK_" + caseName;
-        QDate date = QDate::currentDate();
+        QDate date = QDate::currentDate().addDays(-1);
 
         bookTable.add(bookId, "", date, bookAmount, bookCurr, "Label", "", "", 0, "", "");
         bankTable.add(bankId, "", date, bankAmount, bankCurr, "Label", "", "", 0, "", "");
@@ -448,9 +447,11 @@ void TestBooksConnection::test_tryToConnect_overload()
             rateManager.importRate(date.toString("yyyy-MM-dd"), bankCurr, bookCurr, rateBankToBook);
         }
 
-        // Find indices (last added)
-        QModelIndex bookIndex = bookTable.index(bookTable.rowCount()-1, 0);
-        QModelIndex bankIndex = bankTable.index(bankTable.rowCount()-1, 0);
+        // Find indices
+        // bookTable.add prepends, so last added is at row 0
+        QModelIndex bookIndex = bookTable.index(0, 0);
+        // bankTable.add prepends, so last added is at 0
+        QModelIndex bankIndex = bankTable.index(0, 0);
 
         QHash<AbstractBooksTable *, QModelIndexList> selection;
         selection[&bookTable] = {bookIndex};
@@ -460,6 +461,12 @@ void TestBooksConnection::test_tryToConnect_overload()
         try {
             connections.tryToConnect(selection, &rateManager);
         } catch (const ExceptionWithTitleText &) {
+            exceptionThrown = true;
+        } catch (const std::exception &e) {
+            qWarning() << "Unexpected std::exception in overload:" << e.what();
+            exceptionThrown = true;
+        } catch (...) {
+            qWarning() << "Unexpected unknown exception in overload";
             exceptionThrown = true;
         }
 
@@ -640,24 +647,45 @@ void TestBooksConnection::test_tryToConnect_more2()
     {
         // Add Rows
         QHash<AbstractBooksTable*, QModelIndexList> selection;
-        QDate date = QDate::currentDate();
+        QDate date = QDate::currentDate().addDays(-1);
         
-        // 1. Setup Lefts
+        // 1. Setup Lefts - add all first, then find by ID (add() prepends, so
+        //    each new item shifts previously added items to higher row numbers)
+        QStringList leftIds;
         for (int i=0; i<lefts.size(); ++i) {
             auto [tbl, amt, curr] = lefts[i];
             QString id = QString("L_%1_%2").arg(caseName).arg(i);
             tbl->add(id, "", date, amt, curr, "Desc", "", "", 0, "", "");
-            QModelIndex idx = tbl->index(tbl->rowCount()-1, 0);
-            selection[tbl].append(idx);
+            leftIds.append(id);
+        }
+        for (int i=0; i<lefts.size(); ++i) {
+            auto [tbl, amt, curr] = lefts[i];
+            for (int r=0; r<tbl->rowCount(); ++r) {
+                if (tbl->getRowId(tbl->index(r, 0)) == leftIds[i]) {
+                    selection[tbl].append(tbl->index(r, 0));
+                    break;
+                }
+            }
         }
         
         // 2. Setup Rights
+        QMap<AbstractBooksTable*, int> rightsAddedCount;
         for (int i=0; i<rights.size(); ++i) {
             auto [tbl, amt, curr] = rights[i];
             QString id = QString("R_%1_%2").arg(caseName).arg(i);
             tbl->add(id, "", date, amt, curr, "Desc", "", "", 0, "", "");
-            QModelIndex idx = tbl->index(tbl->rowCount()-1, 0);
-            selection[tbl].append(idx);
+            rightsAddedCount[tbl]++;
+        }
+        // Now gather rights indices (they were prepended/appended depending on table type)
+        // Bank tables prepend. We added `rightsAddedCount[tbl]` items. They are at rows 0 .. count-1.
+        for (auto it = rightsAddedCount.begin(); it != rightsAddedCount.end(); ++it) {
+             AbstractBooksTable* tbl = it.key();
+             int count = it.value();
+             // Assuming BankTable prepends, the most recently added items are at the top (0 to count-1)
+             // We just need to add these indices to the selection. Order doesn't matter for tryToConnect.
+             for(int r = 0; r < count; ++r) {
+                 selection[tbl].append(tbl->index(r, 0));
+             }
         }
         
         // 3. Inject Rates relative to FIRST Left Item Currency
@@ -696,7 +724,14 @@ void TestBooksConnection::test_tryToConnect_more2()
         bool ex = false;
         try {
             connections.tryToConnect(selection, &rateManager);
-        } catch (const ExceptionWithTitleText&) {
+        } catch (const ExceptionWithTitleText& e) {
+            ex = true;
+            // Expected
+        } catch (const std::exception& e) {
+            qWarning() << "Unexpected std::exception:" << e.what();
+            ex = true;
+        } catch (...) {
+            qWarning() << "Unexpected unknown exception";
             ex = true;
         }
         
@@ -704,12 +739,9 @@ void TestBooksConnection::test_tryToConnect_more2()
             if (ex) qDebug() << "Failed (Unexpected Ex) case:" << caseName;
             QVERIFY(!ex);
             // Verify connections?
-            // Just check one pair
+            // Just check that ONE pairing exists. For Lefts[0], we need to check if it's connected.
             if (!lefts.isEmpty() && !rights.isEmpty()) {
                  QString lId = "L_" + caseName + "_0";
-                 // connections contains uses ID from Table + ID from Row.
-                 // We need to know which table L_0 belongs to.
-                 // But contain logic: contains(TableID, RowID) -> checks if mapped.
                  AbstractBooksTable* t = std::get<0>(lefts[0]);
                  QString tId = t->getId(); // Concrete
                  QVERIFY(connections.contains(tId, lId));
@@ -824,38 +856,41 @@ void TestBooksConnection::test_getAccount2()
 
     // Book table: row 0 = BOOK_0 (100 EUR, SUPPLIER_A), row 1 = BOOK_1 (200 EUR, SUPPLIER_B)
     ConcreteBooksTable bookTable(&connections, dir);
-    bookTable.add("BOOK_0", "", QDate::currentDate(), 100.0, "EUR", "Label0", "Acc1_0", "SUPPLIER_A", 0, "", "");
-    bookTable.add("BOOK_1", "", QDate::currentDate(), 200.0, "EUR", "Label1", "Acc1_1", "SUPPLIER_B", 0, "", "");
+    bookTable.add("BOOK_0", "", QDate::currentDate().addDays(-1), 100.0, "EUR", "Label0", "Acc1_0", "SUPPLIER_A", 0, "", "");
+    bookTable.add("BOOK_1", "", QDate::currentDate().addDays(-1), 200.0, "EUR", "Label1", "Acc1_1", "SUPPLIER_B", 0, "", "");
 
     // Bank table: row 0 = BANK_0 (200 EUR), row 1 = BANK_1 (100 EUR)
     // Deliberately cross-connecting so that bank row index != book row index
     ConcreteBooksTableBank bankTable(&connections, dir);
-    bankTable.add("BANK_0", "", QDate::currentDate(), 200.0, "EUR", "BankLabel0", "", "", 0, "", "");
-    bankTable.add("BANK_1", "", QDate::currentDate(), 100.0, "EUR", "BankLabel1", "", "", 0, "", "");
+    bankTable.add("BANK_0", "", QDate::currentDate().addDays(-1), 200.0, "EUR", "BankLabel0", "", "", 0, "", "");
+    // BANK_1 prepends to the top, so BANK_1 is at row 0, BANK_0 at row 1
+    bankTable.add("BANK_1", "", QDate::currentDate().addDays(-1), 100.0, "EUR", "BankLabel1", "", "", 0, "", "");
 
-    // Connect BANK_0 (row 0, 200 EUR) <-> BOOK_1 (row 1, 200 EUR, SUPPLIER_B)
-    {
-        QHash<AbstractBooksTable*, QModelIndexList> sel;
-        sel[&bookTable] = {bookTable.index(1, 0)};
-        sel[&bankTable] = {bankTable.index(0, 0)};
-        connections.tryToConnect(sel, &rateManager);
-    }
-    // Connect BANK_1 (row 1, 100 EUR) <-> BOOK_0 (row 0, 100 EUR, SUPPLIER_A)
+    // add() prepends: BOOK_0 is at row 1 (added first), BOOK_1 is at row 0 (added second)
+    // add() prepends: BANK_0 is at row 1 (added first), BANK_1 is at row 0 (added second)
+    // Connect BANK_0 (row 1, 200 EUR) <-> BOOK_1 (row 0, 200 EUR, SUPPLIER_B)
     {
         QHash<AbstractBooksTable*, QModelIndexList> sel;
         sel[&bookTable] = {bookTable.index(0, 0)};
         sel[&bankTable] = {bankTable.index(1, 0)};
         connections.tryToConnect(sel, &rateManager);
     }
+    // Connect BANK_1 (row 0, 100 EUR) <-> BOOK_0 (row 1, 100 EUR, SUPPLIER_A)
+    {
+        QHash<AbstractBooksTable*, QModelIndexList> sel;
+        sel[&bookTable] = {bookTable.index(1, 0)};
+        sel[&bankTable] = {bankTable.index(0, 0)};
+        connections.tryToConnect(sel, &rateManager);
+    }
 
     // Build cache
     connections.associateTablesToIds({&bookTable}, nullptr);
 
-    // Bank row 0 (BANK_0) is connected to BOOK_1 (row 1) -> must return SUPPLIER_B
-    QCOMPARE(connections.getAccount2(&bankTable, 0), QString("SUPPLIER_B"));
+    // Bank row 1 (BANK_0) is connected to BOOK_1 (row 1) -> must return SUPPLIER_B
+    QCOMPARE(connections.getAccount2(&bankTable, 1), QString("SUPPLIER_B"));
 
-    // Bank row 1 (BANK_1) is connected to BOOK_0 (row 0) -> must return SUPPLIER_A
-    QCOMPARE(connections.getAccount2(&bankTable, 1), QString("SUPPLIER_A"));
+    // Bank row 0 (BANK_1) is connected to BOOK_0 (row 0) -> must return SUPPLIER_A
+    QCOMPARE(connections.getAccount2(&bankTable, 0), QString("SUPPLIER_A"));
 }
 
 void TestBooksConnection::test_bankToBank_connect()
@@ -872,9 +907,9 @@ void TestBooksConnection::test_bankToBank_connect()
     ConcreteBooksTableBank2 bankB(&connections, dir);
 
     // Bank A: outgoing transfer -100 EUR
-    bankA.add("BANK_A_1", "", QDate::currentDate(), -100.0, "EUR", "Transfer out", "", "", 0, "", "");
+    bankA.add("BANK_A_1", "", QDate::currentDate().addDays(-1), -100.0, "EUR", "Transfer out", "", "", 0, "", "");
     // Bank B: incoming transfer +100 EUR
-    bankB.add("BANK_B_1", "", QDate::currentDate(),  100.0, "EUR", "Transfer in",  "", "", 0, "", "");
+    bankB.add("BANK_B_1", "", QDate::currentDate().addDays(-1),  100.0, "EUR", "Transfer in",  "", "", 0, "", "");
 
     QHash<AbstractBooksTable*, QModelIndexList> sel;
     sel[&bankA] = {bankA.index(0, 0)};

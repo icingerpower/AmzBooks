@@ -25,7 +25,6 @@
      <property name="orientation">
       <enum>Qt::Orientation::Vertical</enum>
      </property>
-     <widget class="WidgetPurchases" name="tabPurchase" native="true"/>
      <widget class="PaneSettingsCompany" name="widgetInfos" native="true"/>
     </widget>
    </item>

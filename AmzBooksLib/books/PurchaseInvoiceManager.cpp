@@ -114,11 +114,13 @@ void PurchaseInvoiceManager::add(const QString &sourceFilePath, PurchaseInformat
                                  QObject::tr("Failed to copy file from '%1' to '%2'.").arg(sourceFilePath, destFilePath));
         exception.raise();
     }
-    
+
+    info.filePath = destFilePath;
+
     if (!info.countryCodeFrom.isEmpty() || !info.countryCodeTo.isEmpty()) {
         m_suppliersWithCountries.insert(info.accountSupplier);
     }
-    
+
     // Refresh model
     _load();
 }
@@ -280,9 +282,9 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
     
     // The last part is Total
     QString totalPart = parts.last();
-    // Parse total: "81.6EUR" -> 81.6 and EUR
-    // Regex for number and letters
-    static QRegularExpression regexTotal("([0-9.]+)([A-Z]+)");
+    // Parse total: "81.6EUR" -> 81.6, "EUR"; "-120.0EUR" -> -120.0, "EUR"
+    // The optional leading minus handles purchase refunds with a negative total.
+    static QRegularExpression regexTotal("(-?[0-9.]+)([A-Z]*)");
     QRegularExpressionMatch match = regexTotal.match(totalPart);
     if (match.hasMatch()) {
         QString amountStr = match.captured(1);
@@ -296,16 +298,17 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
     }
     
     // Middle parts are VATs or EXTRAs
+    static QRegularExpression regexRate("[0-9.]+");
     for (int i = 4; i < parts.size() - 1; ++i) {
         QString token = parts[i];
-        
+
         if (token.startsWith("EXTRA-")) {
             // Parse EXTRA-ACCOUNT-AMOUNT (e.g. EXTRA-607222-20.1EUR)
             QStringList extraParts = token.split('-');
             if (extraParts.length() >= 3) {
                  QString account = extraParts[1];
-                 QString amountStr = extraParts.last(); 
-                 
+                 QString amountStr = extraParts.last();
+
                  double extraAmount = 0.0;
                  QRegularExpressionMatch matchAmt = regexTotal.match(amountStr);
                  if (matchAmt.hasMatch()) {
@@ -313,20 +316,61 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
                  } else {
                      extraAmount = amountStr.toDouble();
                  }
-                 
+
                  info.subUntaxedAmount[account] += extraAmount;
+            }
+        } else if (token.contains('_')) {
+            // ── Dual-amount VAT token ──────────────────────────────────────────────
+            // Format: "FR-TVA-2.21EUR_9.28PLN" or "FR-TVA--6.30EUR_-5.46GPB"
+            // The part before the last '_' is the company-currency half;
+            // the part after is the source/invoice-currency amount.
+            info.vatTokens.append(token);
+
+            const int underscoreIdx = token.lastIndexOf('_');
+            const QString sourceAmountStr = token.mid(underscoreIdx + 1);
+            const QString companyHalf     = token.left(underscoreIdx);
+
+            // Source amount (invoice currency)
+            double sourceAmount = 0.0;
+            QRegularExpressionMatch mSrc = regexTotal.match(sourceAmountStr);
+            if (mSrc.hasMatch()) {
+                sourceAmount = qAbs(mSrc.captured(1).toDouble());
+            }
+
+            // Company half follows standard VAT token format
+            const QStringList halfParts = companyHalf.split('-');
+            if (halfParts.size() >= 3) {
+                const QString country = halfParts[0];
+                const QString label   = halfParts[1];
+
+                double companyAmount = 0.0;
+                QRegularExpressionMatch mComp = regexTotal.match(halfParts.last());
+                if (mComp.hasMatch()) {
+                    companyAmount = qAbs(mComp.captured(1).toDouble());
+                }
+
+                // Extract rate from label ("TVA20" → 0.2, "TVA" → "")
+                QRegularExpressionMatch matchRate = regexRate.match(label);
+                QString rateKey;
+                if (matchRate.hasMatch()) {
+                    const double rateValPct = matchRate.captured(0).toDouble();
+                    rateKey = QString::number(rateValPct / 100.0);
+                }
+
+                info.country_vatRate_vat[country][rateKey]           += sourceAmount;
+                info.country_vatRate_vatCompany[country][rateKey]    += companyAmount;
             }
         } else {
             info.vatTokens.append(token);
-            
+
+            // ── Single-amount VAT token ────────────────────────────────────────────
             // Parse Token: COUNTRY-LABEL-AMOUNT (e.g. FR-TVA5.5-13.6EUR or FR-TVA-13.6EUR)
-            // Split by '-'
             QStringList tokenParts = token.split('-');
             if (tokenParts.size() >= 3) {
                 QString country = tokenParts[0];
                 QString label = tokenParts[1];
                 QString amountStrWithCurr = tokenParts.last(); // Last part is amount
-                
+
                 // Extract numeric amount from amountStrWithCurr (e.g. 13.6EUR -> 13.6)
                 double vatAmount = 0.0;
                 QRegularExpressionMatch matchAmt = regexTotal.match(amountStrWithCurr);
@@ -335,25 +379,18 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
                 } else {
                      vatAmount = amountStrWithCurr.toDouble();
                 }
-                
+
                 // Extract Rate from Label (e.g. "TVA5.5" -> "5.50", "TVA" -> "")
-                // Look for digits in label
-                static QRegularExpression regexRate("[0-9.]+");
                 QRegularExpressionMatch matchRate = regexRate.match(label);
-                QString rateKey = ""; // Default empty
+                QString rateKey; // Default empty
                 if (matchRate.hasMatch()) {
                     double rateValPercentage = matchRate.captured(0).toDouble();
                     // Store as proportion
                     rateKey = QString::number(rateValPercentage / 100.0);
                 }
-                
-                // If rateKey is missing, we need to calculate it: VAT / Untaxed
-                // We know info.totalAmount is the total with VAT.
-                // However, we process tokens sequentially, so we might need to defer this calculation,
-                // or just calculate it using the overall totalAmount and this vatAmount.
-                // Assuming this VAT applies to the totalAmount: Untaxed = totalAmount - all VATs.
-                // But since we are inside a loop that parses VATs, we can't do it accurately yet.
-                // So we temporarily store it under an empty key, and we will fix it after the loop.
+
+                // If rateKey is missing, defer rate computation until after the loop
+                // (we need all VAT amounts first to derive the untaxed base).
                 info.country_vatRate_vat[country][rateKey] += vatAmount;
             }
         }
@@ -385,6 +422,14 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
                 double roundedRate = qRound(calculatedRate * 10.0) / 10.0;
                 QString newRateKey = QString::number(roundedRate / 100.0);
                 itCountry.value()[newRateKey] += vatAmount;
+                // Sync the companion company-currency map for dual-amount tokens
+                if (info.country_vatRate_vatCompany.contains(itCountry.key())) {
+                    auto &companyMap = info.country_vatRate_vatCompany[itCountry.key()];
+                    if (companyMap.contains("")) {
+                        const double companyVatAmount = companyMap.take("");
+                        companyMap[newRateKey] += companyVatAmount;
+                    }
+                }
             } else {
                 // Fallback to 0 if untaxed is 0 (should not happen normally)
                 itCountry.value()["0"] += vatAmount;
@@ -397,16 +442,37 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
         double totalVat = 0.0;
         QString firstVatCurrency;
         for (const QString &token : std::as_const(info.vatTokens)) {
-            const QString amountPart = token.split('-').last();
+            // For dual-amount tokens the source/invoice-currency amount is after the '_'.
+            // For single-amount tokens use the last '-'-split part as before.
+            const bool isDualAmount = token.contains('_');
+            QString amountPart;
+            bool negativeVat = false;
+            if (isDualAmount) {
+                // Source amount may start with '-'; sign is embedded in the number.
+                amountPart = token.mid(token.lastIndexOf('_') + 1);
+            } else {
+                const QStringList tokenSplits = token.split('-');
+                amountPart = tokenSplits.last();
+                // A double-dash (--XAMOUNT) leaves an empty string at [size-2],
+                // meaning the numeric value is negative.
+                negativeVat = tokenSplits.size() >= 2
+                              && tokenSplits[tokenSplits.size() - 2].isEmpty();
+            }
             QRegularExpressionMatch m = regexTotal.match(amountPart);
             if (m.hasMatch()) {
-                totalVat += m.captured(1).toDouble();
-                if (firstVatCurrency.isEmpty())
+                double amt = m.captured(1).toDouble();
+                if (negativeVat) {
+                    amt = -amt;
+                }
+                totalVat += amt;
+                if (firstVatCurrency.isEmpty()) {
                     firstVatCurrency = m.captured(2);
+                }
             }
         }
-        if (totalVat > 0.0)
+        if (totalVat != 0.0) {
             info.rawVatAmount = QString::number(totalVat);
+        }
         info.vatCurrency = firstVatCurrency;
 
         // Extract country code from the first token's leading part (e.g. "FR" in "FR-TVA20-13.6EUR")
@@ -415,10 +481,12 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
             info.vatCountry = firstParts[0];
     }
     
-    // Validate VAT rates if a purchase table is provided
-    if (purchaseTable) {
+    // Validate VAT rates if a purchase table is provided.
+    // Skip when vatCurrency differs from invoice currency: the rate stored in the map
+    // was computed without currency conversion (no CurrencyRateManager available here)
+    // and may be unreliable. The correct rate is resolved in JournalEntryFactory.
+    if (purchaseTable && (info.vatCurrency.isEmpty() || info.vatCurrency == info.currency)) {
         for (auto itCountry = info.country_vatRate_vat.constBegin(); itCountry != info.country_vatRate_vat.constEnd(); ++itCountry) {
-            QString countryCode = itCountry.key();
             for (auto itRate = itCountry.value().constBegin(); itRate != itCountry.value().constEnd(); ++itRate) {
                 double rate = itRate.key().toDouble();
                 // This validates the configuration and throws ExceptionWithTitleText if it doesn't exist

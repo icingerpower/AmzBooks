@@ -18,7 +18,9 @@ public:
 
     void load(int year) override;
 
-    PurchaseInvoiceManager &manager() const;
+    QList<PurchaseInformation> getInvoices(const QDate &from, const QDate &to) const;
+    void addInvoice(const QString &filePath, PurchaseInformation &info);
+    bool isSupplierWithCountries(const QString &supplier) const;
 
     // Remove invoice from table and manager (deletes file)
     void removeInvoice(const QModelIndex &index);
@@ -30,6 +32,9 @@ public:
 private:
     PurchaseInvoiceManager *m_manager;
     QDir m_workingDir;
+    
+    // Internal access to manager
+    PurchaseInvoiceManager &manager() const;
 };
 
 #endif // PURCHASEINVOICETABLE_H

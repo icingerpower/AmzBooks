@@ -23,19 +23,19 @@ void PurchaseInvoiceTable::load(int year)
     
     QList<PurchaseInformation> invoices = m_manager->getInvoices(start, end);
     
-    for (const auto &info : invoices) {
+    for (const auto &info : std::as_const(invoices)) {
         // We use the file name as the Row ID
         QFileInfo fi(info.filePath);
         QString rowId = fi.fileName();
         
         double vatOrig = 0.0;
         QString vatCountry;
-        QString vatCurrency = info.currency; // Assume same currency for VAT as Invoice
-        
-        // Just take the first non-zero VAT found for display purposes, or sum them.
+        const QString vatCurrency = info.vatCurrency.isEmpty() ? info.currency : info.vatCurrency;
+
         if (!info.country_vatRate_vat.isEmpty()) {
             vatCountry = info.country_vatRate_vat.keys().first();
-            for (auto it = info.country_vatRate_vat[vatCountry].begin(); it != info.country_vatRate_vat[vatCountry].end(); ++it) {
+            for (auto it = info.country_vatRate_vat[vatCountry].constBegin();
+                 it != info.country_vatRate_vat[vatCountry].constEnd(); ++it) {
                 vatOrig += it.value();
             }
         }
@@ -58,13 +58,54 @@ PurchaseInvoiceManager &PurchaseInvoiceTable::manager() const
     return *m_manager;
 }
 
+QList<PurchaseInformation> PurchaseInvoiceTable::getInvoices(const QDate &from, const QDate &to) const
+{
+    return m_manager->getInvoices(from, to);
+}
+
+void PurchaseInvoiceTable::addInvoice(const QString &filePath, PurchaseInformation &info)
+{
+    m_manager->add(filePath, info);
+
+    // Update the model: compute the same fields as load() does.
+    const QString rowId = QFileInfo(info.filePath).fileName();
+
+    double vatOrig = 0.0;
+    QString vatCountry;
+    const QString vatCurrency = info.vatCurrency.isEmpty() ? info.currency : info.vatCurrency;
+
+    if (!info.country_vatRate_vat.isEmpty()) {
+        vatCountry = info.country_vatRate_vat.keys().first();
+        for (auto it = info.country_vatRate_vat[vatCountry].begin();
+             it != info.country_vatRate_vat[vatCountry].end(); ++it) {
+            vatOrig += it.value();
+        }
+    }
+
+    add(rowId, "",
+        info.date,
+        info.totalAmount,
+        info.currency,
+        info.label,
+        info.account,
+        info.accountSupplier,
+        vatOrig,
+        vatCountry,
+        vatCurrency);
+}
+
+bool PurchaseInvoiceTable::isSupplierWithCountries(const QString &supplier) const
+{
+    return m_manager->isSupplierWithCountries(supplier);
+}
+
 void PurchaseInvoiceTable::removeInvoice(const QModelIndex &index)
 {
     if (!index.isValid()) {
         return;
     }
-    
-    QString rowId = getRowId(index);
+
+    const QString rowId = getRowId(index);
     if (m_manager->remove(rowId)) {
         remove(rowId);
     }

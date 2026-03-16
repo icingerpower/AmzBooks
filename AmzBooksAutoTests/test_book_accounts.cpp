@@ -20,6 +20,7 @@
 #include "ExceptionWithTitleText.h"
 
 #include "books/JournalEntryFactory.h"
+#include "books/PurchaseInvoiceManager.h"
 #include "CurrencyRateManager.h"
 #include "books/JournalTable.h"
 #include "orders/ActivitySource.h"
@@ -414,6 +415,157 @@ private slots:
           // Case 2: Unknown country+rate -> Exception
           QVERIFY_EXCEPTION_THROWN(table.getAccountsDebit6("ES", 0.21), ExceptionWithTitleText);
           QVERIFY_EXCEPTION_THROWN(table.getAccountsCredit4("ES", 0.21), ExceptionWithTitleText);
+    }
+
+    void test_purchaseClosestLookup() {
+        QTemporaryDir tempDir;
+        BookAccountPurchaseTable table(QDir(tempDir.path()), "FR");
+
+        // Add a 20% entry for FR (wildcard country already present from defaults)
+        // and a country-specific 19% entry for DE
+        table.addAccount("DE", 0.19, "600DE19", "400DE19");
+
+        // 1. Exact match still works; matchedRate equals the queried rate
+        {
+            const auto r = table.getAccountsDebit6Closest("DE", 0.19);
+            QCOMPARE(r.account, "600DE19");
+            QCOMPARE(r.matchedRate, 0.19);
+        }
+        {
+            const auto r = table.getAccountsCredit4Closest("DE", 0.19);
+            QCOMPARE(r.account, "400DE19");
+            QCOMPARE(r.matchedRate, 0.19);
+        }
+
+        // 2. 20.25% vs stored 20% → diff 0.25% ≤ 0.3% → returns wildcard entry; matchedRate = 0.20
+        {
+            const auto r = table.getAccountsDebit6Closest("", 0.2025);
+            QCOMPARE(r.account, "445660");
+            QCOMPARE(r.matchedRate, 0.2);
+        }
+        {
+            const auto r = table.getAccountsCredit4Closest("", 0.2025);
+            QCOMPARE(r.account, "445710");
+            QCOMPARE(r.matchedRate, 0.2);
+        }
+
+        // 3. Diff exactly at tolerance boundary: 0.3% → accepted, matchedRate = 0.20
+        {
+            const auto r = table.getAccountsDebit6Closest("", 0.203);
+            QCOMPARE(r.account, "445660");
+            QCOMPARE(r.matchedRate, 0.2);
+        }
+
+        // 4. Diff just above default tolerance (0.3%): 20.36% → diff 0.36% → throws
+        QVERIFY_EXCEPTION_THROWN(
+            table.getAccountsDebit6Closest("", 0.2036),
+            ExceptionWithTitleText
+        );
+        QVERIFY_EXCEPTION_THROWN(
+            table.getAccountsCredit4Closest("", 0.2036),
+            ExceptionWithTitleText
+        );
+
+        // 5. Larger tolerance allows the same rate through; matchedRate = 0.20
+        {
+            const auto r = table.getAccountsDebit6Closest("", 0.2036, 0.49);
+            QCOMPARE(r.account, "445660");
+            QCOMPARE(r.matchedRate, 0.2);
+        }
+        {
+            const auto r = table.getAccountsCredit4Closest("", 0.2036, 0.49);
+            QCOMPARE(r.account, "445710");
+            QCOMPARE(r.matchedRate, 0.2);
+        }
+
+        // 6. Country-specific preferred over wildcard; DE 19.25% → matched 0.19
+        {
+            const auto r = table.getAccountsDebit6Closest("DE", 0.1925);
+            QCOMPARE(r.account, "600DE19");
+            QCOMPARE(r.matchedRate, 0.19);
+        }
+
+        // 7. Unknown country with no matching entry at all → throws
+        QVERIFY_EXCEPTION_THROWN(
+            table.getAccountsDebit6Closest("ES", 0.21),
+            ExceptionWithTitleText
+        );
+        QVERIFY_EXCEPTION_THROWN(
+            table.getAccountsCredit4Closest("ES", 0.21),
+            ExceptionWithTitleText
+        );
+    }
+
+    void test_purchaseDecodeDualAmount() {
+        // ── filename 1: refund with negative dual-amount VAT ──────────────────────
+        // FR-TVA--6.30EUR_-5.46GPB means companyVAT = 6.30 EUR, sourceVAT = 5.46 GBP
+        {
+            const QString fileName =
+                "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8373__FAMZMK"
+                "__FR-TVA--6.30EUR_-5.46GPB__-32.74GBP.pdf";
+            const auto info = PurchaseInvoiceManager::decode(fileName);
+
+            QCOMPARE(info.date, QDate(2026, 1, 31));
+            QCOMPARE(info.account, QString("622201"));
+            QCOMPARE(info.accountSupplier, QString("FAMZMK"));
+            QCOMPARE(info.currency, QString("GBP"));
+            QVERIFY(qAbs(info.totalAmount - (-32.74)) < 0.001);
+
+            // Token is preserved verbatim
+            QCOMPARE(info.vatTokens.size(), 1);
+            QCOMPARE(info.vatTokens.first(), QString("FR-TVA--6.30EUR_-5.46GPB"));
+
+            // Source VAT (GBP) stored in country_vatRate_vat for "FR"
+            QVERIFY(info.country_vatRate_vat.contains("FR"));
+            const auto &rateMap = info.country_vatRate_vat["FR"];
+            // Rate key should be deferred-computed: 5.46 / (32.74 - 5.46) = 5.46/27.28 ≈ 20%
+            QVERIFY(!rateMap.isEmpty());
+            const QString rateKey = rateMap.keys().first();
+            // Rate rounds to 0.2 (20%)
+            QCOMPARE(rateKey, QString("0.2"));
+            QVERIFY(qAbs(rateMap[rateKey] - 5.46) < 0.001);
+
+            // Company VAT (EUR) stored in country_vatRate_vatCompany
+            QVERIFY(info.country_vatRate_vatCompany.contains("FR"));
+            QVERIFY(qAbs(info.country_vatRate_vatCompany["FR"][rateKey] - 6.30) < 0.001);
+
+            // rawVatAmount uses the source (GBP) amount
+            QVERIFY(qAbs(info.rawVatAmount.toDouble() - (-5.46)) < 0.001);
+            QCOMPARE(info.vatCurrency, QString("GPB")); // GPB as written in token
+            QCOMPARE(info.vatCountry, QString("FR"));
+        }
+
+        // ── filename 2: purchase with positive dual-amount VAT ────────────────────
+        // FR-TVA-2.21EUR_9.28PLN means companyVAT = 2.21 EUR, sourceVAT = 9.28 PLN
+        {
+            const QString fileName =
+                "2026-01-31__622201__frais-vente-FR-AEU-2026-49313__FAMZMK"
+                "__FR-TVA-2.21EUR_9.28PLN__55.68PLN.pdf";
+            const auto info = PurchaseInvoiceManager::decode(fileName);
+
+            QCOMPARE(info.date, QDate(2026, 1, 31));
+            QCOMPARE(info.currency, QString("PLN"));
+            QVERIFY(qAbs(info.totalAmount - 55.68) < 0.001);
+
+            QCOMPARE(info.vatTokens.size(), 1);
+            QCOMPARE(info.vatTokens.first(), QString("FR-TVA-2.21EUR_9.28PLN"));
+
+            QVERIFY(info.country_vatRate_vat.contains("FR"));
+            const auto &rateMap = info.country_vatRate_vat["FR"];
+            // Rate: 9.28 / (55.68 - 9.28) = 9.28 / 46.40 = 0.20 exactly
+            QVERIFY(!rateMap.isEmpty());
+            const QString rateKey = rateMap.keys().first();
+            QCOMPARE(rateKey, QString("0.2"));
+            QVERIFY(qAbs(rateMap[rateKey] - 9.28) < 0.001);
+
+            QVERIFY(info.country_vatRate_vatCompany.contains("FR"));
+            QVERIFY(qAbs(info.country_vatRate_vatCompany["FR"][rateKey] - 2.21) < 0.001);
+
+            // rawVatAmount: source amount 9.28 PLN (positive)
+            QVERIFY(qAbs(info.rawVatAmount.toDouble() - 9.28) < 0.001);
+            QCOMPARE(info.vatCurrency, QString("PLN"));
+            QCOMPARE(info.vatCountry, QString("FR"));
+        }
     }
 
     void test_CompanyAddressTable() {
@@ -1069,6 +1221,169 @@ private slots:
         // from BooksAccountsSalesTable::_fillIfEmpty this will throw and the test fails.
         auto entries = syncWait(factory.createEntryGrouped(&source, allShipments));
         QVERIFY(!entries.isEmpty());
+    }
+
+    // ── Purchase file VAT-account validation ───────────────────────────────────
+    // Verifies that all real Amazon purchase filenames decode cleanly and that the
+    // derived VAT rate resolves to an account via getAccountsDebit6Closest with a
+    // 0.9 % tolerance.  The FAKE-rate file must fail.
+    void test_validatePurchaseFiles()
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+        BookAccountPurchaseTable purchaseTable(QDir(tempDir.path()), "FR");
+
+        const QString companyCurrency = "EUR";
+        static const double kTolerance = 0.9; // percentage points
+
+        // Extract the numeric rate string from the first VAT token, e.g. "20" from "TVA20".
+        auto extractVatRateFromToken = [](const QString &token) -> QString {
+            static QRegularExpression regexRate(QStringLiteral("[0-9.]+"));
+            const QStringList parts = token.split(QLatin1Char('-'));
+            const int ratePartIdx = (parts.size() >= 3) ? 1 : 0;
+            if (ratePartIdx < parts.size()) {
+                const QRegularExpressionMatch m = regexRate.match(parts[ratePartIdx]);
+                if (m.hasMatch()) {
+                    return m.captured(0);
+                }
+            }
+            return {};
+        };
+
+        // Returns an error string if the file fails validation, or "" if it passes.
+        // Cross-currency entries without dual amounts are skipped (require live rate data).
+        auto validateFile = [&](const QString &fileName) -> QString {
+            PurchaseInformation info;
+            try {
+                info = PurchaseInvoiceManager::decode(fileName);
+            } catch (const ExceptionWithTitleText &e) {
+                return e.errorTitle() + ": " + e.errorText();
+            }
+
+            if (info.vatTokens.isEmpty() || info.vatCountry.isEmpty()) {
+                return {}; // no VAT to validate
+            }
+
+            const QString vatCurrency   = info.vatCurrency;
+            const QString totalCurrency = info.currency;
+            const double  vatAmountAbs  = qAbs(info.rawVatAmount.toDouble());
+            const double  totalAmountAbs = qAbs(info.totalAmount);
+
+            // Sum company-currency amounts from dual-amount tokens.
+            double vatAmountCompany = 0.0;
+            for (const auto &rateMap : std::as_const(info.country_vatRate_vatCompany)) {
+                for (const double amt : std::as_const(rateMap)) {
+                    vatAmountCompany += amt;
+                }
+            }
+            const bool hasDualAmount = vatAmountCompany > 1e-9 && vatCurrency != companyCurrency;
+
+            // Determine VAT rate string (in %).
+            QString rateStr = info.vatTokens.isEmpty()
+                              ? QString()
+                              : extractVatRateFromToken(info.vatTokens.first());
+
+            if (rateStr.isEmpty()) {
+                if (hasDualAmount) {
+                    // Use source-currency amounts: source vat / source net.
+                    const double netSource = totalAmountAbs - vatAmountAbs;
+                    if (qAbs(netSource) > 1e-9) {
+                        rateStr = QString::number((vatAmountAbs / netSource) * 100.0, 'g', 6);
+                    }
+                } else if (vatCurrency == totalCurrency) {
+                    // Same currency: derive rate from amounts.
+                    const double netNorm = totalAmountAbs - vatAmountAbs;
+                    if (qAbs(netNorm) > 1e-9) {
+                        rateStr = QString::number((vatAmountAbs / netNorm) * 100.0, 'g', 6);
+                    }
+                } else {
+                    // Cross-currency without dual amounts: skip (live rate data needed).
+                    return {};
+                }
+            }
+
+            if (rateStr.isEmpty()) {
+                return QString("VAT rate required for country %1").arg(info.vatCountry);
+            }
+
+            const double rate = qRound(rateStr.toDouble() * 100.0) / 100.0 / 100.0;
+            try {
+                purchaseTable.getAccountsDebit6Closest(info.vatCountry, rate, kTolerance);
+            } catch (const ExceptionWithTitleText &e) {
+                return e.errorTitle() + ": " + e.errorText();
+            }
+            return {};
+        };
+
+        // All of these must validate without error.
+        const QStringList validFiles = {
+            // Same-currency EUR purchases
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-5781__FAMZMK__FR-TVA-74.43EUR__446.55EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-5782__FAMZMK__FR-TVA-41.49EUR__248.91EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-6165__FAMZMK__FR-TVA-380.86EUR__2285.15EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-6166__FAMZMK__FR-TVA-202.71EUR__1216.24EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-10327__FAMZMK__FR-TVA-246.62EUR__1479.74EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-10328__FAMZMK__FR-TVA-249.68EUR__1498.06EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-17237__FAMZMK__FR-TVA-40.93EUR__245.57EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-17239__FAMZMK__FR-TVA-32.41EUR__194.46EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-27423__FAMZMK__FR-TVA-43.25EUR__259.50EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-27906__FAMZMK__FR-TVA-17.06EUR__102.35EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-27908__FAMZMK__FR-TVA-15.05EUR__90.30EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-29559__FAMZMK__FR-TVA-82.10EUR__492.59EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-32889__FAMZMK__FR-TVA-31.35EUR__188.10EUR.pdf",
+            // Same-currency EUR refunds (small amounts stress-test Closest)
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-3379__FAMZMK__FR-TVA--75.46EUR__-452.76EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-5436__FAMZMK__FR-TVA--6.68EUR__-40.05EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-5437__FAMZMK__FR-TVA--0.84EUR__-5.06EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-7035__FAMZMK__FR-TVA--24.74EUR__-148.42EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8235__FAMZMK__FR-TVA--3.32EUR__-19.90EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-15475__FAMZMK__FR-TVA--2.99EUR__-17.96EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-18948__FAMZMK__FR-TVA--4.17EUR__-25.04EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-22359__FAMZMK__FR-TVA--4.18EUR__-25.10EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-24266__FAMZMK__FR-TVA--2.92EUR__-17.49EUR.pdf",
+            // Same-currency SEK
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA-27.67SEK__165.99SEK.pdf",
+            // Cross-currency with explicit rate (no CurrencyRateManager needed)
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA20-2.63EUR__165.99SEK.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA20-27.67SEK__15.78EUR.pdf",
+            // Cross-currency without rate (skipped in test — live rates needed)
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-27276__FAMZMK__FR-TVA-4.12EUR__21.42GBP.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8372__FAMZMK__FR-TVA--0.17EUR__-0.87GBP.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-23705__FAMZMK__FR-TVA--3.25EUR__-82.09PLN.pdf",
+            // Dual-amount tokens (company EUR amount + source currency amount)
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA-2.63EUR_27.67SEK__165.99SEK.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-86901__FAMZMK__FR-TVA-2.66EUR_27.94SEK__167.64SEK.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-27279__FAMZMK__FR-TVA-13.51EUR_11.70GBP__70.20GBP.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-49313__FAMZMK__FR-TVA-2.21EUR_9.28PLN__55.68PLN.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-49314__FAMZMK__FR-TVA-5.69EUR_23.92PLN__143.49PLN.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8373__FAMZMK__FR-TVA--6.30EUR_-5.46GPB__-32.74GBP.pdf",
+            "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8372__FAMZMK__FR-TVA--0.17EUR_-0.15GPB__-0.87GBP.pdf",
+            // No VAT (just total amount)
+            "2026-01-31__622201__frais-vente-CA-ACCU-INV-2026-55586-CA-FR__FAMZMK__2098.20CAD.pdf",
+            "2026-01-31__622201__frais-vente-DE-145560651-2026-1__FAMZMK__7.60EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-145560651-2026-1__FAMZMK__6.54EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-101423__FAMZMK__5.07EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-27277__FAMZMK__88.56GBP.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-50308__FAMZMK__29.91EUR.pdf",
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-80094__FAMZMK__20.40EUR.pdf",
+            "2026-01-31__622201__frais-vente-PL-AOPL-2026-1382__FAMZMK__2.43PLN.pdf",
+        };
+
+        for (const QString &fn : validFiles) {
+            const QString err = validateFile(fn);
+            if (!err.isEmpty()) {
+                const QString msg = QString("Unexpected error for '%1': %2").arg(fn, err);
+                QTest::qFail(msg.toUtf8().constData(), __FILE__, __LINE__);
+                return;
+            }
+        }
+
+        // This file has an implausible 28% rate and must fail.
+        const QString fakeFile =
+            "2026-01-31__622201__frais-vente-FR-AEU-2026-5781-FAKE__FAMZMK__FR-TVA-99.43EUR__446.55EUR.pdf";
+        const QString fakeErr = validateFile(fakeFile);
+        QVERIFY2(!fakeErr.isEmpty(),
+                 "Expected validation error for FAKE rate file but got OK");
     }
 
 };

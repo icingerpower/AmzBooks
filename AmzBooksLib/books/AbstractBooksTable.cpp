@@ -2,6 +2,7 @@
 #include <QBrush>
 #include <QColor>
 #include <QSettings>
+#include <algorithm>
 
 #include "BooksConnections.h"
 
@@ -152,8 +153,7 @@ void AbstractBooksTable::add(
         , const QString &vatCountry
         , const QString &vatCurrency)
 {
-    int row = m_listOfVariantList.size();
-    beginInsertRows(QModelIndex{}, row, row);
+    beginInsertRows(QModelIndex{}, 0, 0);
     
     // Check if we have overrides in m_fixedData
     double finalAmountFullOrig = amountFullOrig;
@@ -187,7 +187,7 @@ void AbstractBooksTable::add(
         }
     }
 
-    m_listOfVariantList <<
+    m_listOfVariantList.insert(0,
      QVariantList{
         date,
         finalAmountFullOrig,
@@ -199,7 +199,7 @@ void AbstractBooksTable::add(
         finalVatCountry,
         finalVatCurrency,
         rowId
-    };
+    });
     endInsertRows();
 }
 
@@ -243,6 +243,16 @@ void AbstractBooksTable::clear()
 {
     beginResetModel();
     m_listOfVariantList.clear();
+    endResetModel();
+}
+
+void AbstractBooksTable::sortByDate()
+{
+    beginResetModel();
+    std::sort(m_listOfVariantList.begin(), m_listOfVariantList.end(),
+              [](const QVariantList &a, const QVariantList &b) {
+                  return a[IND_DATE].toDate() > b[IND_DATE].toDate();
+              });
     endResetModel();
 }
 

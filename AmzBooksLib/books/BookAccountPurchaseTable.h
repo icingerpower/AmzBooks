@@ -13,15 +13,28 @@ class BookAccountPurchaseTable : public QAbstractTableModel
 public:
     explicit BookAccountPurchaseTable(const QDir &workingDir
                                        , const QString &countryCodeCompany, QObject *parent = nullptr);
-    
-    QString getAccountsDebit6(const QString &countryCode, double vatRate) const;
-    QString getAccountsCredit4(const QString &countryCode, double vatRate) const;
+
+    // Returned by the Closest variants: matched account plus the stored VAT rate actually
+    // found (may differ slightly from the queried rate when currencies differ).
+    struct ClosestResult {
+        QString account;
+        double  matchedRate = 0.0; // stored rate, e.g. 0.20 for 20 %
+    };
+
+    // Find the account whose stored rate is closest to vatRate (in decimal).
+    // maxDiffRateAllowed is in percentage points (default 0.3 %).
+    // Throws ExceptionWithTitleText when no entry is within tolerance.
+    // Recommended to use 0.49 when the VAT amount is very small (< ~3 EUR).
+    ClosestResult getAccountsDebit6Closest(const QString &countryCode, double vatRate, double maxDiffRateAllowed = 0.3) const;
+    QString       getAccountsDebit6(const QString &countryCode, double vatRate) const;
+    ClosestResult getAccountsCredit4Closest(const QString &countryCode, double vatRate, double maxDiffRateAllowed = 0.3) const;
+    QString       getAccountsCredit4(const QString &countryCode, double vatRate) const;
 
     void addAccount(const QString &countryCode
                     , double vatRate
                     , const QString &vatAccountDebit6
                     , const QString &vatAccountCredit4);
-    
+
     // Header:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 
@@ -40,13 +53,18 @@ public:
 private:
     static const QStringList HEADER;
     QList<QStringList> m_listOfStringList;
-    
+
     struct AccountPair {
         QString debit6;
         QString credit4;
     };
     QHash<QString, AccountPair> m_cache;
     QSet<QString> m_existenceCache; // Key: "Country|Rate"
+
+    // Shared search: find the cache key for the closest rate entry within tolerance.
+    // Returns an empty string and sets minDiff if nothing is within maxDiffRateAllowed.
+    QString _findClosestKey(const QString &countryCode, double vatRate,
+                            double maxDiffRateAllowed, double &outMinDiff) const;
 
     void _fillIfEmpty();
     void _save();

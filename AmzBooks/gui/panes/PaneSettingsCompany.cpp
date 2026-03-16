@@ -79,6 +79,11 @@ int PaneSettingsCompany::countAddresses() const
     return ui->tableAddresses->model()->rowCount();
 }
 
+WidgetPurchases *PaneSettingsCompany::getWidgetPurchases() const
+{
+    return ui->widgetPurchases;
+}
+
 void PaneSettingsCompany::addVatNumbers()
 {
     DialogAddVatNumber dialog(this);

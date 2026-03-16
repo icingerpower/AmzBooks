@@ -4,6 +4,7 @@
 
 #include "books/CompanyInfosTable.h"
 #include "books/CompanyAddressTable.h"
+#include "gui/panes/WidgetPurchases.h"
 
 #include "DialogCompanyInfos.h"
 #include "ui_DialogCompanyInfos.h"
@@ -22,12 +23,12 @@ DialogCompanyInfos::~DialogCompanyInfos()
 
 bool DialogCompanyInfos::isInitialized() const
 {
-    return ui->tabPurchase->isInitialized();
+    return ui->widgetInfos->getWidgetPurchases()->isInitialized();
 }
 
 void DialogCompanyInfos::accept()
 {
-    if (!ui->tabPurchase->isInitialized())
+    if (!ui->widgetInfos->getWidgetPurchases()->isInitialized())
     {
         QMessageBox::information(
             this,

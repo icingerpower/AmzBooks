@@ -89,6 +89,9 @@ double CurrencyRateManager::convert(double amount, const QString &source, const 
 double CurrencyRateManager::retrieveCurrency(const QString &source, const QString &dest, const QDate &date) const
 {
     Q_ASSERT(date < QDate::currentDate());
+    Q_ASSERT(!dest.isEmpty());
+    Q_ASSERT(!source.isEmpty());
+    Q_ASSERT(dest != source);
     double rate = 1.0;
     if (source != dest) {
         QString url = "http://data.fixer.io/api/";

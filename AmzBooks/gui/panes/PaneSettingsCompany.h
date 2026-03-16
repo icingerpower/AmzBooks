@@ -7,6 +7,8 @@ namespace Ui {
 class PaneSettingsCompany;
 }
 
+class WidgetPurchases;
+
 class PaneSettingsCompany : public QWidget
 {
     Q_OBJECT
@@ -18,6 +20,7 @@ public:
     bool hasVatNumberCompanyCountry() const;
     int countVatNumbers() const;
     int countAddresses() const;
+    WidgetPurchases *getWidgetPurchases() const;
 
 public slots:
     void addVatNumbers();

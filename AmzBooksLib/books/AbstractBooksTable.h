@@ -75,6 +75,9 @@ public:
     void clear();
     virtual bool remove(const QString &rowId);
 
+    // Sort rows by date descending (most recent first).
+    void sortByDate();
+
     // Header:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
 

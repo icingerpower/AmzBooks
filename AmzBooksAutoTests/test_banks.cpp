@@ -298,7 +298,7 @@ void TestBanks::test_fileManagement()
         
         table.load(2025);
         QCOMPARE(table.rowCount(), 5);
-        QCOMPARE(table.data(table.index(0, 1)).toDouble(), 10.0);
+        QCOMPARE(table.data(table.index(4, 1)).toDouble(), 10.0);
     }
     
     // Test 3: Remove by Index (and check File Deletion)
@@ -316,8 +316,8 @@ void TestBanks::test_fileManagement()
         
         // Select ONE Row from File 2
         // File 1 rows are 0-4. File 2 rows are 5-9.
-        QModelIndex idxFile2 = table.index(7, 0); // 3rd row of File 2 (22.00)
-        QCOMPARE(table.data(table.index(7, 1)).toDouble(), 22.0);
+        QModelIndex idxFile2 = table.index(2, 0); // 3rd row of File 2 (22.00)
+        QCOMPARE(table.data(table.index(2, 1)).toDouble(), 22.0);
         
         QList<QModelIndex> selection;
         selection << idxFile2;

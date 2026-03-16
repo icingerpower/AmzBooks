@@ -65,6 +65,7 @@ private:
      *  time a WidgetPurchases is constructed in a given working directory. */
     static QSharedPointer<ImportPriceTable> s_importPriceTable;
     static QString                          s_importPriceTableDir;
+    static QList<WidgetPurchases*>          s_widgetPurchasesInstances;
 };
 
 #endif // WIDGETPURCHASES_H

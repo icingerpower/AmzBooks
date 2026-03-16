@@ -2,6 +2,7 @@
 #include <QTextStream>
 #include <QDebug>
 #include <QRegularExpression>
+#include <limits>
 
 #include "BookAccountPurchaseTable.h"
 #include "CountriesEu.h"
@@ -25,6 +26,83 @@ BookAccountPurchaseTable::BookAccountPurchaseTable(
     _fillIfEmpty();
 }
 
+QString BookAccountPurchaseTable::_findClosestKey(
+    const QString &countryCode, double vatRate,
+    double maxDiffRateAllowed, double &outMinDiff) const
+{
+    // Try exact match first
+    const QString exactKey = countryCode + "|" + QString::number(vatRate);
+    if (m_cache.contains(exactKey)) {
+        outMinDiff = 0.0;
+        return exactKey;
+    }
+    const QString wildcardExact = "|" + QString::number(vatRate);
+    if (m_cache.contains(wildcardExact)) {
+        outMinDiff = 0.0;
+        return wildcardExact;
+    }
+
+    // Scan for the closest rate (country-specific preferred over wildcard)
+    outMinDiff = std::numeric_limits<double>::max();
+    QString bestKey;
+    bool foundCountrySpecific = false;
+
+    for (auto it = m_cache.constBegin(); it != m_cache.constEnd(); ++it) {
+        const QString &cacheKey = it.key();
+        const int pipePos = cacheKey.indexOf('|');
+        if (pipePos < 0) {
+            continue;
+        }
+        const QString keyCountry = cacheKey.left(pipePos);
+        const double keyRate = cacheKey.mid(pipePos + 1).toDouble();
+
+        const bool isCountrySpecific = (keyCountry == countryCode);
+        const bool isWildcard = keyCountry.isEmpty();
+        if (!isCountrySpecific && !isWildcard) {
+            continue;
+        }
+        if (foundCountrySpecific && !isCountrySpecific) {
+            continue;
+        }
+
+        const double diff = qAbs(keyRate - vatRate);
+        if (isCountrySpecific && !foundCountrySpecific) {
+            outMinDiff = diff;
+            bestKey = cacheKey;
+            foundCountrySpecific = true;
+        } else if (diff < outMinDiff) {
+            outMinDiff = diff;
+            bestKey = cacheKey;
+        }
+    }
+
+    // Accept if within tolerance (epsilon absorbs floating-point boundary rounding)
+    if (!bestKey.isEmpty() && outMinDiff * 100.0 <= maxDiffRateAllowed + 1e-9) {
+        return bestKey;
+    }
+    return {};
+}
+
+BookAccountPurchaseTable::ClosestResult BookAccountPurchaseTable::getAccountsDebit6Closest(
+    const QString &countryCode, double vatRate, double maxDiffRateAllowed) const
+{
+    double minDiff = 0.0;
+    const QString bestKey = _findClosestKey(countryCode, vatRate, maxDiffRateAllowed, minDiff);
+    if (!bestKey.isEmpty()) {
+        const int pipePos = bestKey.indexOf('|');
+        return {m_cache[bestKey].debit6, bestKey.mid(pipePos + 1).toDouble()};
+    }
+
+    ExceptionWithTitleText exception(tr("Account Missing"),
+        tr("No VAT Debit (6) account found for country %1 and rate %2% "
+           "(closest diff: %3%). Please add it in the purchase accounts settings.")
+            .arg(countryCode,
+                 QString::number(vatRate * 100.0, 'f', 2),
+                 QString::number(minDiff * 100.0, 'f', 2)));
+    exception.raise();
+    return {};
+}
+
 QString BookAccountPurchaseTable::getAccountsDebit6(const QString &countryCode, double vatRate) const
 {
     const QString key = countryCode + "|" + QString::number(vatRate);
@@ -41,6 +119,26 @@ QString BookAccountPurchaseTable::getAccountsDebit6(const QString &countryCode, 
            "Please add it in the purchase accounts settings.")
             .arg(countryCode)
             .arg(vatRate));
+    exception.raise();
+    return {};
+}
+
+BookAccountPurchaseTable::ClosestResult BookAccountPurchaseTable::getAccountsCredit4Closest(
+    const QString &countryCode, double vatRate, double maxDiffRateAllowed) const
+{
+    double minDiff = 0.0;
+    const QString bestKey = _findClosestKey(countryCode, vatRate, maxDiffRateAllowed, minDiff);
+    if (!bestKey.isEmpty()) {
+        const int pipePos = bestKey.indexOf('|');
+        return {m_cache[bestKey].credit4, bestKey.mid(pipePos + 1).toDouble()};
+    }
+
+    ExceptionWithTitleText exception(tr("Account Missing"),
+        tr("No VAT Credit (4) account found for country %1 and rate %2% "
+           "(closest diff: %3%). Please add it in the purchase accounts settings.")
+            .arg(countryCode,
+                 QString::number(vatRate * 100.0, 'f', 2),
+                 QString::number(minDiff * 100.0, 'f', 2)));
     exception.raise();
     return {};
 }
