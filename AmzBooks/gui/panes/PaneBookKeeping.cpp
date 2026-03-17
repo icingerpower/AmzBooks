@@ -1297,7 +1297,7 @@ void PaneBookKeeping::purchaseAdd()
         const BookAccountPurchaseTable purchaseAccountTable{WorkingDirectoryManager::instance()->workingDir(), companyInfos.getCompanyCountryCode()};
         const CurrencyRateManager currencyRateManager{WorkingDirectoryManager::instance()->workingDir(), companyInfos.getApiKeyFixer()};
 
-        PurchaseInformation info = PurchaseInvoiceManager::decode(fi.fileName(), &purchaseAccountTable);
+        PurchaseInformation info = PurchaseInvoiceManager::decode(fi.fileName(), &purchaseAccountTable, companyInfos.getCompanyCountryCode());
 
         while (true) {
             DialogEditPurchase editDialog(info, companyCurrency, &purchaseAccountTable, &currencyRateManager, this);
@@ -1961,7 +1961,8 @@ void PaneBookKeeping::_createBooksTables()
     }
 
     // Purchases
-    auto purchaseTable = new PurchaseInvoiceTable(m_booksConnections, workingDir, ui->tableInvoices);
+    const CompanyInfosTable companyInfosForTable{workingDir};
+    auto purchaseTable = new PurchaseInvoiceTable(m_booksConnections, workingDir, companyInfosForTable.getCompanyCountryCode(), ui->tableInvoices);
     ui->tableInvoices->setModel(purchaseTable);
     
     // Services

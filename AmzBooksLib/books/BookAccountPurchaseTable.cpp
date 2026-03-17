@@ -26,6 +26,11 @@ BookAccountPurchaseTable::BookAccountPurchaseTable(
     _fillIfEmpty();
 }
 
+QString BookAccountPurchaseTable::getCountryCodeCompany() const
+{
+    return m_countryCodeCompany;
+}
+
 QString BookAccountPurchaseTable::_findClosestKey(
     const QString &countryCode, double vatRate,
     double maxDiffRateAllowed, double &outMinDiff) const

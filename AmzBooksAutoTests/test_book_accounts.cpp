@@ -36,6 +36,16 @@ T syncWait(QCoro::Task<T> &&task) {
     return QCoro::waitFor<T>(std::move(task));
 }
 
+// Returns a BookAccountPurchaseTable backed by a process-lifetime temp dir.
+// The table auto-fills with wildcard entries for standard VAT rates (20 %, 10 %, 5.5 %),
+// which is enough for filename-parsing tests.
+static const BookAccountPurchaseTable &decodeTestPurchaseTable()
+{
+    static QTemporaryDir s_tempDir;
+    static BookAccountPurchaseTable s_table(QDir(s_tempDir.path()), "FR");
+    return s_table;
+}
+
 class TestBookAccounts : public QObject
 {
     Q_OBJECT
@@ -503,7 +513,7 @@ private slots:
             const QString fileName =
                 "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8373__FAMZMK"
                 "__FR-TVA--6.30EUR_-5.46GPB__-32.74GBP.pdf";
-            const auto info = PurchaseInvoiceManager::decode(fileName);
+            const auto info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
             QCOMPARE(info.date, QDate(2026, 1, 31));
             QCOMPARE(info.account, QString("622201"));
@@ -541,7 +551,7 @@ private slots:
             const QString fileName =
                 "2026-01-31__622201__frais-vente-FR-AEU-2026-49313__FAMZMK"
                 "__FR-TVA-2.21EUR_9.28PLN__55.68PLN.pdf";
-            const auto info = PurchaseInvoiceManager::decode(fileName);
+            const auto info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
             QCOMPARE(info.date, QDate(2026, 1, 31));
             QCOMPARE(info.currency, QString("PLN"));
@@ -1255,7 +1265,7 @@ private slots:
         auto validateFile = [&](const QString &fileName) -> QString {
             PurchaseInformation info;
             try {
-                info = PurchaseInvoiceManager::decode(fileName);
+                info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
             } catch (const ExceptionWithTitleText &e) {
                 return e.errorTitle() + ": " + e.errorText();
             }

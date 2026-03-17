@@ -34,6 +34,7 @@ struct PurchaseInformation {
     bool isDDP = false; // if DDP in file name
     QString countryCodeFrom; // If ends with 2 country code we fill countryCodeFrom and countryCodeTo
     QString countryCodeTo;
+    bool hasExplicitRoute = false; // true when countryCodeFrom/To came from the filename, not from company fallback
     QHash<QString, double> subUntaxedAmount; // Extra untaxed amounts per account
 };
 
@@ -42,7 +43,7 @@ class PurchaseInvoiceManager : public QAbstractTableModel
     Q_OBJECT
 
 public:
-    explicit PurchaseInvoiceManager(const QDir &workingDir, QObject *parent = nullptr);
+    explicit PurchaseInvoiceManager(const QDir &workingDir, const QString &companyCountryCode, QObject *parent = nullptr);
 
     bool isSupplierWithCountries(const QString &supplierAccount) const;
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
@@ -55,14 +56,20 @@ public:
 
     QList<PurchaseInformation> getInvoices(const QDate &from, const QDate &to) const;
 
+    const BookAccountPurchaseTable *getPurchaseTable() const;
+
     static QString encode(const PurchaseInformation &info);
-    static PurchaseInformation decode(const QString &fileName, const BookAccountPurchaseTable *purchaseTable = nullptr);
+    static PurchaseInformation decode(const QString &fileName
+                                      , const BookAccountPurchaseTable *purchaseTable // nullptr not allowed
+                                      , const QString &companyCountryCode); // empty not allowed
     // Helpers for storage path
     static QString getRelativePath(const PurchaseInformation &info);
 
 
 private:
     QDir m_workingDir;
+    QString m_companyCountryCode;
+    BookAccountPurchaseTable *m_purchaseTable = nullptr; // owned child, created in constructor
     QList<PurchaseInformation> m_data;
     QSet<QString> m_suppliersWithCountries;
     static const QStringList HEADER;

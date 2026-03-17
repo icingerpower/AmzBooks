@@ -4,6 +4,7 @@
 
 #include "books/PurchaseInvoiceTable.h"
 #include "books/PurchaseInvoiceManager.h"
+#include "books/BookAccountPurchaseTable.h"
 #include "books/BooksConnections.h"
 #include "ExceptionWithTitleText.h"
 
@@ -14,6 +15,16 @@ static const QString kFileEur =
     "2026-01-31__622201__frais-vente-FR-AEU-2026-6166__FAMZMK__FR-TVA-202.71EUR__1216.24EUR.pdf";
 static const QString kFileGbp =
     "2026-01-31__622201__frais-vente-FR-AEU-2026-27277__FAMZMK__88.56GBP.pdf";
+
+// Returns a BookAccountPurchaseTable backed by a process-lifetime temp dir.
+// The table auto-fills with wildcard entries for standard VAT rates (20 %, 10 %, 5.5 %),
+// which is enough for filename-parsing tests.
+static const BookAccountPurchaseTable &decodeTestPurchaseTable()
+{
+    static QTemporaryDir s_tempDir;
+    static BookAccountPurchaseTable s_table(QDir(s_tempDir.path()), "FR");
+    return s_table;
+}
 
 // Column indices in AbstractBooksTable (base 9 columns, 0-based).
 static const int COL_DATE         = 0;
@@ -76,24 +87,24 @@ private slots:
         QVERIFY(createDummyFile(src3));                                                // 4
 
         BooksConnections connections(dir);
-        PurchaseInvoiceTable table(&connections, dir);
+        PurchaseInvoiceTable table(&connections, dir, "FR");
 
         QCOMPARE(table.rowCount(), 0);                                                 // 5
 
         // ── addInvoice ────────────────────────────────────────────────────────
         // File 1 – PLN total, EUR VAT (cross-currency, negative refund).
-        auto infoPln = PurchaseInvoiceManager::decode(kFilePln);
+        auto infoPln = PurchaseInvoiceManager::decode(kFilePln, &decodeTestPurchaseTable(), "FR");
         table.addInvoice(src1, infoPln);
         QCOMPARE(table.rowCount(), 1);                                                 // 6
         QVERIFY(!infoPln.filePath.isEmpty());                                          // 7
 
         // File 2 – EUR total, EUR VAT (same currency, positive purchase).
-        auto infoEur = PurchaseInvoiceManager::decode(kFileEur);
+        auto infoEur = PurchaseInvoiceManager::decode(kFileEur, &decodeTestPurchaseTable(), "FR");
         table.addInvoice(src2, infoEur);
         QCOMPARE(table.rowCount(), 2);                                                 // 8
 
         // File 3 – GBP total, no VAT.
-        auto infoGbp = PurchaseInvoiceManager::decode(kFileGbp);
+        auto infoGbp = PurchaseInvoiceManager::decode(kFileGbp, &decodeTestPurchaseTable(), "FR");
         table.addInvoice(src3, infoGbp);
         QCOMPARE(table.rowCount(), 3);                                                 // 9
 
@@ -114,7 +125,7 @@ private slots:
         QCOMPARE(cell(table, rowPln, COL_VAT_CURRENCY).toString(), QString("EUR"));    // 19  ← conversion rate indicator
         // Extra PurchaseInvoiceTable columns: no route code in this label/supplier.
         QCOMPARE(cell(table, rowPln, COL_COUNTRY_FROM).toString(), QString(""));       // 20
-        QCOMPARE(cell(table, rowPln, COL_COUNTRY_TO).toString(),   QString(""));       // 21
+        QCOMPARE(cell(table, rowPln, COL_COUNTRY_TO).toString(),   QString("FR"));      // 21
 
         // ── Model data after addInvoice – EUR invoice (positive) ──────────────
         const int rowEur = findRow(table, kFileEur);
@@ -200,7 +211,7 @@ private slots:
         // ── Reload: new instance reads back from disk ─────────────────────────
         {
             BooksConnections connections2(dir);
-            PurchaseInvoiceTable table2(&connections2, dir);
+            PurchaseInvoiceTable table2(&connections2, dir, "FR");
             table2.load(2026);
 
             QCOMPARE(table2.rowCount(), 3);                                            // 66
@@ -239,7 +250,7 @@ private slots:
 
             // Reload confirms file is gone from disk too.
             BooksConnections connections3(dir);
-            PurchaseInvoiceTable table3(&connections3, dir);
+            PurchaseInvoiceTable table3(&connections3, dir, "FR");
             table3.load(2026);
             QCOMPARE(table3.rowCount(), 2);                                            // 80
             QCOMPARE(findRow(table3, kFileGbp), -1);                                   // 81
@@ -253,7 +264,7 @@ private slots:
         {
             const QString src3b = dir.filePath("src3b.pdf");
             QVERIFY(createDummyFile(src3b));                                           // 84
-            auto infoGbp2 = PurchaseInvoiceManager::decode(kFileGbp);
+            auto infoGbp2 = PurchaseInvoiceManager::decode(kFileGbp, &decodeTestPurchaseTable(), "FR");
             table.addInvoice(src3b, infoGbp2);
             QCOMPARE(table.rowCount(), 3);                                             // 85
             QVERIFY(findRow(table, kFileGbp) >= 0);                                    // 86
@@ -268,7 +279,7 @@ private slots:
         const int rowPlnFinal = findRow(table, kFilePln);
         QVERIFY(rowPlnFinal >= 0);                                                     // 88
         QCOMPARE(cell(table, rowPlnFinal, COL_COUNTRY_FROM).toString(), QString("")); // 89
-        QCOMPARE(cell(table, rowPlnFinal, COL_COUNTRY_TO).toString(),   QString("")); // 90
+        QCOMPARE(cell(table, rowPlnFinal, COL_COUNTRY_TO).toString(),   QString("FR")); // 90
         // VAT Rate column: rate was computed as ~4.1 % (EUR vat / PLN net, unreliable
         // for cross-currency) – just verify it is non-empty and ends with "%".
         const QString rateStrPln = cell(table, rowPlnFinal, COL_VAT_RATE).toString();

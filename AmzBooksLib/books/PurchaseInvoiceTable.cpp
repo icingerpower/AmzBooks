@@ -4,11 +4,13 @@
 PurchaseInvoiceTable::PurchaseInvoiceTable(
         const BooksConnections *bookConnections,
         const QDir &workingDir,
+        const QString &companyCountryCode,
         QObject *parent)
     : AbstractBooksTable(bookConnections, workingDir, parent)
     , m_workingDir(workingDir)
+    , m_companyCountryCode(companyCountryCode)
 {
-    m_manager = new PurchaseInvoiceManager(workingDir, this);
+    m_manager = new PurchaseInvoiceManager(workingDir, companyCountryCode, this);
 }
 
 QString PurchaseInvoiceTable::getId() const
@@ -137,7 +139,7 @@ QVariant PurchaseInvoiceTable::data(const QModelIndex &index, int role) const
     
     if (index.column() >= baseCols && (role == Qt::DisplayRole || role == Qt::EditRole)) {
         QString rowId = getRowId(index);
-        PurchaseInformation info = PurchaseInvoiceManager::decode(rowId);
+        PurchaseInformation info = PurchaseInvoiceManager::decode(rowId, m_manager->getPurchaseTable(), m_companyCountryCode);
         
         if (index.column() == baseCols) {
             return info.countryCodeFrom;

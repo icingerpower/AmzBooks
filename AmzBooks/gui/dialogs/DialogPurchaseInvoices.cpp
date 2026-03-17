@@ -1,5 +1,6 @@
 #include "DialogPurchaseInvoices.h"
 #include "ui_DialogPurchaseInvoices.h"
+#include "books/BookAccountPurchaseTable.h"
 #include <QFileInfo>
 #include <QMessageBox>
 #include "ExceptionWithTitleText.h"
@@ -54,7 +55,7 @@ void DialogPurchaseInvoices::_populateTable()
             // Note: decode uses the filename, not the full path, but here we pass the filepath to decode?
             // AbstractBooksTable::decode expects filename structure. 
             // PurchaseInvoiceManager::decode expects filename to decode info.
-            PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, m_purchaseTable);
+            PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, m_purchaseTable, m_purchaseTable->getCountryCodeCompany());
             // Also need to set filePath
             info.filePath = filePath;
             

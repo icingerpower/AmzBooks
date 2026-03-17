@@ -12,6 +12,7 @@ public:
     explicit PurchaseInvoiceTable(
             const BooksConnections *bookConnections,
             const QDir &workingDir,
+            const QString &companyCountryCode,
             QObject *parent = nullptr);
 
     virtual QString getId() const override;
@@ -32,6 +33,7 @@ public:
 private:
     PurchaseInvoiceManager *m_manager;
     QDir m_workingDir;
+    QString m_companyCountryCode;
     
     // Internal access to manager
     PurchaseInvoiceManager &manager() const;

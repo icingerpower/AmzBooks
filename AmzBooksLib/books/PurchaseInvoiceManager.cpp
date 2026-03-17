@@ -20,11 +20,18 @@ const QStringList PurchaseInvoiceManager::HEADER = {
     "Date", "Account", "Label", "Supplier", "From", "To", "VAT", "Total", "Currency"
 };
 
-PurchaseInvoiceManager::PurchaseInvoiceManager(const QDir &workingDir, QObject *parent)
+PurchaseInvoiceManager::PurchaseInvoiceManager(const QDir &workingDir, const QString &companyCountryCode, QObject *parent)
     : QAbstractTableModel(parent)
     , m_workingDir(workingDir)
+    , m_companyCountryCode(companyCountryCode)
 {
+    m_purchaseTable = new BookAccountPurchaseTable(workingDir, companyCountryCode, this);
     _load();
+}
+
+const BookAccountPurchaseTable *PurchaseInvoiceManager::getPurchaseTable() const
+{
+    return m_purchaseTable;
 }
 
 bool PurchaseInvoiceManager::isSupplierWithCountries(const QString &supplierAccount) const
@@ -117,7 +124,7 @@ void PurchaseInvoiceManager::add(const QString &sourceFilePath, PurchaseInformat
 
     info.filePath = destFilePath;
 
-    if (!info.countryCodeFrom.isEmpty() || !info.countryCodeTo.isEmpty()) {
+    if (info.hasExplicitRoute) {
         m_suppliersWithCountries.insert(info.accountSupplier);
     }
 
@@ -179,13 +186,13 @@ void PurchaseInvoiceManager::scanDirectory(const QDir &dir)
     QDirIterator it(dir.path(), QDir::Files | QDir::NoDotAndDotDot, QDirIterator::Subdirectories);
     while (it.hasNext()) {
         QString filePath = it.next();
-        PurchaseInformation info = decode(filePath);
+        PurchaseInformation info = decode(filePath, m_purchaseTable, m_companyCountryCode);
         // Only add if it looks valid (e.g. has a date)
         if (info.date.isValid()) {
             info.filePath = filePath;
             m_data.append(info);
             
-            if (!info.countryCodeFrom.isEmpty() || !info.countryCodeTo.isEmpty()) {
+            if (info.hasExplicitRoute) {
                 m_suppliersWithCountries.insert(info.accountSupplier);
             }
         }
@@ -203,7 +210,9 @@ QList<PurchaseInformation> PurchaseInvoiceManager::getInvoices(const QDate &from
     return result;
 }
 
-PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, const BookAccountPurchaseTable *purchaseTable)
+PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName
+                                                   , const BookAccountPurchaseTable *purchaseTable
+                                                   , const QString &companyCountryCode)
 {
     PurchaseInformation info;
     QFileInfo fileInfo(fileName);
@@ -268,8 +277,9 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
             && validCountryCodes.contains(matchRoute.captured(2))) {
         info.countryCodeFrom = matchRoute.captured(1);
         info.countryCodeTo = matchRoute.captured(2);
+        info.hasExplicitRoute = true;
     }
-    
+
     // Check for Route in Label (Ends with -XX-YY, e.g. -PH-FR)
     static QRegularExpression regexRouteLabel("-([A-Z]{2})-([A-Z]{2})$");
     QRegularExpressionMatch matchRouteLabel = regexRouteLabel.match(info.label);
@@ -278,6 +288,10 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
             && validCountryCodes.contains(matchRouteLabel.captured(2))) {
         info.countryCodeFrom = matchRouteLabel.captured(1);
         info.countryCodeTo = matchRouteLabel.captured(2);
+        info.hasExplicitRoute = true;
+    }
+    if (info.countryCodeTo.isEmpty()) {
+        info.countryCodeTo = companyCountryCode; // fallback: hasExplicitRoute stays false
     }
     
     // The last part is Total
@@ -297,6 +311,10 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
         info.rawTotalAmount = totalPart;
     }
     
+    // Tracks country+"|"+rateKey for rates that were explicit in the token label
+    // (e.g. "FR-TVA20" → "FR|0.2"). Rates computed by deferred division are excluded.
+    QSet<QString> explicitRates;
+
     // Middle parts are VATs or EXTRAs
     static QRegularExpression regexRate("[0-9.]+");
     for (int i = 4; i < parts.size() - 1; ++i) {
@@ -355,6 +373,7 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
                 if (matchRate.hasMatch()) {
                     const double rateValPct = matchRate.captured(0).toDouble();
                     rateKey = QString::number(rateValPct / 100.0);
+                    explicitRates.insert(country + "|" + rateKey);
                 }
 
                 info.country_vatRate_vat[country][rateKey]           += sourceAmount;
@@ -387,6 +406,7 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
                     double rateValPercentage = matchRate.captured(0).toDouble();
                     // Store as proportion
                     rateKey = QString::number(rateValPercentage / 100.0);
+                    explicitRates.insert(country + "|" + rateKey);
                 }
 
                 // If rateKey is missing, defer rate computation until after the loop
@@ -481,13 +501,18 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName, cons
             info.vatCountry = firstParts[0];
     }
     
-    // Validate VAT rates if a purchase table is provided.
-    // Skip when vatCurrency differs from invoice currency: the rate stored in the map
-    // was computed without currency conversion (no CurrencyRateManager available here)
-    // and may be unreliable. The correct rate is resolved in JournalEntryFactory.
+    // Validate VAT accounts for explicitly-specified rates only.
+    // Rates that were deferred-computed (no rate number in the token label, e.g. "FR-TVA")
+    // are excluded because the computed value may differ slightly from the stored rate;
+    // JournalEntryFactory handles those with a closest-match tolerance.
+    // Also skip when vatCurrency differs from invoice currency: the rate stored in the map
+    // was computed without currency conversion and may be unreliable.
     if (purchaseTable && (info.vatCurrency.isEmpty() || info.vatCurrency == info.currency)) {
         for (auto itCountry = info.country_vatRate_vat.constBegin(); itCountry != info.country_vatRate_vat.constEnd(); ++itCountry) {
             for (auto itRate = itCountry.value().constBegin(); itRate != itCountry.value().constEnd(); ++itRate) {
+                if (!explicitRates.contains(itCountry.key() + "|" + itRate.key())) {
+                    continue;
+                }
                 double rate = itRate.key().toDouble();
                 // This validates the configuration and throws ExceptionWithTitleText if it doesn't exist
                 purchaseTable->getAccountsDebit6(info.countryCodeTo, rate);

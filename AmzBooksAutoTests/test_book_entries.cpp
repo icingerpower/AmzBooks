@@ -37,6 +37,16 @@ T syncWait(QCoro::Task<T> &&task) {
     return QCoro::waitFor<T>(std::move(task));
 }
 
+// Returns a BookAccountPurchaseTable backed by a process-lifetime temp dir.
+// The table auto-fills with wildcard entries for standard VAT rates (20 %, 10 %, 5.5 %),
+// which is enough for filename-parsing tests.
+static const BookAccountPurchaseTable &decodeTestPurchaseTable()
+{
+    static QTemporaryDir s_tempDir;
+    static BookAccountPurchaseTable s_table(QDir(s_tempDir.path()), "FR");
+    return s_table;
+}
+
 class TestBookEntries : public QObject
 {
     Q_OBJECT
@@ -513,7 +523,7 @@ void TestBookEntries::test_invoice_encoding()
 {
     // Test Case 1: Standard example
     QString fileName = "2025-02-18__622600__compta__SOCIC-FR__FR-TVA-13.6EUR__81.6EUR.pdf";
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
     
     QCOMPARE(info.date, QDate(2025, 2, 18));
     QCOMPARE(info.account, QString("622600"));
@@ -538,8 +548,8 @@ void TestBookEntries::test_invoice_encoding()
     QCOMPARE(info.isInventory, false);
     QCOMPARE(info.isDDP, false);
     QVERIFY(info.countryCodeFrom.isEmpty());
-    QVERIFY(info.countryCodeTo.isEmpty());
-    
+    QCOMPARE(info.countryCodeTo, QString("FR")); // no route in filename → defaults to company country
+
     // Roundtrip
     QString encoded = PurchaseInvoiceManager::encode(info);
     QCOMPARE(encoded, fileName);
@@ -549,7 +559,7 @@ void TestBookEntries::test_invoice_encoding()
     // Inventory: "stock" in label or anywhere.
     // DDP: "DDP" in label
     QString fileName2 = "2026-01-24__607000__stock DDP__YISHUNCNFR__FR-TVA5.5-13.6EUR__FR-TVA20-20.0EUR__133.6EUR.jpg";
-    PurchaseInformation info2 = PurchaseInvoiceManager::decode(fileName2);
+    PurchaseInformation info2 = PurchaseInvoiceManager::decode(fileName2, &decodeTestPurchaseTable(), "FR");
     
     QCOMPARE(info2.date, QDate(2026, 1, 24));
     QCOMPARE(info2.account, QString("607000"));
@@ -578,7 +588,7 @@ void TestBookEntries::test_invoice_encoding()
     
     // Test Case 3: No VAT
     QString fileName3 = "2025-12-31__622600__fees__BANK__10.0USD.pdf";
-    PurchaseInformation info3 = PurchaseInvoiceManager::decode(fileName3);
+    PurchaseInformation info3 = PurchaseInvoiceManager::decode(fileName3, &decodeTestPurchaseTable(), "FR");
     QCOMPARE(info3.vatTokens.isEmpty(), true);
     QCOMPARE(info3.totalAmount, 10.0);
     QCOMPARE(info3.currency, QString("USD"));
@@ -594,7 +604,7 @@ void TestBookEntries::test_invoice_encoding()
 void TestBookEntries::test_invoice_proportion_encode_decode()
 {
     QString fileName = "2026-01-29__647700__cheques-CESU-25E__FDOMIS__FR-TVA20-5EUR__411EUR.pdf";
-    PurchaseInformation info1 = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info1 = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
     
     QVERIFY(info1.country_vatRate_vat.contains("FR"));
     
@@ -612,7 +622,7 @@ void TestBookEntries::test_invoice_proportion_encode_decode()
     QString encoded = PurchaseInvoiceManager::encode(info1);
     QCOMPARE(encoded, fileName);
     
-    PurchaseInformation info2 = PurchaseInvoiceManager::decode(encoded);
+    PurchaseInformation info2 = PurchaseInvoiceManager::decode(encoded, &decodeTestPurchaseTable(), "FR");
     
     // Check all information is the same
     QCOMPARE(info1.date, info2.date);
@@ -628,7 +638,7 @@ void TestBookEntries::test_invoice_extra_tokens()
 {
     // Test Case 4: EXTRA tokens
     QString fileName4 = "2025-05-10__607222__Mix__Supplier__EXTRA-607223-20.1EUR__120.1EUR.pdf";
-    PurchaseInformation info4 = PurchaseInvoiceManager::decode(fileName4);
+    PurchaseInformation info4 = PurchaseInvoiceManager::decode(fileName4, &decodeTestPurchaseTable(), "FR");
     QCOMPARE(info4.date, QDate(2025, 5, 10));
     QCOMPARE(info4.account, "607222");
     QCOMPARE(info4.totalAmount, 120.1);
@@ -642,7 +652,7 @@ void TestBookEntries::test_invoice_extra_tokens()
     
     // Test Case 5: Double EXTRA tokens
     QString fileName5 = "2025-06-15__607000__MultiMix__Supp__EXTRA-607001-30.0EUR__EXTRA-607002-15.5EUR__245.5EUR.pdf";
-    PurchaseInformation info5 = PurchaseInvoiceManager::decode(fileName5);
+    PurchaseInformation info5 = PurchaseInvoiceManager::decode(fileName5, &decodeTestPurchaseTable(), "FR");
     QCOMPARE(info5.date, QDate(2025, 6, 15));
     QCOMPARE(info5.account, "607000");
     QCOMPARE(info5.totalAmount, 245.5);
@@ -671,7 +681,7 @@ void TestBookEntries::test_invoice_negative_amount_refund()
     // Case 1: Decode a filename with a negative total (purchase refund).
     // VAT amounts in tokens are always stored positive; the negative total signals the refund.
     const QString fileName = "2024-03-15__607000__refund-label__Supplier__FR-TVA20-20.0EUR__-120.0EUR.pdf";
-    const PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    const PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date, QDate(2024, 3, 15));
     QCOMPARE(info.account, QString("607000"));
@@ -694,7 +704,7 @@ void TestBookEntries::test_invoice_negative_amount_refund()
 
     // Case 2: Negative total with no VAT
     const QString fileNameNoVat = "2024-03-15__607000__refund-fees__Bank__-50.0EUR.pdf";
-    const PurchaseInformation infoNoVat = PurchaseInvoiceManager::decode(fileNameNoVat);
+    const PurchaseInformation infoNoVat = PurchaseInvoiceManager::decode(fileNameNoVat, &decodeTestPurchaseTable(), "FR");
     QCOMPARE(infoNoVat.totalAmount, -50.0);
     QVERIFY(infoNoVat.country_vatRate_vat.isEmpty());
     QCOMPARE(PurchaseInvoiceManager::encode(infoNoVat), fileNameNoVat);
@@ -772,7 +782,7 @@ void TestBookEntries::test_invoice_model_loading()
     file2.close();
     
     // Initialize Manager (calls _load automatically)
-    PurchaseInvoiceManager manager(dir);
+    PurchaseInvoiceManager manager(dir, "FR");
     
     // load() is private now, called in constructor
     
@@ -802,7 +812,7 @@ void TestBookEntries::test_invoice_decode_error()
     QString badFile = "2025-02-18__Info.pdf";
     bool caught = false;
     try {
-        PurchaseInvoiceManager::decode(badFile);
+        PurchaseInvoiceManager::decode(badFile, &decodeTestPurchaseTable(), "FR");
     } catch (const ExceptionWithTitleText &e) {
         caught = true;
         QCOMPARE(e.errorTitle(), QString("Invalid Filename"));
@@ -813,7 +823,7 @@ void TestBookEntries::test_invoice_decode_error()
     QString badDateFile = "2025-99-99__620__Label__Supp__10EUR.pdf";
     caught = false;
     try {
-        PurchaseInvoiceManager::decode(badDateFile);
+        PurchaseInvoiceManager::decode(badDateFile, &decodeTestPurchaseTable(), "FR");
     } catch (const ExceptionWithTitleText &e) {
         caught = true;
         QCOMPARE(e.errorTitle(), QString("Invalid Date"));
@@ -845,7 +855,7 @@ void TestBookEntries::test_invoice_add()
     info.currency = "EUR";
     // originalExtension is empty, should be picked up from source
     
-    PurchaseInvoiceManager manager(dir);
+    PurchaseInvoiceManager manager(dir, "FR");
     QCOMPARE(manager.rowCount(), 0);
     
     manager.add(sourcePath, info);
@@ -883,7 +893,7 @@ void TestBookEntries::test_get_invoices()
     QVERIFY(dir.mkpath("purchase-invoices/2025/03"));
     QFile(dir.filePath("purchase-invoices/2025/03/" + f3)).open(QIODevice::WriteOnly);
     
-    PurchaseInvoiceManager manager(dir);
+    PurchaseInvoiceManager manager(dir, "FR");
     QCOMPARE(manager.rowCount(), 3);
     
     // Get all
@@ -1793,7 +1803,7 @@ void TestBookEntries::test_invoice_save_load_full_fields()
     orig.currency         = "EUR";
     orig.subUntaxedAmount["607001"] = 10.0;
 
-    PurchaseInvoiceManager manager(dir);
+    PurchaseInvoiceManager manager(dir, "FR");
     manager.add(sourcePath, orig);
     QCOMPARE(manager.rowCount(), 1);
 
@@ -1887,14 +1897,14 @@ void TestBookEntries::test_invoice_save_load_full_fields()
     QVERIFY(savedPlain.subUntaxedAmount.isEmpty());
     QVERIFY(savedPlain.vatCountry.isEmpty());
     QVERIFY(savedPlain.countryCodeFrom.isEmpty());
-    QVERIFY(savedPlain.countryCodeTo.isEmpty());
+    QCOMPARE(savedPlain.countryCodeTo, QString("FR")); // no route in filename → defaults to company country
 
     // ── Case 3: simple 2-part VAT token generated by dialogs ─────────────────
     // "TVA-{amount}{currency}" has 2 parts when split by '-', so decode must NOT
     // create a country_vatRate_vat entry (country would otherwise be "TVA").
     QString fileSimpleVat =
         "2025-09-10__607000__Office__Supplier__TVA-15.0EUR__115.0EUR.pdf";
-    PurchaseInformation infoSV = PurchaseInvoiceManager::decode(fileSimpleVat);
+    PurchaseInformation infoSV = PurchaseInvoiceManager::decode(fileSimpleVat, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(infoSV.vatTokens.size(), 1);
     QCOMPARE(infoSV.vatTokens.first(), QString("TVA-15.0EUR"));
@@ -1907,19 +1917,19 @@ void TestBookEntries::test_invoice_save_load_full_fields()
 
 void TestBookEntries::test_invoice_decode_no_country_code()
 {
-    // "FUBER" has no two-letter country-code suffix pair, so countryCodeFrom
-    // and countryCodeTo must both be empty after decoding.
+    // "FUBER" has no two-letter country-code suffix pair, so countryCodeFrom is empty
+    // and countryCodeTo defaults to the company country.
     QString fileName = "2026-01-05__625100__frais-deplacement__FUBER__FR-TVA-1.81EUR__19.91EUR.pdf";
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QVERIFY(info.countryCodeFrom.isEmpty());
-    QVERIFY(info.countryCodeTo.isEmpty());
+    QCOMPARE(info.countryCodeTo, QString("FR"));
 }
 
 void TestBookEntries::test_invoice_label_country_decode()
 {
     QString fileName = "2026-01-09__604000__photographie-PH-FR__FCIPID__39GBP.pdf";
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
     
     QCOMPARE(info.date.toString(Qt::ISODate), QString("2026-01-09"));
     QCOMPARE(info.account, QString("604000"));
@@ -1935,7 +1945,7 @@ void TestBookEntries::test_invoice_label_country_decode()
     QCOMPARE(encoded, fileName);
     
     // Decode again
-    PurchaseInformation info2 = PurchaseInvoiceManager::decode(encoded);
+    PurchaseInformation info2 = PurchaseInvoiceManager::decode(encoded, &decodeTestPurchaseTable(), "FR");
     QCOMPARE(info2.countryCodeFrom, QString("PH"));
     QCOMPARE(info2.countryCodeTo, QString("FR"));
 }
@@ -1950,14 +1960,14 @@ void TestBookEntries::test_invoice_no_country_from_short_supplier()
         "2026-01-02__622600__compta__FNEEDE__FR-TVA-50EUR__300EUR.pdf";
 
     // ── First decode ──────────────────────────────────────────────────────────
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date, QDate(2026, 1, 2));
     QCOMPARE(info.account, QString("622600"));
     QCOMPARE(info.label, QString("compta"));
     QCOMPARE(info.accountSupplier, QString("FNEEDE"));
     QVERIFY(info.countryCodeFrom.isEmpty());
-    QVERIFY(info.countryCodeTo.isEmpty());
+    QCOMPARE(info.countryCodeTo, QString("FR")); // no route → defaults to company country
 
     QCOMPARE(info.totalAmount, 300.0);
     QCOMPARE(info.currency, QString("EUR"));
@@ -1971,10 +1981,10 @@ void TestBookEntries::test_invoice_no_country_from_short_supplier()
     const QString encoded = PurchaseInvoiceManager::encode(info);
     QCOMPARE(encoded, fileName);
 
-    // ── Second decode → country codes still absent ────────────────────────────
-    PurchaseInformation info2 = PurchaseInvoiceManager::decode(encoded);
+    // ── Second decode → countryCodeFrom still absent, countryCodeTo defaults to company ──
+    PurchaseInformation info2 = PurchaseInvoiceManager::decode(encoded, &decodeTestPurchaseTable(), "FR");
     QVERIFY(info2.countryCodeFrom.isEmpty());
-    QVERIFY(info2.countryCodeTo.isEmpty());
+    QCOMPARE(info2.countryCodeTo, QString("FR"));
     QCOMPARE(info2.totalAmount, 300.0);
     QCOMPARE(info2.accountSupplier, QString("FNEEDE"));
 }
@@ -2017,7 +2027,7 @@ void TestBookEntries::test_factory_purchase_multi_vat_rates()
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
 
     PurchaseInformation info = PurchaseInvoiceManager::decode(
-        "2026-01-05__625100__frais-deplacement__FUBER__FR-TVA20-1.81EUR__FR-TVA5.5-1EUR__19.91EUR.pdf");
+        "2026-01-05__625100__frais-deplacement__FUBER__FR-TVA20-1.81EUR__FR-TVA5.5-1EUR__19.91EUR.pdf", &decodeTestPurchaseTable(), "FR");
 
     // Both FR|20 and FR|5.5 accounts exist → must not throw
     QSharedPointer<JournalEntry> entry;
@@ -2050,26 +2060,15 @@ void TestBookEntries::test_factory_purchase_missing_vat_rate()
     QVERIFY(tempDir.isValid());
     QDir dir(tempDir.path());
 
-    setupCompanyInfoFr(dir);
-
-    CompanyInfosTable companyInfos(dir);
-    CurrencyRateManager currencyManager(dir, "");
-    BooksAccountsSalesTable saleAccounts(dir);
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
-    JournalTable journalTable(dir);
 
-    // Only FR 20 % is configured – FR 6 % deliberately omitted
-    // Account FR 0.2 is created by default
-
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
-
-    PurchaseInformation info = PurchaseInvoiceManager::decode(
-        "2026-01-05__625100__frais-deplacement__FUBER__FR-TVA20-1.81EUR__FR-TVA6-1EUR__19.91EUR.pdf");
-
-    // FR 6 % has no account → must throw "Account Missing"
+    // Only FR 20 % is configured by default – FR 6 % deliberately omitted.
+    // decode() validates VAT accounts, so it must throw "Account Missing"
     bool caught = false;
     try {
-        factory.createEntry(info);
+        PurchaseInvoiceManager::decode(
+            "2026-01-05__625100__frais-deplacement__FUBER__FR-TVA20-1.81EUR__FR-TVA6-1EUR__19.91EUR.pdf",
+            &purchaseAccounts, "FR");
     } catch (const ExceptionWithTitleText &e) {
         caught = true;
         QCOMPARE(e.errorTitle(), QString("Account Missing"));
@@ -2500,7 +2499,7 @@ void TestBookEntries::test_factory_selfvat_invoice_us_fr_label_route()
         "2026-01-06__622810__api-web-openai-US-FR__FOPENA__25.73EUR.pdf";
 
     // ── Decode ────────────────────────────────────────────────────────────────
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date, QDate(2026, 1, 6));
     QCOMPARE(info.account, QString("622810"));
@@ -2573,7 +2572,7 @@ void TestBookEntries::test_invoice_eu_fr_label_route()
         "2026-01-31__622201__frais-vente-FR-AEU-2026-27277-EU-FR__FAMAZON__88.56GBP.pdf";
 
     // ── Decode ────────────────────────────────────────────────────────────────
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date,            QDate(2026, 1, 31));
     QCOMPARE(info.account,         QString("622201"));
@@ -2651,7 +2650,7 @@ void TestBookEntries::test_invoice_gb_fr_label_route_noneu()
         "2026-01-31__622201__frais-publicite-56780M7PA26-GB-FR__FAMAZON__61.05GBP.pdf";
 
     // ── Decode ────────────────────────────────────────────────────────────────
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date,            QDate(2026, 1, 31));
     QCOMPARE(info.account,         QString("622201"));
@@ -2733,7 +2732,7 @@ void TestBookEntries::test_invoice_tr_fr_label_route_try_currency()
         "2026-01-31__622201__frais-publicite-ADA2026000040109-TR-FR__FAMAZON__35.47TRY.pdf";
 
     // ── Decode ────────────────────────────────────────────────────────────────
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date,            QDate(2026, 1, 31));
     QCOMPARE(info.account,         QString("622201"));
@@ -2776,7 +2775,7 @@ void TestBookEntries::test_invoice_ph_fr_label_route()
         "2026-01-31__622201__frais-publicite-ADA2026000040109-PH-FR__FAMAZON__35.47EUR.pdf";
 
     // ── Decode ────────────────────────────────────────────────────────────────
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date,            QDate(2026, 1, 31));
     QCOMPARE(info.account,         QString("622201"));
@@ -2819,7 +2818,7 @@ void TestBookEntries::test_invoice_mixed_currency_vat_eur_total_sek()
         "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA20-2.63EUR__165.99SEK.pdf";
 
     // ── Decode ────────────────────────────────────────────────────────────────
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date,            QDate(2026, 1, 31));
     QCOMPARE(info.account,         QString("622201"));
@@ -2883,7 +2882,7 @@ void TestBookEntries::test_invoice_mixed_currency_vat_sek_total_eur()
         "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA20-27.67SEK__15.78EUR.pdf";
 
     // ── Decode ────────────────────────────────────────────────────────────────
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date,            QDate(2026, 1, 31));
     QCOMPARE(info.account,         QString("622201"));
@@ -2913,7 +2912,7 @@ void TestBookEntries::test_invoice_same_currency_sek_rate_computed()
         "2026-01-31__622201__frais-vente-FR-AEU-2026-86900__FAMZMK__FR-TVA-27.67SEK__165.99SEK.pdf";
 
     // ── Decode: rate not in filename → computed from amounts ──────────────────
-    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date,            QDate(2026, 1, 31));
     QCOMPARE(info.account,         QString("622201"));
@@ -3020,7 +3019,7 @@ void TestBookEntries::test_invoice_four_currency_variants_same_eur_amounts()
     const QString vatAccount = pa.getAccountsDebit6("FR", 0.2);
 
     for (const QString &fileName : fileNames) {
-        PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+        PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
         QSharedPointer<JournalEntry> entry;
         QVERIFY2(!entry, qPrintable(fileName + ": entry should be null before creation"));
@@ -3076,7 +3075,7 @@ void TestBookEntries::test_invoice_gbp_negative_vat_and_total_with_conversion()
         "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8372__FAMZMK__FR-TVA--0.17EUR__-0.87GBP.pdf";
 
     // ── Decode ────────────────────────────────────────────────────────────────
-    const PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    const PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     QCOMPARE(info.date,            QDate(2026, 1, 31));
     QCOMPARE(info.account,         QString("622201"));
@@ -3093,8 +3092,9 @@ void TestBookEntries::test_invoice_gbp_negative_vat_and_total_with_conversion()
 
     // FAMZMK: capturedStart("MZ") = 2 < 3 → no route from supplier.
     // Label ends with "-8372" → no -XX-YY suffix → no route from label either.
+    // countryCodeTo defaults to company country when absent from filename.
     QVERIFY(info.countryCodeFrom.isEmpty());
-    QVERIFY(info.countryCodeTo.isEmpty());
+    QCOMPARE(info.countryCodeTo, QString("FR"));
 
     // Double-dash in "FR-TVA--0.17EUR" → rawVatAmount = "-0.17" (sign preserved).
     // country_vatRate_vat still stores absolute value 0.17; rate deduced from untaxed = 0.87 − 0.17 = 0.70 → ≈ 24.3%.
@@ -5388,7 +5388,7 @@ void TestBookEntries::test_factory_purchase_dual_amount_uses_invoice_rate()
         "2026-01-31__622201__frais-vente-FR-CN-AEU-2026-8372__FAMZMK"
         "__FR-TVA--0.17EUR_-0.15GBP__-0.87GBP.pdf";
 
-    const PurchaseInformation info = PurchaseInvoiceManager::decode(fileName);
+    const PurchaseInformation info = PurchaseInvoiceManager::decode(fileName, &decodeTestPurchaseTable(), "FR");
 
     // Sanity-check the decode
     QCOMPARE(info.totalAmount,  -0.87);

@@ -90,7 +90,7 @@ void DialogEditPurchases::_populateTable()
         PurchaseInformation info;
         QString decodeError;
         try {
-            info = PurchaseInvoiceManager::decode(fileName);
+            info = PurchaseInvoiceManager::decode(fileName, m_purchaseTable, m_purchaseTable->getCountryCodeCompany());
             info.filePath = filePath;
         } catch (const ExceptionWithTitleText &e) {
             decodeError = e.errorTitle() + ": " + e.errorText();

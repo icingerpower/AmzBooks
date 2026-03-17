@@ -30,6 +30,8 @@ public:
     ClosestResult getAccountsCredit4Closest(const QString &countryCode, double vatRate, double maxDiffRateAllowed = 0.3) const;
     QString       getAccountsCredit4(const QString &countryCode, double vatRate) const;
 
+    QString getCountryCodeCompany() const;
+
     void addAccount(const QString &countryCode
                     , double vatRate
                     , const QString &vatAccountDebit6
