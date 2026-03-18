@@ -1,8 +1,28 @@
 #include "BankWise.h"
 #include "utils/CsvReader.h"
+#include <QFile>
+#include <QTextStream>
 
 BankWise::BankWise()
 {
+}
+
+QString BankWise::hasWarnings(const QString &filePath) const
+{
+    QFile file(filePath);
+    if (!file.open(QIODevice::ReadOnly | QIODevice::Text)) {
+        return QString{};
+    }
+    QTextStream in(&file);
+    while (!in.atEnd()) {
+        const QString line = in.readLine();
+        if (line.contains("wise charges", Qt::CaseInsensitive)) {
+            return QString{};
+        }
+    }
+    return tr("This file does not contain any \"Wise Charges\" rows. "
+              "It may be a simplified export without detailed fee breakdown.\n\n"
+              "Do you still want to import this file?");
 }
 
 QStringList BankWise::fileFilters() const

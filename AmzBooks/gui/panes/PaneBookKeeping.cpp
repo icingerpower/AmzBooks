@@ -1489,6 +1489,13 @@ void PaneBookKeeping::bankAdd()
     QString dir = QFileInfo(fileName).absolutePath();
     settings.setValue("lastBankDir", dir);
 
+    const QString warning = stmt->hasWarnings(fileName);
+    if (!warning.isEmpty()) {
+        if (QMessageBox::question(this, tr("Import Warning"), warning) != QMessageBox::Yes) {
+            return;
+        }
+    }
+
     try {
         bankTable->addFilePaths({fileName});
     } catch (const CsvHeaderException &e) {

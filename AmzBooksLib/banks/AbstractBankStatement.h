@@ -27,6 +27,7 @@ public:
     virtual QString defaultAccount() const = 0;
     virtual QString defaultAccountFees() const = 0;
     virtual QString defaultJournal() const; // Default BQ (Bank Q)
+    virtual QString hasWarnings(const QString &filePath) const;
     virtual QSharedPointer<QList<BankRow>> readRows(const QString &filePath) const = 0;
 
     static QMap<QString, AbstractBankStatement *> &getBanks();

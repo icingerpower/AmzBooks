@@ -25,6 +25,12 @@ QStringList AbstractBankStatement::fileFilters() const
     return QStringList{"*.csv", "*.CSV"};
 }
 
+QString AbstractBankStatement::hasWarnings(const QString &filePath) const
+{
+    Q_UNUSED(filePath)
+    return QString{};
+}
+
 QString AbstractBankStatement::defaultJournal() const
 {
     return "BQ";
