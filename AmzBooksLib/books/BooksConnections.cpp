@@ -189,7 +189,7 @@ void BooksConnections::tryToConnect(
     // Check Equality
     double amountDiff = std::abs(sumLeft) - std::abs(sumRight);
     double maxAbs = std::max(std::abs(sumLeft), std::abs(sumRight));
-    double tolerance = std::max(0.4, 0.015 * maxAbs);
+    double tolerance = std::max(0.4, 0.017 * maxAbs);
 
     if (std::abs(amountDiff) > tolerance) {
         double diffEur = toEurApprox(std::abs(amountDiff), refCurrency);
