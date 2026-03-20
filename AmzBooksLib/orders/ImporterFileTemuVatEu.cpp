@@ -333,7 +333,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
             );
             if (infoRes.ok())
             {
-                result.orderInfos->invoicingInfos.append({to.orderId, *infoRes.value});
+                result.orderInfos->invoicingInfos.append({result.orderInfos->shipments.last().getId(), *infoRes.value});
             }
             else if (!to.invoiceId.isEmpty())
             {
@@ -357,7 +357,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
             );
             if (infoRes.ok())
             {
-                result.orderInfos->invoicingInfos.append({to.orderId, *infoRes.value});
+                result.orderInfos->invoicingInfos.append({result.orderInfos->refunds.last().getId(), *infoRes.value});
             }
             else if (!to.invoiceId.isEmpty())
             {

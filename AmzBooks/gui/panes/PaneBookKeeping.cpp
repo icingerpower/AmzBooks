@@ -938,8 +938,11 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
                             invoiceNumberStr = *info->getInvoiceNumber();
                         }
                         if (info && info->getInvoiceLink()) {
-                            invoiceLinkHtml =
-                                "<a href=\"" + *info->getInvoiceLink() + "\">" + tr("Open") + "</a>";
+                            const auto link = info->getInvoiceLink()->trimmed();
+                            if (!link.isEmpty()) {
+                                invoiceLinkHtml =
+                                    "<a href=\"" + *info->getInvoiceLink() + "\">" + tr("Open") + "</a>";
+                            }
                         }
                     }
 
