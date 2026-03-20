@@ -63,6 +63,13 @@ public:
 
     static const QStringList DEFAULT_AMAZON_SITES;
 
+    // Returns the canonical Amazon site name (e.g. "amazon.com.mx") for a
+    // marketplace code from payment filenames (e.g. "com_mx"). Underscores are
+    // treated as dots before the lookup against DEFAULT_AMAZON_SITES, so that
+    // "co_uk" → "amazon.co.uk" and "com_mx" → "amazon.com.mx" (not "amazon.mx").
+    // Returns an empty string if no matching site is found.
+    static QString amazonSiteFromMarketplaceCode(const QString &marketplaceCode);
+
     // Converts a country name (in English or French) or an existing 2-letter ISO code
     // to the ISO 3166-1 alpha-2 code. Case-insensitive.
     // If the input is already a 2-letter code it is returned uppercased.

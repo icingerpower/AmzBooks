@@ -19,6 +19,9 @@
 #include "books/VatNumbersTable.h"
 #include "books/BooksAccountsSalesTable.h"
 #include "books/BookAccountPurchaseTable.h"
+#include "books/BookAccountSelfVatTable.h"
+#include "books/AmzPaymentSettings.h"
+#include "books/BookAccountAmzBalanceTable.h"
 #include "books/JournalTable.h"
 #include "books/BookSaverFull.h"
 #include "CurrencyRateManager.h"
@@ -512,12 +515,15 @@ void TestServiceSales::test_createSale_withBookKeeping()
     BooksAccountsSalesTable salesAccountTable(workingDir);
     BookAccountPurchaseTable purchaseAccountTable(workingDir, companyInfos.getCompanyCountryCode());
     JournalTable journalTable(workingDir);
+    BookAccountSelfVatTable selfVatAccountTable(workingDir, companyInfos.getCompanyCountryCode());
+    AmzPaymentSettings amzPaymentSettings(workingDir);
+    BookAccountAmzBalanceTable amzBalanceTable(workingDir);
     CurrencyRateManager currencyRateManager(workingDir, "");
 
     JournalEntryFactory factory(
         &currencyRateManager, &companyInfos,
         &salesAccountTable, &purchaseAccountTable,
-        &journalTable
+        &journalTable, &selfVatAccountTable, &amzPaymentSettings, &amzBalanceTable
     );
 
     QHash<QString, QMultiMap<QDate, QSharedPointer<JournalEntry>>> journal_date_entries;

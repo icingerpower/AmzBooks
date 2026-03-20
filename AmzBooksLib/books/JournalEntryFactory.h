@@ -20,6 +20,7 @@ class CompanyInfosTable;
 class BooksAccountsSalesTable;
 class BookAccountPurchaseTable;
 class BookAccountSelfVatTable;
+class BookAccountAmzBalanceTable;
 class JournalTable;
 class ActivitySource;
 class Shipment;
@@ -80,13 +81,16 @@ public:
                         const BooksAccountsSalesTable *saleBookAccounts,
                         const BookAccountPurchaseTable *purchaseBookAccounts,
                         const JournalTable *journalTable,
-                        const BookAccountSelfVatTable *selfVatBookAccounts = nullptr,
-                        const AmzPaymentSettings *amzPaymentSettings = nullptr);
+                        const BookAccountSelfVatTable *selfVatBookAccounts,
+                        const AmzPaymentSettings *amzPaymentSettings,
+                        const BookAccountAmzBalanceTable *amzBalanceTable); // None can be nullptr in the UI production app
 
     // Create journal entry for purchase invoice
     // Negative amount is a refund
     QSharedPointer<JournalEntry> createEntry(const PurchaseInformation &purchaseInformation) const;
-    QSharedPointer<JournalEntry> createEntry(const AmzPaymentInfo &paymentInfo) const;
+    QCoro::Task<QSharedPointer<JournalEntry>> createEntry(
+        const AmzPaymentInfo &paymentInfo,
+        std::function<QCoro::Task<bool>(const QString &, const QString &)> callbackAddIfMissing = nullptr) const;
 
     // Create journal entry for shipment/sales activities
     // Each entry needs a French label very well detailed for a French accountant
@@ -118,6 +122,7 @@ private:
     const JournalTable *m_journalTable;
     const BookAccountSelfVatTable *m_selfVatBookAccounts;
     const AmzPaymentSettings *m_amzPaymentSettings;
+    const BookAccountAmzBalanceTable *m_amzBalanceTable;
 };
 
 #endif // JOURNALENTRYFACTORY_H

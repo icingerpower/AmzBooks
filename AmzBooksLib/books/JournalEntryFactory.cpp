@@ -1,4 +1,5 @@
 #include "books/JournalEntryFactory.h"
+#include "CountriesEu.h"
 #include "books/VatResolver.h"
 #include "CurrencyRateManager.h"
 #include "CompanyInfosTable.h"
@@ -7,6 +8,7 @@
 #include "BookAccountSelfVatTable.h"
 #include "JournalTable.h"
 #include "AmzPaymentSettings.h"
+#include "BookAccountAmzBalanceTable.h"
 #include "orders/ActivitySource.h"
 #include "orders/Shipment.h"
 #include "books/Activity.h"
@@ -22,7 +24,8 @@ JournalEntryFactory::JournalEntryFactory(
     const BookAccountPurchaseTable *purchaseBookAccounts,
     const JournalTable *journalTable,
     const BookAccountSelfVatTable *selfVatBookAccounts,
-    const AmzPaymentSettings *amzPaymentSettings)
+    const AmzPaymentSettings *amzPaymentSettings,
+    const BookAccountAmzBalanceTable *amzBalanceTable)
     : m_currencyRateManager(currencyRateManager)
     , m_companyInfos(companyInfos)
     , m_saleBookAccounts(saleBookAccounts)
@@ -30,6 +33,7 @@ JournalEntryFactory::JournalEntryFactory(
     , m_journalTable(journalTable)
     , m_selfVatBookAccounts(selfVatBookAccounts)
     , m_amzPaymentSettings(amzPaymentSettings)
+    , m_amzBalanceTable(amzBalanceTable)
 {
 }
 
@@ -325,9 +329,20 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
     }
 
     // Supplier account (Class 4 - Fournisseurs)
+    // When the supplier account matches the configured Amazon purchase account,
+    // use the dedicated debit account instead — Amazon invoices clear against
+    // the Amazon clearing account, not the generic supplier account.
+    QString supplierAccount = purchaseInformation.accountSupplier;
+    if (m_amzPaymentSettings) {
+        const auto &amzAccount   = m_amzPaymentSettings->getAmazonAccount();
+        const auto &debitAccount = m_amzPaymentSettings->getAccountDebit();
+        if (!amzAccount.isEmpty() && supplierAccount == amzAccount && !debitAccount.isEmpty()) {
+            supplierAccount = debitAccount;
+        }
+    }
     JournalEntry::EntryLine supplierLine;
     supplierLine.title = commonTitle;
-    supplierLine.account = purchaseInformation.accountSupplier; // Generic supplier account
+    supplierLine.account = supplierAccount;
     supplierLine.currency_amount[purchaseInformation.currency] = totalAmountAbs;
     
     if (isRefund) {
@@ -339,11 +354,12 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
     return entry;
 }
 
-QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
-    const AmzPaymentInfo &paymentInfo) const
+QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
+    const AmzPaymentInfo &paymentInfo,
+    std::function<QCoro::Task<bool>(const QString &, const QString &)> callbackAddIfMissing) const
 {
     if (!m_amzPaymentSettings)
-        return nullptr;
+        co_return nullptr;
 
     QString companyCurrency = m_companyInfos->getCurrency();
     QDate date = paymentInfo.dateTo;
@@ -384,10 +400,15 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
         entry->addCreditRight(line, currency, getRate(currency));
     };
 
-    // Balance lines (both must be present together)
+    const QString amazonSite = CountriesEu::amazonSiteFromMarketplaceCode(paymentInfo.countryCode);
+
+    // Balance lines (both must be present together) — use the dedicated balance
+    // account from BookAccountAmzBalanceTable, keyed by the full Amazon site name.
     if (paymentInfo.hasBalanceStart && paymentInfo.hasBalanceEnd) {
-        makeDebit (debitAccount, paymentInfo.balanceStartCurrency, paymentInfo.balanceStart);
-        makeCredit(debitAccount, paymentInfo.balanceEndCurrency,   paymentInfo.balanceEnd);
+
+        auto balanceAccounts = co_await m_amzBalanceTable->getAccount(amazonSite, callbackAddIfMissing);
+        makeDebit (balanceAccounts.balanceAccount, paymentInfo.balanceStartCurrency, paymentInfo.balanceStart);
+        makeCredit(balanceAccounts.balanceAccount, paymentInfo.balanceEndCurrency,   paymentInfo.balanceEnd);
     }
 
     // Expenses deducted by Amazon → debit
@@ -402,7 +423,7 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
     if (paymentInfo.paid > 0.0)
         makeDebit(amazonAccount, paymentInfo.paidCurrency, paymentInfo.paid);
 
-    return entry;
+    co_return entry;
 }
 
 QList<JournalEntryFactory::GroupedShipmentData> JournalEntryFactory::computeGrouping(

@@ -29,6 +29,7 @@
 #include "books/AbstractBooksTableBank.h"
 #include "banks/AbstractBankStatement.h"
 #include "books/AmzPaymentSettings.h"
+#include "books/BookAccountAmzBalanceTable.h"
 #include "inventory/InventoryMoveTree.h"
 
 // Helper to synchronously wait for QCoro::Task
@@ -108,6 +109,7 @@ private slots:
     void test_invoice_four_currency_variants_same_eur_amounts();
     void test_invoice_gbp_negative_vat_and_total_with_conversion();
     void test_factory_purchase_dual_amount_uses_invoice_rate();
+    void test_factory_purchase_amz_account_uses_debit_account();
     void test_abstract_books_table_sort_by_date();
 
     // ── Amazon Payment filename parsing ──────────────────────────────────────
@@ -728,8 +730,12 @@ void TestBookEntries::test_invoice_negative_amount_refund()
     BooksAccountsSalesTable saleAccounts(dir);
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
     JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts,
-                                &purchaseAccounts, &journalTable);
+                                &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     const auto entry = factory.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -938,8 +944,11 @@ void TestBookEntries::test_factory_purchase_no_conversion()
     
     // Add purchase account for FR
     // Account FR 0.2 is created by default
-    
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
     
     // Create purchase information (no conversion needed - EUR to EUR)
     PurchaseInformation purchase;
@@ -1015,8 +1024,12 @@ void TestBookEntries::test_factory_purchase_with_conversion()
     
     // Account FR 0.2 is created by default
     
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
-    
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
+
     // Create purchase in USD
     PurchaseInformation purchase;
     purchase.date = QDate(2024, 3, 15);
@@ -1084,8 +1097,12 @@ void TestBookEntries::test_factory_purchase_refund()
     
     // Account FR 0.2 is created by default
     
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
-    
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
+
     // Create refund (negative amount)
     PurchaseInformation purchase;
     purchase.date = QDate(2024, 3, 15);
@@ -1162,8 +1179,12 @@ void TestBookEntries::test_factory_purchase_with_extra()
     
     // Account FR 0.2 is created by default
     
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
-    
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
+
     // Case: Purchase 200 Total. 180 Main + 20 Extra.
     
     PurchaseInformation purchase;
@@ -1251,8 +1272,12 @@ void TestBookEntries::test_factory_shipment_no_conversion()
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
-    
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
+
     // Create activity source
     ActivitySource source;
     source.channel = "Amazon";
@@ -1342,7 +1367,11 @@ void TestBookEntries::test_factory_shipment_with_conversion()
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
 
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     ActivitySource source;
     source.channel = "Amazon";
@@ -1417,7 +1446,11 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
 
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     ActivitySource source;
     source.channel = "Amazon";
@@ -1616,8 +1649,12 @@ void TestBookEntries::test_factory_single_shipment()
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
-    
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
+
     // 1. Test null shipment returns nullptr
     auto nullResult = syncWait(factory.createEntry(QSharedPointer<Shipment>(), nullptr));
     QVERIFY(nullResult.isNull());
@@ -1696,8 +1733,12 @@ void TestBookEntries::test_factory_bank_entry()
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
-    
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
+
     // Create BooksConnections for bank table
     BooksConnections booksConnections(dir);
     
@@ -2023,8 +2064,11 @@ void TestBookEntries::test_factory_purchase_multi_vat_rates()
     purchaseAccounts.addAccount("FR", 0.055,  "445661", "445711");
     // Explicitly add DE so it doesn't fail lookup during factory creation
     purchaseAccounts.addAccount("DE", 0.19, "44566DE", "44571DE");
-
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable);
+    BookAccountSelfVatTable selfVatAccounts(dir, "FR");
+    AmzPaymentSettings amzPaymentSettings(dir);
+    BookAccountAmzBalanceTable amzBalanceTable(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+                                &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     PurchaseInformation info = PurchaseInvoiceManager::decode(
         "2026-01-05__625100__frais-deplacement__FUBER__FR-TVA20-1.81EUR__FR-TVA5.5-1EUR__19.91EUR.pdf", &decodeTestPurchaseTable(), "FR");
@@ -2094,7 +2138,9 @@ void TestBookEntries::test_factory_selfvat_intracom_eu()
     BookAccountPurchaseTable pa(dir, "FR");
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 6, 1);
@@ -2175,7 +2221,9 @@ void TestBookEntries::test_factory_selfvat_extracom_noneu()
     BookAccountPurchaseTable pa(dir, "FR");
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 7, 1);
@@ -2228,7 +2276,9 @@ void TestBookEntries::test_factory_selfvat_domestic_no_autoliquidation()
     BookAccountPurchaseTable pa(dir, "FR");
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 8, 1);
@@ -2273,7 +2323,9 @@ void TestBookEntries::test_factory_selfvat_thirdparty_no_autoliquidation()
     BookAccountPurchaseTable pa(dir, "FR");
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 9, 1);
@@ -2316,7 +2368,9 @@ void TestBookEntries::test_factory_selfvat_no_amount_no_lines()
     BookAccountPurchaseTable pa(dir, "FR");
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 10, 1);
@@ -2355,7 +2409,9 @@ void TestBookEntries::test_factory_selfvat_has_normal_vat_no_autoliquidation()
     BookAccountPurchaseTable pa(dir, "FR");
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 11, 1);
@@ -2406,7 +2462,9 @@ void TestBookEntries::test_factory_selfvat_custom_accounts()
     sva.setData(sva.index(0, 2), "CUSTOM_DUE", Qt::EditRole);
 
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 12, 1);
@@ -2451,7 +2509,9 @@ void TestBookEntries::test_factory_selfvat_refund()
     BookAccountPurchaseTable pa(dir, "FR");
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2026, 1, 1);
@@ -2529,7 +2589,9 @@ void TestBookEntries::test_factory_selfvat_invoice_us_fr_label_route()
     BookAccountPurchaseTable pa(dir, "FR");
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -2602,7 +2664,9 @@ void TestBookEntries::test_invoice_eu_fr_label_route()
     BookAccountPurchaseTable pa(dir, "FR");
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -2690,7 +2754,9 @@ void TestBookEntries::test_invoice_gb_fr_label_route_noneu()
     BooksAccountsSalesTable sa(dir);
     BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -2850,7 +2916,10 @@ void TestBookEntries::test_invoice_mixed_currency_vat_eur_total_sek()
     BooksAccountsSalesTable sa(dir);
     BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt);
+    BookAccountSelfVatTable sva(dir, "FR");
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -2944,7 +3013,10 @@ void TestBookEntries::test_invoice_same_currency_sek_rate_computed()
     BooksAccountsSalesTable sa(dir);
     BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt);
+    BookAccountSelfVatTable sva(dir, "FR");
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -3014,7 +3086,10 @@ void TestBookEntries::test_invoice_four_currency_variants_same_eur_amounts()
     BooksAccountsSalesTable sa(dir);
     BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt);
+    BookAccountSelfVatTable sva(dir, "FR");
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     const QString vatAccount = pa.getAccountsDebit6("FR", 0.2);
 
@@ -3136,7 +3211,10 @@ void TestBookEntries::test_invoice_gbp_negative_vat_and_total_with_conversion()
     // untaxedCC = 0.72833 × 1.2 = 0.874 EUR → rate = 0.17 / 0.874 ≈ 19.5% = 0.195
     pa.addAccount("FR", 0.195, "445660", "445710");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt);
+    BookAccountSelfVatTable sva(dir, "FR");
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     const auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -3766,9 +3844,10 @@ void TestBookEntries::test_factory_amz_entry_eur_all_fields()
     BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(entry->getDate(), QDate(2026, 3, 15));
     // Debit lines: balanceStart(800) + expenses(300) + paid(50) = 1150
@@ -3793,9 +3872,10 @@ void TestBookEntries::test_factory_amz_entry_eur_no_balance()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QVERIFY(!info.hasBalanceStart);
     QVERIFY(!info.hasBalanceEnd);
@@ -3823,9 +3903,10 @@ void TestBookEntries::test_factory_amz_entry_eur_expenses_refund()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(entry->getDebitSum(),  1550.0); // 1000+400+150
     QCOMPARE(entry->getCreditSum(),  950.0); // 900+50
@@ -3849,9 +3930,10 @@ void TestBookEntries::test_factory_amz_entry_eur_expenses_only()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QVERIFY(!info.hasRefundedExpenses);
     // Debit: 500+250+150=900; Credit: 400
@@ -3874,9 +3956,10 @@ void TestBookEntries::test_factory_amz_entry_eur_minimal()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     // Only 1 debit line (paid), no credit lines
     QCOMPARE(entry->getDebits().size(),  1);
@@ -3906,9 +3989,10 @@ void TestBookEntries::test_factory_amz_entry_usd_all_fields()
     crm.importRate("2026-01-21", "USD", "EUR", 0.92);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(entry->getDate(), QDate(2026, 1, 21));
     // Debit (EUR): (1311.19+2627.38+177.90)*0.92
@@ -3935,9 +4019,10 @@ void TestBookEntries::test_factory_amz_entry_usd_no_balance()
     crm.importRate("2026-02-14", "USD", "EUR", 0.92);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QVERIFY(!info.hasBalanceStart);
     QVERIFY(qAbs(entry->getDebitSum() - 700.0 * 0.92) < 0.02); // (500+200)*0.92
@@ -3969,9 +4054,10 @@ void TestBookEntries::test_factory_amz_entry_usd_balance_only()
     crm.importRate("2026-03-14", "USD", "EUR", 0.92);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     // Debit: (800+200)*0.92=920; Credit: 600*0.92=552
     QVERIFY(qAbs(entry->getDebitSum()  - 1000.0 * 0.92) < 0.02);
@@ -4001,9 +4087,10 @@ void TestBookEntries::test_factory_amz_entry_usd_paid_eur()
     crm.importRate("2026-07-14", "USD", "EUR", 0.92);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(info.paidCurrency, QString("EUR"));
     QCOMPARE(info.balanceStartCurrency, QString("USD"));
@@ -4037,9 +4124,10 @@ void TestBookEntries::test_factory_amz_entry_usd_conversion_in_title()
     crm.importRate("2026-04-14", "USD", "EUR", 0.92);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     // Each USD debit line should have "(Conv: ..." appended by JournalEntry
     for (const auto &line : entry->getDebits())
@@ -4068,9 +4156,10 @@ void TestBookEntries::test_factory_amz_entry_gbp_all_fields()
     crm.importRate("2026-06-14", "GBP", "EUR", 1.16);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(info.countryCode, QString("co_uk"));
     QVERIFY(qAbs(entry->getDebitSum()  - (800.0+350.0+180.0)*1.16) < 0.02);
@@ -4096,9 +4185,10 @@ void TestBookEntries::test_factory_amz_entry_cad_payment()
     crm.importRate("2026-10-14", "CAD", "EUR", 0.68);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(info.paidCurrency, QString("CAD"));
     QVERIFY(qAbs(entry->getDebitSum() - (500.0+150.0+100.0)*0.68) < 0.02);
@@ -4123,9 +4213,10 @@ void TestBookEntries::test_factory_amz_entry_jpy_payment()
     crm.importRate("2026-10-14", "JPY", "EUR", 0.0062);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(info.paidCurrency, QString("JPY"));
     QVERIFY(entry->getDebitSum() > 0.0);
@@ -4151,9 +4242,10 @@ void TestBookEntries::test_factory_amz_entry_aud_payment()
     crm.importRate("2026-11-14", "AUD", "EUR", 0.60);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(info.countryCode, QString("com_au"));
     QVERIFY(qAbs(entry->getDebitSum() - (800.0+200.0+100.0)*0.60) < 0.02);
@@ -4178,9 +4270,10 @@ void TestBookEntries::test_factory_amz_entry_sek_payment()
     crm.importRate("2026-12-14", "SEK", "EUR", 0.087);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(info.paidCurrency, QString("SEK"));
     QVERIFY(qAbs(entry->getDebitSum() - (5000.0+1500.0+500.0)*0.087) < 0.02);
@@ -4188,7 +4281,7 @@ void TestBookEntries::test_factory_amz_entry_sek_payment()
 
 // ── Group 4: account routing verification ────────────────────────────────────
 
-// 16. Verify getAccountDebit() is the account for balance lines
+// 16. Verify BookAccountAmzBalanceTable.balanceAccount is used for balance lines
 void TestBookEntries::test_factory_amz_entry_debit_account_in_balance()
 {
     QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
@@ -4206,24 +4299,39 @@ void TestBookEntries::test_factory_amz_entry_debit_account_in_balance()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    // Configure the balance account for amazon.de
+    for (int i = 0; i < balanceTable.rowCount(); ++i) {
+        if (balanceTable.data(balanceTable.index(i, 0)).toString() == "amazon.de") {
+            balanceTable.setData(balanceTable.index(i, 1), "AMZ_DE_BAL", Qt::EditRole);
+            break;
+        }
+    }
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
 
-    // The balance start line must be in debit with account 467150
+    // Balance start → debit with the balance table account (not debitAccount)
     bool foundBalStart = false;
     for (const auto &line : entry->getDebits())
-        if (line.account == "467150" && qAbs(line.currency_amount.value("EUR") - 500.0) < 0.01)
+        if (line.account == "AMZ_DE_BAL" && qAbs(line.currency_amount.value("EUR") - 500.0) < 0.01)
             foundBalStart = true;
     QVERIFY(foundBalStart);
 
-    // The balance end line must be in credit with account 467150
+    // Balance end → credit with the balance table account
     bool foundBalEnd = false;
     for (const auto &line : entry->getCredits())
-        if (line.account == "467150" && qAbs(line.currency_amount.value("EUR") - 400.0) < 0.01)
+        if (line.account == "AMZ_DE_BAL" && qAbs(line.currency_amount.value("EUR") - 400.0) < 0.01)
             foundBalEnd = true;
     QVERIFY(foundBalEnd);
+
+    // Paid line → debit with amazonAccount from settings (not balance account)
+    bool foundPaid = false;
+    for (const auto &line : entry->getDebits())
+        if (line.account == "FAMZMK" && qAbs(line.currency_amount.value("EUR") - 100.0) < 0.01)
+            foundPaid = true;
+    QVERIFY(foundPaid);
 }
 
 // 17. Verify getAmazonAccount() is the account for the paid line
@@ -4241,9 +4349,10 @@ void TestBookEntries::test_factory_amz_entry_amazon_account_for_paid()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
 
     bool foundPaid = false;
@@ -4253,7 +4362,7 @@ void TestBookEntries::test_factory_amz_entry_amazon_account_for_paid()
     QVERIFY(foundPaid);
 }
 
-// 18. Custom account names from settings
+// 18. Custom account names from settings: balance uses table, expenses/paid use settings
 void TestBookEntries::test_factory_amz_entry_custom_accounts()
 {
     QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
@@ -4270,17 +4379,33 @@ void TestBookEntries::test_factory_amz_entry_custom_accounts()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    // Configure a distinct balance account for amazon.de
+    for (int i = 0; i < balanceTable.rowCount(); ++i) {
+        if (balanceTable.data(balanceTable.index(i, 0)).toString() == "amazon.de") {
+            balanceTable.setData(balanceTable.index(i, 1), "MYBALANCE", Qt::EditRole);
+            break;
+        }
+    }
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
 
-    bool foundMyDebit = false, foundMyAmz = false;
+    // Balance lines use the table's balanceAccount, not debitAccount
+    bool foundBalDebit = false, foundBalCredit = false;
+    for (const auto &line : entry->getDebits())
+        if (line.account == "MYBALANCE") foundBalDebit = true;
+    for (const auto &line : entry->getCredits())
+        if (line.account == "MYBALANCE") foundBalCredit = true;
+    QVERIFY(foundBalDebit);
+    QVERIFY(foundBalCredit);
+
+    // Paid line uses amazonAccount from settings
+    bool foundMyAmz = false;
     for (const auto &line : entry->getDebits()) {
-        if (line.account == "MYDEBIT") foundMyDebit = true;
         if (line.account == "MYAMZACC") foundMyAmz  = true;
     }
-    QVERIFY(foundMyDebit);
     QVERIFY(foundMyAmz);
 }
 
@@ -4298,10 +4423,12 @@ void TestBookEntries::test_factory_amz_entry_no_settings_null()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir);
-    // No AmzPaymentSettings passed
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt);
+    // No AmzPaymentSettings passed → nullptr
+    BookAccountSelfVatTable sva(dir, "FR");
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, nullptr, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(entry.isNull());
 }
 
@@ -4331,9 +4458,10 @@ void TestBookEntries::test_factory_amz_entry_default_amazon_account()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     bool foundFamzmk = false;
     for (const auto &line : entry->getDebits())
@@ -4362,9 +4490,10 @@ void TestBookEntries::test_factory_amz_entry_line_count_all_fields()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(entry->getDebits().size(),  3); // balStart + expenses + paid
     QCOMPARE(entry->getCredits().size(), 2); // balEnd   + refundedExpenses
@@ -4385,9 +4514,10 @@ void TestBookEntries::test_factory_amz_entry_line_count_no_optionals()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(entry->getDebits().size(),  1);
     QCOMPARE(entry->getCredits().size(), 0);
@@ -4410,9 +4540,10 @@ void TestBookEntries::test_factory_amz_entry_line_count_no_balance()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(entry->getDebits().size(),  2); // expenses + paid
     QCOMPARE(entry->getCredits().size(), 1); // refundedExpenses
@@ -4437,9 +4568,10 @@ void TestBookEntries::test_factory_amz_entry_debit_sum_all_fields()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     // Debit: balStart(600) + expenses(250) + paid(60) = 910
     QCOMPARE(entry->getDebitSum(), 910.0);
@@ -4464,9 +4596,10 @@ void TestBookEntries::test_factory_amz_entry_credit_sum_all_fields()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     // Credit: balEnd(650) + refunded(80) = 730
     QCOMPARE(entry->getCreditSum(), 730.0);
@@ -4489,9 +4622,10 @@ void TestBookEntries::test_factory_amz_entry_title_paiement_amazon()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     for (const auto &line : entry->getDebits())
         QVERIFY(line.title.startsWith("Paiement amazon."));
@@ -4513,9 +4647,10 @@ void TestBookEntries::test_factory_amz_entry_title_contains_paid_amount()
     crm.importRate("2026-07-14", "USD", "EUR", 0.92);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     for (const auto &line : entry->getDebits())
         QVERIFY(line.title.contains("177.90"));
@@ -4537,9 +4672,10 @@ void TestBookEntries::test_factory_amz_entry_title_contains_currency()
     crm.importRate("2026-08-14", "GBP", "EUR", 1.16);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     for (const auto &line : entry->getDebits())
         QVERIFY(line.title.contains("GBP"));
@@ -4564,9 +4700,10 @@ void TestBookEntries::test_factory_amz_entry_title_all_lines_same()
     CompanyInfosTable ci(dir); CurrencyRateManager crm(dir, "");
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
 
     // For EUR all-EUR entry, no Conv suffix → all titles must be identical
@@ -4594,9 +4731,10 @@ void TestBookEntries::test_factory_amz_entry_date_uses_date_to()
     crm.importRate("2026-01-21", "USD", "EUR", 0.92);
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
-    auto entry = f.createEntry(info);
+    auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
     QCOMPARE(entry->getDate(), QDate(2026, 1, 21)); // dateTo
     QCOMPARE(info.dateFrom,    QDate(2026, 1, 7));
@@ -4665,7 +4803,9 @@ void TestBookEntries::test_factory_inventory_null_tree_returns_null()
     BookAccountPurchaseTable pa(dir, "FR");
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     // (1) null tree pointer → nullptr
     QVERIFY(!f.createEntry(static_cast<const InventoryMoveTree *>(nullptr), "FR"));
@@ -4691,7 +4831,9 @@ void TestBookEntries::test_factory_inventory_null_selfvat_returns_null()
     BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir);
     // factory built WITHOUT selfVatBookAccounts → nullptr
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     // (2) no selfVat table → nullptr
     QVERIFY(!f.createEntry(tree, "FR"));
@@ -4726,7 +4868,9 @@ void TestBookEntries::test_factory_inventory_eu_to_france_line_count()
     sva.setData(sva.index(0, 4), "607016", Qt::EditRole); // Purchase7 EU
     sva.setData(sva.index(0, 5), "467800", Qt::EditRole); // Stock4 EU
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -4766,7 +4910,9 @@ void TestBookEntries::test_factory_inventory_eu_to_france_balanced()
     sva.setData(sva.index(0, 4), "607016", Qt::EditRole);
     sva.setData(sva.index(0, 5), "467800", Qt::EditRole);
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -4804,7 +4950,9 @@ void TestBookEntries::test_factory_inventory_eu_to_france_accounts()
     sva.setData(sva.index(0, 5), "467800", Qt::EditRole); // Stock4
     // VatDeductible (col 1) and VatDue (col 2) keep their defaults: 445662 / 445200
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -4854,7 +5002,9 @@ void TestBookEntries::test_factory_inventory_eu_to_france_amounts()
     sva.setData(sva.index(0, 4), "607016", Qt::EditRole);
     sva.setData(sva.index(0, 5), "467800", Qt::EditRole);
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -4925,7 +5075,9 @@ void TestBookEntries::test_factory_inventory_eu_to_france_titles()
     sva.setData(sva.index(0, 4), "607016", Qt::EditRole);
     sva.setData(sva.index(0, 5), "467800", Qt::EditRole);
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -4987,7 +5139,9 @@ void TestBookEntries::test_factory_inventory_export_skipped()
     sva.setData(sva.index(0, 4), "607016", Qt::EditRole);
     sva.setData(sva.index(0, 5), "467800", Qt::EditRole);
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -5021,7 +5175,9 @@ void TestBookEntries::test_factory_inventory_missing_accounts_returns_null()
     // selfVat table created with default empty Sale7 / Purchase7 / Stock4
     BookAccountSelfVatTable sva(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     // (27) All three new accounts are empty by default → throws ExceptionWithTitleText
     bool caught = false;
@@ -5064,7 +5220,9 @@ void TestBookEntries::test_factory_inventory_zero_price_skipped()
     sva.setData(sva.index(0, 4), "607016", Qt::EditRole);
     sva.setData(sva.index(0, 5), "467800", Qt::EditRole);
     JournalTable jt(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva);
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -5412,7 +5570,10 @@ void TestBookEntries::test_factory_purchase_dual_amount_uses_invoice_rate()
     // 0.208 key computed from 0.15 / 0.72 = 20.8 %.
     BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir);
-    JournalEntryFactory factory(&crm, &ci, &sa, &pa, &jt);
+    BookAccountSelfVatTable selfVatJt(dir, "FR");
+    AmzPaymentSettings amzSettingsJt(dir);
+    BookAccountAmzBalanceTable balanceJt(dir);
+    JournalEntryFactory factory(&crm, &ci, &sa, &pa, &jt, &selfVatJt, &amzSettingsJt, &balanceJt);
 
     const auto entry = factory.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -5470,6 +5631,76 @@ void TestBookEntries::test_factory_purchase_dual_amount_uses_invoice_rate()
     // With the correct rate the entry is exactly balanced (0.99 == 0.82 + 0.17).
     // With the CRM rate the entry would be unbalanced (1.31 ≠ 1.08 + 0.17 = 1.25).
     QCOMPARE(entry->getDebitSum(), entry->getCreditSum());
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Test: when accountSupplier matches AmzPaymentSettings::getAmazonAccount(),
+// createEntry(PurchaseInformation) uses getAccountDebit() for the supplier
+// line instead of the raw accountSupplier value.
+// A regular (non-Amazon) supplier account is left unchanged.
+// ─────────────────────────────────────────────────────────────────────────────
+void TestBookEntries::test_factory_purchase_amz_account_uses_debit_account()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+
+    setupCompanyInfoFr(dir);
+    // amazonAccount = "FAMZMK", debitAccount = "467150"
+    setupAmzSettings(dir, "467150", "FAMZMK");
+
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "");
+    BooksAccountsSalesTable sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable jt(dir);
+    BookAccountSelfVatTable sva(dir, "FR");
+    AmzPaymentSettings amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+
+    // ── Case 1: supplier is the Amazon account → must be replaced by debit account ──
+    PurchaseInformation amzPurchase;
+    amzPurchase.date           = QDate(2026, 1, 15);
+    amzPurchase.account        = "622201";
+    amzPurchase.label          = "frais-amazon";
+    amzPurchase.accountSupplier = "FAMZMK"; // matches getAmazonAccount()
+    amzPurchase.totalAmount    = 120.0;
+    amzPurchase.currency       = "EUR";
+    amzPurchase.country_vatRate_vat["FR"]["0.2"] = 20.0;
+
+    const auto entry1 = f.createEntry(amzPurchase);
+    QVERIFY(!entry1.isNull());
+    QCOMPARE(entry1->getDebitSum(), entry1->getCreditSum());
+
+    bool foundDebitAccount = false;
+    bool foundAmzAccount   = false;
+    for (const auto &line : entry1->getCredits()) {
+        if (line.account == "467150") { foundDebitAccount = true; }
+        if (line.account == "FAMZMK") { foundAmzAccount   = true; }
+    }
+    QVERIFY(foundDebitAccount);   // debit account used for supplier line
+    QVERIFY(!foundAmzAccount);    // raw Amazon account must NOT appear
+
+    // ── Case 2: regular supplier → account is left unchanged ──────────────────
+    PurchaseInformation regularPurchase;
+    regularPurchase.date           = QDate(2026, 1, 15);
+    regularPurchase.account        = "607000";
+    regularPurchase.label          = "fourniture-bureau";
+    regularPurchase.accountSupplier = "401SOFTCO"; // not the Amazon account
+    regularPurchase.totalAmount    = 60.0;
+    regularPurchase.currency       = "EUR";
+    regularPurchase.country_vatRate_vat["FR"]["0.2"] = 10.0;
+
+    const auto entry2 = f.createEntry(regularPurchase);
+    QVERIFY(!entry2.isNull());
+    QCOMPARE(entry2->getDebitSum(), entry2->getCreditSum());
+
+    bool foundRegularSupplier = false;
+    for (const auto &line : entry2->getCredits()) {
+        if (line.account == "401SOFTCO") { foundRegularSupplier = true; }
+    }
+    QVERIFY(foundRegularSupplier); // regular supplier account unchanged
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

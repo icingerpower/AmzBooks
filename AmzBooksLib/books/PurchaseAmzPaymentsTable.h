@@ -22,6 +22,8 @@ public:
     QString getId() const override;
     void load(int year) override;
 
+    QList<AmzPaymentInfo> getPayments(const QDate &from, const QDate &to) const;
+
     void add(const QString &sourceFilePath, const AmzPaymentInfo &info);
     void removePayment(const QModelIndex &index);
     void removePayment(const QString &rowId);

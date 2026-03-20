@@ -16,6 +16,8 @@
 #include "books/BooksAccountsSalesTable.h"
 #include "books/BookAccountPurchaseTable.h"
 #include "books/BookAccountSelfVatTable.h"
+#include "books/AmzPaymentSettings.h"
+#include "books/BookAccountAmzBalanceTable.h"
 #include <QCoroTask>
 
 #include <QTableView>
@@ -173,6 +175,8 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     BookAccountSelfVatTable selfVatAccountTable(workingDir, companyInfo.getCompanyCountryCode());
 
     JournalTable journalTable(workingDir);
+    AmzPaymentSettings amzPaymentSettings(workingDir);
+    BookAccountAmzBalanceTable amzBalanceTable(workingDir);
     const auto &apiKey = companyInfo.getApiKeyFixer();
     if (apiKey.isEmpty())
     {
@@ -192,7 +196,7 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         co_return dialog.exec() == QDialog::Accepted;
     };
 
-    JournalEntryFactory factory(&currencyRateManager, &companyInfo, &salesAccountTable, &purchaseAccountTable, &journalTable, &selfVatAccountTable);
+    JournalEntryFactory factory(&currencyRateManager, &companyInfo, &salesAccountTable, &purchaseAccountTable, &journalTable, &selfVatAccountTable, &amzPaymentSettings, &amzBalanceTable);
 
     QHash<QString, QMultiMap<QDate, QSharedPointer<JournalEntry>>> journal_date_entries;
 
@@ -228,6 +232,16 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         qDebug() << "[PaneBookKeeping] Loaded Invoices. Count:" << invoices.size();
     } else {
         qDebug() << "[PaneBookKeeping] Warning: purchaseTable is null!";
+    }
+
+    qDebug() << "[PaneBookKeeping] Loading Amz Payments data...";
+    auto *amzPaymentsTable = getAmzPaymentsTable();
+    QList<AmzPaymentInfo> amzPayments;
+    if (amzPaymentsTable) {
+        amzPayments = amzPaymentsTable->getPayments(from, to);
+        qDebug() << "[PaneBookKeeping] Loaded Amz Payments. Count:" << amzPayments.size();
+    } else {
+        qDebug() << "[PaneBookKeeping] Warning: amzPaymentsTable is null!";
     }
 
     qDebug() << "[PaneBookKeeping] Loading Bank Data...";
@@ -267,6 +281,7 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     totalSteps += groupedMonthCount;
     totalSteps += ungroupedShipmentCount;
     totalSteps += invoices.size();
+    totalSteps += amzPayments.size();
     totalSteps += bankRowsToProcess;
 
     qDebug() << "[PaneBookKeeping] Total entries to process:" << totalSteps;
@@ -353,7 +368,21 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
             addEntry(entry, journalId);
         }
 
-        qDebug() << "[PaneBookKeeping] Purchases completed. Starting Banks...";
+        qDebug() << "[PaneBookKeeping] Purchases completed. Starting Amz Payments...";
+        // 5.3 Amazon Payments
+        for (const auto &info : std::as_const(amzPayments)) {
+            if (progress.wasCanceled()) {
+                qDebug() << "[PaneBookKeeping] Progress was canceled (Amz Payments)";
+                co_return;
+            }
+            progress.setValue(currentStep++);
+
+            QSharedPointer<JournalEntry> entry = co_await factory.createEntry(info, callbackAddIfMissing);
+            const QString journalId = journalTable.getJournalAmzPayment().code;
+            addEntry(entry, journalId);
+        }
+
+        qDebug() << "[PaneBookKeeping] Amz Payments completed. Starting Banks...";
         // 5.3 Banks
         for (const AbstractBooksTableBank *bankTable : std::as_const(bankTables)) {
             int rowCount = bankTable->rowCount();

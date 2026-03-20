@@ -4,6 +4,7 @@
 #include "gui/panes/PaneSettingsVatRates.h"
 #include "gui/panes/PaneSettingsSaleAccounts.h"
 #include "gui/panes/PaneSettingsFbaCenters.h"
+#include "gui/panes/PaneSettingsAmzBalanceAccounts.h"
 
 DialogVatParams::DialogVatParams(const QString &errorTitle,
                                  const QString &errorText,
@@ -20,10 +21,12 @@ DialogVatParams::DialogVatParams(const QString &errorTitle,
     auto *paneVatRates = new PaneSettingsVatRates(this);
     auto *paneSaleAccounts = new PaneSettingsSaleAccounts(this);
     auto *paneFbaCenters = new PaneSettingsFbaCenters(this);
-    
+    auto *paneAmzBalances = new PaneSettingsAmzBalanceAccounts(this);
+
     ui->stackedWidget->addWidget(paneVatRates);
     ui->stackedWidget->addWidget(paneSaleAccounts);
     ui->stackedWidget->addWidget(paneFbaCenters);
+    ui->stackedWidget->addWidget(paneAmzBalances);
     
     connect(ui->buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(ui->buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);

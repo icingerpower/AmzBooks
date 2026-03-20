@@ -100,8 +100,21 @@ const QStringList CountriesEu::DEFAULT_AMAZON_SITES = {
     "amazon.se",
     "amazon.tr",
     "amazon.co.uk",
-    "amazon.co.jp"
+    "amazon.co.jp",
+    "amazon.com.au"
 };
+
+QString CountriesEu::amazonSiteFromMarketplaceCode(const QString &marketplaceCode)
+{
+    const QString normalized = marketplaceCode.toLower().replace(QChar('_'), QChar('.'));
+    for (const QString &site : DEFAULT_AMAZON_SITES) {
+        if (site.endsWith(normalized)) {
+            return site;
+        }
+    }
+    Q_ASSERT(false);
+    return {};
+}
 
 QString CountriesEu::toCode(const QString &nameOrCode)
 {

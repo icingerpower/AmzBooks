@@ -20,6 +20,8 @@
 #include "ExceptionWithTitleText.h"
 
 #include "books/JournalEntryFactory.h"
+#include "books/BookAccountSelfVatTable.h"
+#include "books/BookAccountAmzBalanceTable.h"
 #include "books/PurchaseInvoiceManager.h"
 #include "CurrencyRateManager.h"
 #include "books/JournalTable.h"
@@ -1075,14 +1077,18 @@ private slots:
             out << "Currency;Currency;EUR\n";
         }
 
-        CompanyInfosTable      companyInfos(dir);
-        CurrencyRateManager    currencyManager(dir, "");
-        BooksAccountsSalesTable saleAccounts(dir);
+        CompanyInfosTable        companyInfos(dir);
+        CurrencyRateManager      currencyManager(dir, "");
+        BooksAccountsSalesTable  saleAccounts(dir);
         BookAccountPurchaseTable purchaseAccounts(dir, "FR");
-        JournalTable           journalTable(dir);
+        JournalTable             journalTable(dir);
+        BookAccountSelfVatTable  selfVatAccounts(dir, "FR");
+        AmzPaymentSettings       amzPaymentSettings(dir);
+        BookAccountAmzBalanceTable amzBalanceTable(dir);
 
         JournalEntryFactory factory(&currencyManager, &companyInfos,
-                                    &saleAccounts, &purchaseAccounts, &journalTable);
+                                    &saleAccounts, &purchaseAccounts, &journalTable,
+                                    &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
         // Resolvers (in-memory, use hardcoded defaults – same as _fillIfEmpty)
         TaxResolver taxResolver(appDir.absoluteFilePath("data"));

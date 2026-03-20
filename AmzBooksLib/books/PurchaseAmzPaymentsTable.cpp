@@ -64,6 +64,11 @@ void PurchaseAmzPaymentsTable::load(int year)
     }
 }
 
+QList<AmzPaymentInfo> PurchaseAmzPaymentsTable::getPayments(const QDate &from, const QDate &to) const
+{
+    return m_manager->getPayments(from, to);
+}
+
 PurchaseAmzPaymentsManager &PurchaseAmzPaymentsTable::manager() const
 {
     return *m_manager;
