@@ -146,6 +146,19 @@ private slots:
     void test_createSale_paymentTerm();
     void test_serviceSalesTable_extraColumns();
     void test_load_dec31_included();
+
+    // replacePublishedSale tests
+    void test_replacePublishedSale_leadsToTwoNewEntries();
+    void test_replacePublishedSale_throwsIfNotPublished();
+    void test_replacePublishedSale_throwsIfCreditAlreadyExists();
+    void test_replacePublishedSale_persistsAllEntries();
+
+    // replaceSale tests
+    void test_replaceSale_basicReplace();
+    void test_replaceSale_sameOrderId();
+    void test_replaceSale_throwsWhenPublished();
+    void test_replaceSale_withInvoiceCleanup();
+    void test_replaceSale_multipleLineItemsReplaced();
 };
 
 void TestServiceSales::test_InvoicingInfo_paymentDate()
@@ -1390,6 +1403,715 @@ void TestServiceSales::test_load_dec31_included()
     table2.load(2025);
     QCOMPARE(table2.rowCount(), 1);
     QCOMPARE(table2.data(table2.index(0, 0)).toDate(), dec31);
+}
+
+// ===========================================================================
+// test_replacePublishedSale_leadsToTwoNewEntries
+// replacePublishedSale on a published sale must produce exactly 2 new rows:
+// a credit note (same data, negated amounts) and a new corrected sale.
+// The original published entry is preserved, so the table grows by 2.
+// ===========================================================================
+void TestServiceSales::test_replacePublishedSale_leadsToTwoNewEntries()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("PubClient", "Consulting", "FR", "FR1001", "EUR",
+                            PaymentType::Instant, 0,
+                            QString(), QString(), QString(), QString(),
+                            QString(), QString(), "706000", /*vatOnPayment=*/true);
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate   origDate = QDate(2025, 2, 10);
+    const QString origId   = "PUB-ORIG-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
+    // Create and publish the original sale
+    table.createSale(&clientManager, 0, origDate, "EUR", origId, "706000",
+                     {Item{"Consulting", 600.0, 1.0}},
+                     vatResolver, taxResolver,
+                     PaymentType::Instant, 0, /*vatOnPayment=*/true);
+
+    QCOMPARE(table.rowCount(), 1);
+    QVERIFY(!orderManager.isOrderPublished(origId));
+
+    QDate publishDate(2025, 12, 31);
+    orderManager.publish(publishDate);
+    QVERIFY(orderManager.isOrderPublished(origId));
+
+    // Re-invoice: corrected date, new orderId, different amount
+    const QDate   newDate  = QDate(2025, 3, 1);
+    const QString newId    = "PUB-NEW-001";
+
+    table.replacePublishedSale(origId, &clientManager, 0, newDate, "EUR", newId, "706000",
+                               {Item{"Consulting v2", 800.0, 1.0}},
+                               vatResolver, taxResolver,
+                               PaymentType::EndOfNextMonth, 0, /*vatOnPayment=*/true);
+
+    // VERIFY 1: exactly 2 new rows added (original stays + credit note + new sale)
+    QCOMPARE(table.rowCount(), 3);
+
+    // VERIFY 2: original orderId still in OrderManager (published, cannot be removed)
+    QVERIFY(orderManager.containsOrder(origId));
+
+    // VERIFY 3: credit note orderId registered
+    const QString refundId = origId + "-CREDIT";
+    QVERIFY(orderManager.containsOrder(refundId));
+
+    // VERIFY 4: new sale orderId registered
+    QVERIFY(orderManager.containsOrder(newId));
+
+    // VERIFY 5: credit note has negative amount (find its row by scanning)
+    double refundAmt = 0.0;
+    double newAmt    = 0.0;
+    for (int r = 0; r < table.rowCount(); ++r) {
+        const QString id = table.getRowId(table.index(r, 0));
+        if (id == refundId) {
+            refundAmt = table.data(table.index(r, AbstractBooksTable::IND_AMOUNT)).toDouble();
+        } else if (id == newId) {
+            newAmt = table.data(table.index(r, AbstractBooksTable::IND_AMOUNT)).toDouble();
+        }
+    }
+    QVERIFY(refundAmt < 0.0);
+    QCOMPARE(refundAmt, -600.0);
+
+    // VERIFY 6: new sale has the updated amount
+    QCOMPARE(newAmt, 800.0);
+
+    // VERIFY 7: credit note InvoicingInfo has negated line items
+    {
+        const auto info = orderManager.getInvoicingInfo(refundId);
+        QVERIFY(!info.isNull());
+        QCOMPARE(info->getItems().size(), 1);
+        QCOMPARE(info->getItems().first().getName(), QString("Consulting"));
+        QVERIFY(info->getItems().first().getAmountTaxed() < 0.0);
+    }
+
+    // VERIFY 8: new sale InvoicingInfo has updated line items
+    {
+        const auto info = orderManager.getInvoicingInfo(newId);
+        QVERIFY(!info.isNull());
+        QCOMPARE(info->getItems().size(), 1);
+        QCOMPARE(info->getItems().first().getName(), QString("Consulting v2"));
+        QCOMPARE(info->getItems().first().getAmountTaxed(), 800.0);
+    }
+
+    // VERIFY 9: credit note extra columns carry the original title
+    for (int r = 0; r < table.rowCount(); ++r) {
+        if (table.getRowId(table.index(r, 0)) == refundId) {
+            QCOMPARE(table.data(table.index(r, ServiceSalesBooksTable::IND_TITLE),
+                                Qt::DisplayRole).toString(),
+                     QString("Consulting"));
+            break;
+        }
+    }
+
+    // VERIFY 10: new sale extra columns reflect the new title
+    for (int r = 0; r < table.rowCount(); ++r) {
+        if (table.getRowId(table.index(r, 0)) == newId) {
+            QCOMPARE(table.data(table.index(r, ServiceSalesBooksTable::IND_TITLE),
+                                Qt::DisplayRole).toString(),
+                     QString("Consulting v2"));
+            break;
+        }
+    }
+}
+
+// ===========================================================================
+// test_replacePublishedSale_throwsIfNotPublished
+// replacePublishedSale must throw ExceptionWithTitleText when the target sale
+// is still a draft, leaving the table with only the original row.
+// ===========================================================================
+void TestServiceSales::test_replacePublishedSale_throwsIfNotPublished()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("DraftClient", "Service", "FR", "FR0001", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate   date    = QDate(2025, 5, 1);
+    const QString orderId = "DRAFT-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
+    table.createSale(&clientManager, 0, date, "EUR", orderId, "",
+                     {Item{"Draft Service", 300.0, 1.0}},
+                     vatResolver, taxResolver);
+
+    QCOMPARE(table.rowCount(), 1);
+    QVERIFY(!orderManager.isOrderPublished(orderId));
+
+    // VERIFY 1: replacePublishedSale throws when sale is unpublished
+    bool threw = false;
+    try {
+        table.replacePublishedSale(orderId, &clientManager, 0, date, "EUR", "NEW-DRAFT-001", "",
+                                   {Item{"Should Not Appear", 500.0, 1.0}},
+                                   vatResolver, taxResolver);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY(threw);
+
+    // VERIFY 2: table still has only the original row
+    QCOMPARE(table.rowCount(), 1);
+
+    // VERIFY 3: no credit note was created
+    QVERIFY(!orderManager.containsOrder(orderId + "-CREDIT"));
+
+    // VERIFY 4: the replacement orderId was never created
+    QVERIFY(!orderManager.containsOrder("NEW-DRAFT-001"));
+}
+
+// ===========================================================================
+// test_replacePublishedSale_throwsIfCreditAlreadyExists
+// Calling replacePublishedSale a second time on the same published sale must
+// throw, because the credit note orderId already exists.
+// ===========================================================================
+void TestServiceSales::test_replacePublishedSale_throwsIfCreditAlreadyExists()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("CreditClient", "Service", "FR", "FR0002", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate   date    = QDate(2025, 4, 1);
+    const QString origId  = "CREDIT-ORIG-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
+    table.createSale(&clientManager, 0, date, "EUR", origId, "",
+                     {Item{"Original Service", 500.0, 1.0}},
+                     vatResolver, taxResolver);
+
+    QDate publishDate(2025, 12, 31);
+    orderManager.publish(publishDate);
+    QVERIFY(orderManager.isOrderPublished(origId));
+
+    // First re-invoice succeeds → table grows to 3
+    table.replacePublishedSale(origId, &clientManager, 0, date, "EUR", "CREDIT-NEW-001", "",
+                               {Item{"Corrected Service", 550.0, 1.0}},
+                               vatResolver, taxResolver);
+    QCOMPARE(table.rowCount(), 3);
+
+    // VERIFY 1: second call throws (credit note orderId already exists)
+    bool threw = false;
+    try {
+        table.replacePublishedSale(origId, &clientManager, 0, date, "EUR", "CREDIT-NEW-002", "",
+                                   {Item{"Should Not Appear", 600.0, 1.0}},
+                                   vatResolver, taxResolver);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY(threw);
+
+    // VERIFY 2: table is unchanged (still 3 rows, not 5)
+    QCOMPARE(table.rowCount(), 3);
+
+    // VERIFY 3: the second replacement orderId was never created
+    QVERIFY(!orderManager.containsOrder("CREDIT-NEW-002"));
+}
+
+// ===========================================================================
+// test_replacePublishedSale_persistsAllEntries
+// After reload, ServiceSalesBooksTable::load() must return all three entries:
+// the original published sale, its credit note, and the new corrected sale.
+// ===========================================================================
+void TestServiceSales::test_replacePublishedSale_persistsAllEntries()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("PersistClient", "Dev", "FR", "FR0003", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    const QDate   origDate = QDate(2025, 6, 15);
+    const QString origId   = "PERSIST-ORIG-001";
+    const QString newId    = "PERSIST-NEW-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
+    {
+        ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+        table.createSale(&clientManager, 0, origDate, "EUR", origId, "",
+                         {Item{"Dev Work", 400.0, 1.0}},
+                         vatResolver, taxResolver);
+
+        QDate publishDate(2025, 12, 31);
+        orderManager.publish(publishDate);
+
+        table.replacePublishedSale(origId, &clientManager, 0, origDate, "EUR", newId, "",
+                                   {Item{"Dev Work v2", 450.0, 1.0}},
+                                   vatResolver, taxResolver);
+    }
+
+    // Reload and verify all three entries survive a load()
+    ServiceSalesBooksTable table2(nullptr, &orderManager, tempDir.path());
+    table2.load(2025);
+
+    // VERIFY 1: all 3 entries are loaded
+    QCOMPARE(table2.rowCount(), 3);
+
+    // VERIFY 2: identify each entry and check amounts
+    double origAmt   = 0.0;
+    double refundAmt = 0.0;
+    double newAmt    = 0.0;
+    const QString refundId = origId + "-CREDIT";
+
+    for (int r = 0; r < table2.rowCount(); ++r) {
+        const QString id = table2.getRowId(table2.index(r, 0));
+        const double  a  = table2.data(table2.index(r, AbstractBooksTable::IND_AMOUNT)).toDouble();
+        if (id == origId)   origAmt   = a;
+        if (id == refundId) refundAmt = a;
+        if (id == newId)    newAmt    = a;
+    }
+
+    QCOMPARE(origAmt,   400.0);
+    QCOMPARE(refundAmt, -400.0);
+    QCOMPARE(newAmt,    450.0);
+
+    // VERIFY 3: credit note InvoicingInfo persisted correctly
+    {
+        const auto info = orderManager.getInvoicingInfo(refundId);
+        QVERIFY(!info.isNull());
+        QVERIFY(!info->getItems().isEmpty());
+        QVERIFY(info->getItems().first().getAmountTaxed() < 0.0);
+        QCOMPARE(info->getItems().first().getName(), QString("Dev Work"));
+    }
+
+    // VERIFY 4: new sale InvoicingInfo persisted correctly
+    {
+        const auto info = orderManager.getInvoicingInfo(newId);
+        QVERIFY(!info.isNull());
+        QVERIFY(!info->getItems().isEmpty());
+        QCOMPARE(info->getItems().first().getAmountTaxed(), 450.0);
+        QCOMPARE(info->getItems().first().getName(), QString("Dev Work v2"));
+    }
+}
+
+// ===========================================================================
+// test_replaceSale_basicReplace
+// Replacing an unpublished sale must remove the original entry and create a
+// new one reflecting all changed fields (date, amount, items, payment term,
+// vatOnPayment), while leaving exactly one row in the table.
+// ===========================================================================
+void TestServiceSales::test_replaceSale_basicReplace()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("ReplClient", "Consulting", "FR", "FR9001", "EUR",
+                            PaymentType::Instant, 0,
+                            QString(), QString(), QString(), QString(),
+                            QString(), QString(), "706000", false);
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate   origDate = QDate(2025, 3, 10);
+    const QString origId   = "REPL-ORIG-001";
+    const QDate   newDate  = QDate(2025, 4, 20);
+    const QString newId    = "REPL-NEW-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
+    // Create original sale: 600 EUR, instant payment, vatOnPayment=false
+    table.createSale(&clientManager, 0, origDate, "EUR", origId, "706000",
+                     {Item{"Old Service", 600.0, 1.0}},
+                     vatResolver, taxResolver,
+                     PaymentType::Instant, 0, /*vatOnPayment=*/false);
+
+    QCOMPARE(table.rowCount(), 1);
+    QVERIFY(orderManager.containsOrder(origId));
+
+    // VERIFY: isOrderPublished is false before any publish call
+    QVERIFY(!orderManager.isOrderPublished(origId));
+
+    // Replace: new orderId, new date, 800×2=1600 EUR, end-of-next-month, vatOnPayment=true
+    table.replaceSale(origId, &clientManager, 0, newDate, "EUR", newId, "706000",
+                      {Item{"New Service", 800.0, 2.0}},
+                      vatResolver, taxResolver,
+                      PaymentType::EndOfNextMonth, 0, /*vatOnPayment=*/true);
+
+    // VERIFY 1: still exactly one row
+    QCOMPARE(table.rowCount(), 1);
+
+    // VERIFY 2: old orderId gone from OrderManager
+    QVERIFY(!orderManager.containsOrder(origId));
+
+    // VERIFY 3: new orderId present in OrderManager
+    QVERIFY(orderManager.containsOrder(newId));
+
+    // VERIFY 4: table shows updated date
+    QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_DATE)).toDate(), newDate);
+
+    // VERIFY 5: table shows updated amount (800 * 2 = 1600 TTC)
+    QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_AMOUNT)).toDouble(), 1600.0);
+
+    // VERIFY 6: getLineItems returns the new item with correct fields
+    {
+        const auto items = table.getLineItems(newId);
+        QCOMPARE(items.size(), 1);
+        QCOMPARE(items.first().title, QString("New Service"));
+        QCOMPARE(items.first().unitPriceTaxed, 800.0);
+        QCOMPARE(items.first().quantity, 2.0);
+    }
+
+    // VERIFY 7: InvoicingInfo vatOnPayment is now true
+    {
+        const auto info = orderManager.getInvoicingInfo(newId);
+        QVERIFY(!info.isNull());
+        QVERIFY(info->getVatOnPayment());
+    }
+
+    // VERIFY 8: payment date is end of May 2025 (end of month after April)
+    {
+        const auto info = orderManager.getInvoicingInfo(newId);
+        QVERIFY(!info.isNull());
+        const QDate expectedPayment(2025, 5, 31);
+        QCOMPARE(info->getPaymentDate(newDate), expectedPayment);
+    }
+
+    // VERIFY 9: extra columns updated
+    QCOMPARE(table.data(table.index(0, ServiceSalesBooksTable::IND_REFERENCE),
+                        Qt::DisplayRole).toString(), newId);
+    QCOMPARE(table.data(table.index(0, ServiceSalesBooksTable::IND_TITLE),
+                        Qt::DisplayRole).toString(), QString("New Service"));
+    QCOMPARE(table.data(table.index(0, ServiceSalesBooksTable::IND_VAT_ON_PAYMENT),
+                        Qt::EditRole).toBool(), true);
+    QCOMPARE(table.data(table.index(0, ServiceSalesBooksTable::IND_PAYMENT_TERM),
+                        Qt::DisplayRole).toString(),
+             ServiceClientManager::paymentTypeLabel(PaymentType::EndOfNextMonth));
+}
+
+// ===========================================================================
+// test_replaceSale_sameOrderId
+// When the new orderId equals the old rowId the sale must still be replaced
+// correctly: remove + recreate under the same ID.
+// ===========================================================================
+void TestServiceSales::test_replaceSale_sameOrderId()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("SameClient", "Service", "FR", "FR0042", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate   date    = QDate(2025, 5, 1);
+    const QString orderId = "SAME-ID-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
+    table.createSale(&clientManager, 0, date, "EUR", orderId, "",
+                     {Item{"Initial Title", 300.0, 1.0}},
+                     vatResolver, taxResolver);
+
+    QCOMPARE(table.rowCount(), 1);
+
+    // Replace keeping the same orderId — remove + recreate with new data
+    table.replaceSale(orderId, &clientManager, 0, date, "EUR", orderId, "",
+                      {Item{"Updated Title", 500.0, 1.0}},
+                      vatResolver, taxResolver);
+
+    // VERIFY 1: still one row
+    QCOMPARE(table.rowCount(), 1);
+
+    // VERIFY 2: orderId still registered
+    QVERIFY(orderManager.containsOrder(orderId));
+
+    // VERIFY 3: amount reflects the updated item
+    QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_AMOUNT)).toDouble(), 500.0);
+
+    // VERIFY 4: line items carry the new title
+    {
+        const auto items = table.getLineItems(orderId);
+        QCOMPARE(items.size(), 1);
+        QCOMPARE(items.first().title, QString("Updated Title"));
+        QCOMPARE(items.first().unitPriceTaxed, 500.0);
+    }
+}
+
+// ===========================================================================
+// test_replaceSale_throwsWhenPublished
+// replaceSale must throw ExceptionWithTitleText when the target sale has been
+// published, leaving the original entry completely intact.
+// ===========================================================================
+void TestServiceSales::test_replaceSale_throwsWhenPublished()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("PubClient", "Service", "FR", "FR0099", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate   date    = QDate(2025, 1, 15);
+    const QString orderId = "PUB-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
+    table.createSale(&clientManager, 0, date, "EUR", orderId, "",
+                     {Item{"Published Service", 400.0, 1.0}},
+                     vatResolver, taxResolver);
+
+    QVERIFY(orderManager.containsOrder(orderId));
+
+    // VERIFY 1: not published yet
+    QVERIFY(!orderManager.isOrderPublished(orderId));
+
+    // Publish all drafts up to end of year
+    QDate publishDate(2025, 12, 31);
+    orderManager.publish(publishDate);
+
+    // VERIFY 2: now reported as published
+    QVERIFY(orderManager.isOrderPublished(orderId));
+
+    // VERIFY 3: replaceSale throws ExceptionWithTitleText
+    bool threw = false;
+    try {
+        table.replaceSale(orderId, &clientManager, 0, date, "EUR", "NEW-PUB-001", "",
+                          {Item{"Should Not Appear", 500.0, 1.0}},
+                          vatResolver, taxResolver);
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY(threw);
+
+    // VERIFY 4: original orderId still in OrderManager (nothing was removed)
+    QVERIFY(orderManager.containsOrder(orderId));
+
+    // VERIFY 5: the "replacement" orderId was never created
+    QVERIFY(!orderManager.containsOrder("NEW-PUB-001"));
+
+    // VERIFY 6: table in-memory model still has one row
+    QCOMPARE(table.rowCount(), 1);
+
+    // VERIFY 7: table still shows the original amount (row is untouched)
+    QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_AMOUNT)).toDouble(), 400.0);
+}
+
+// ===========================================================================
+// test_replaceSale_withInvoiceCleanup
+// When an invoice number has been generated for the sale being replaced,
+// replaceSale must remove it from the InvoiceGenerator CSV registry.
+// ===========================================================================
+void TestServiceSales::test_replaceSale_withInvoiceCleanup()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("InvClient", "Dev", "FR", "FR12345", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    companyAddress.insertRows(0, 1);
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    VatNumbersTable vatNumbers(tempDir.path());
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress,
+                                &currencyRates, &vatNumbers);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate   date   = QDate(2025, 6, 5);
+    const QString origId = "INV-ORIG-001";
+    const QString newId  = "INV-NEW-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
+    // Create the original sale
+    table.createSale(&clientManager, 0, date, "EUR", origId, "706000",
+                     {Item{"Dev Work", 600.0, 1.0}},
+                     vatResolver, taxResolver);
+
+    // Generate an invoice for it and store the number in OrderManager
+    TaxResolver::TaxContext taxCtx;
+    taxCtx.taxScheme               = TaxScheme::DomesticVat;
+    taxCtx.taxDeclaringCountryCode = "FR";
+    taxCtx.taxJurisdictionLevel    = TaxJurisdictionLevel::Country;
+    taxCtx.countryCodeVatPaidTo    = "FR";
+
+    const QString invNumber = generator.getBaseInvoiceNumber(
+        date, taxCtx, QString(ServiceSalesBooksTable::CHANNEL_SALE), "", origId);
+    QVERIFY(!invNumber.isEmpty());
+
+    auto lineItemRes = LineItem::create("DEV", "Dev Work", 600.0, 0.20, 1.0);
+    QVERIFY(lineItemRes.ok());
+    auto resInfo = InvoicingInfo::create(nullptr, {*lineItemRes.value}, invNumber);
+    QVERIFY(resInfo.ok());
+    Address addr("InvClient", "", "", "", "", "", "FR", "", "", "", "", "");
+    const QString pdfPath = tempDir.filePath("inv.pdf");
+    generator.generateInvoice(invNumber, "", pdfPath, addr, *resInfo.value,
+                               origId, orderManager, date);
+
+    QVERIFY(QFile::exists(pdfPath));
+    QCOMPARE(generator.rowCount(), 1);
+
+    // VERIFY 1: invoice number is stored for the original sale
+    {
+        const auto info = orderManager.getInvoicingInfo(origId);
+        QVERIFY(!info.isNull());
+        QVERIFY(info->getInvoiceNumber().has_value());
+        QCOMPARE(info->getInvoiceNumber().value(), invNumber);
+    }
+
+    // Replace with the generator set — must clean up the invoice registry
+    table.setInvoiceGenerator(&generator);
+    table.replaceSale(origId, &clientManager, 0, date, "EUR", newId, "706000",
+                      {Item{"Updated Dev", 900.0, 1.0}},
+                      vatResolver, taxResolver);
+    table.setInvoiceGenerator(nullptr);
+
+    // VERIFY 2: invoice registry is now empty (entry was removed)
+    QCOMPARE(generator.rowCount(), 0);
+
+    // VERIFY 3: original sale is gone
+    QVERIFY(!orderManager.containsOrder(origId));
+
+    // VERIFY 4: new sale is present
+    QVERIFY(orderManager.containsOrder(newId));
+
+    // VERIFY 5: new sale's InvoicingInfo has no invoice number yet
+    {
+        const auto info = orderManager.getInvoicingInfo(newId);
+        QVERIFY(!info.isNull());
+        QVERIFY(!info->getInvoiceNumber().has_value());
+    }
+
+    // VERIFY 6: table shows the new amount
+    QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_AMOUNT)).toDouble(), 900.0);
+}
+
+// ===========================================================================
+// test_replaceSale_multipleLineItemsReplaced
+// A sale with multiple line items can be replaced with a different set of
+// items; getLineItems must return only the new items after the replace.
+// ===========================================================================
+void TestServiceSales::test_replaceSale_multipleLineItemsReplaced()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    orderManager.deleteDatabase();
+
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("MultiClient", "Mixed", "FR", "FR7777", "EUR");
+
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+    vatResolver.addRate(QDate(2020, 1, 1), "FR", SaleType::Service, 0.20);
+
+    ServiceSalesBooksTable table(nullptr, &orderManager, tempDir.path());
+
+    const QDate   date    = QDate(2025, 7, 1);
+    const QString origId  = "MULTI-ORIG-001";
+    const QString newId   = "MULTI-NEW-001";
+
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+
+    // Create with two items: 200×1 + 300×2 = 800 TTC
+    table.createSale(&clientManager, 0, date, "EUR", origId, "",
+                     {Item{"Part A", 200.0, 1.0}, Item{"Part B", 300.0, 2.0}},
+                     vatResolver, taxResolver);
+
+    QCOMPARE(table.rowCount(), 1);
+    QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_AMOUNT)).toDouble(), 800.0);
+
+    {
+        const auto items = table.getLineItems(origId);
+        QCOMPARE(items.size(), 2);
+    }
+
+    // Replace with a single consolidated item: 950×1 = 950 TTC
+    table.replaceSale(origId, &clientManager, 0, date, "EUR", newId, "",
+                      {Item{"Combined Service", 950.0, 1.0}},
+                      vatResolver, taxResolver);
+
+    // VERIFY 1: still one row
+    QCOMPARE(table.rowCount(), 1);
+
+    // VERIFY 2: amount reflects single new item
+    QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_AMOUNT)).toDouble(), 950.0);
+
+    // VERIFY 3: getLineItems returns only the one new item (old items fully replaced)
+    {
+        const auto items = table.getLineItems(newId);
+        QCOMPARE(items.size(), 1);
+        QCOMPARE(items.first().title, QString("Combined Service"));
+        QCOMPARE(items.first().unitPriceTaxed, 950.0);
+        QCOMPARE(items.first().quantity, 1.0);
+    }
+
+    // VERIFY 4: getLineItems for the old orderId returns nothing (cleaned up)
+    QVERIFY(table.getLineItems(origId).isEmpty());
 }
 
 QTEST_MAIN(TestServiceSales)

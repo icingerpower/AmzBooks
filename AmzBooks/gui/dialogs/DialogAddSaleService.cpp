@@ -1,5 +1,6 @@
 #include "DialogAddSaleService.h"
 #include "ui_DialogAddSaleService.h"
+#include "books/ServiceClientManager.h"
 #include <QDialogButtonBox>
 #include <QPushButton>
 #include <QDoubleSpinBox>
@@ -182,6 +183,51 @@ void DialogAddSaleService::setDate(const QDate &date)
 void DialogAddSaleService::setReference(const QString &ref)
 {
     ui->lineEditReference->setText(ref);
+}
+
+void DialogAddSaleService::setClientByServiceLabel(const QString &label)
+{
+    for (int i = 0; i < m_clientManager->rowCount(); ++i) {
+        if (m_clientManager->getServiceLabel(i) == label) {
+            ui->comboBoxClient->setCurrentIndex(i);
+            return;
+        }
+    }
+}
+
+void DialogAddSaleService::setVatOnPayment(bool vop)
+{
+    ui->checkBoxVatOnPayment->setChecked(vop);
+}
+
+void DialogAddSaleService::setPaymentTermFromString(const QString &term)
+{
+    if (term.startsWith(QStringLiteral("After ")) && term.endsWith(QStringLiteral(" days"))) {
+        const QString daysStr = term.mid(6, term.length() - 11);
+        bool ok = false;
+        const int days = daysStr.toInt(&ok);
+        if (ok && days > 0) {
+            ui->comboBoxPaymentTerm->setCurrentIndex(static_cast<int>(PaymentType::AfterXDays));
+            ui->spinBoxPaymentDays->setValue(days);
+            return;
+        }
+    }
+    const PaymentType type = ServiceClientManager::paymentTypeFromLabel(term);
+    ui->comboBoxPaymentTerm->setCurrentIndex(static_cast<int>(type));
+}
+
+void DialogAddSaleService::setLineItems(const QList<ServiceSalesBooksTable::SaleLineItemInput> &items)
+{
+    auto *t = ui->tableArticles;
+    while (t->rowCount() > 0) {
+        t->removeRow(0);
+    }
+    for (const auto &item : items) {
+        _addArticleRow(item.title, item.unitPriceTaxed, item.quantity);
+    }
+    if (t->rowCount() == 0) {
+        _addArticleRow();
+    }
 }
 
 void DialogAddSaleService::setFirstArticleUnitPrice(double price)

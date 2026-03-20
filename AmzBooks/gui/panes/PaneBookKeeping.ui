@@ -349,6 +349,23 @@
             </widget>
            </item>
            <item>
+            <widget class="QPushButton" name="buttonServiceEditSale">
+             <property name="text">
+              <string>Edit sale</string>
+             </property>
+            </widget>
+           </item>
+           <item>
+            <widget class="QPushButton" name="buttonServiceReInvoice">
+             <property name="text">
+              <string>Re-invoice</string>
+             </property>
+             <property name="toolTip">
+              <string>Creates a credit note cancelling the published sale, then records a new corrected sale.</string>
+             </property>
+            </widget>
+           </item>
+           <item>
             <spacer name="horizontalSpacer_5">
              <property name="orientation">
               <enum>Qt::Orientation::Horizontal</enum>

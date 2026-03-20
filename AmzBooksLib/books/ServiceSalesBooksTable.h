@@ -62,6 +62,47 @@ public:
 
     bool remove(const QString &rowId) override;
 
+    // Returns the line items for the given rowId from the persisted InvoicingInfo.
+    QList<SaleLineItemInput> getLineItems(const QString &rowId) const;
+
+    // Creates a credit-note reversal of a published sale, then adds a new sale
+    // with the supplied data (two new entries: refund + new sale).
+    // Throws ExceptionWithTitleText if the sale has NOT been published, or if a
+    // credit note for this sale already exists.
+    void replacePublishedSale(const QString &rowId,
+                              const ServiceClientManager *clientManager,
+                              int clientRow,
+                              const QDate &date,
+                              const QString &currency,
+                              const QString &newOrderId,
+                              const QString &account,
+                              const QList<SaleLineItemInput> &lineItems,
+                              const VatResolver &vatResolver,
+                              const TaxResolver &taxResolver,
+                              PaymentType paymentType = PaymentType::EndOfNextMonth,
+                              int paymentDays = 0,
+                              bool vatOnPayment = true,
+                              const std::function<bool()> &onMissingVatRate = nullptr);
+
+    // Replaces an existing unpublished sale in-place.
+    // Throws ExceptionWithTitleText if the sale has been published.
+    // Respects m_invoiceGenerator: call setInvoiceGenerator() before this if an
+    // invoice number must be cleaned up from the CSV registry on removal.
+    void replaceSale(const QString &rowId,
+                     const ServiceClientManager *clientManager,
+                     int clientRow,
+                     const QDate &date,
+                     const QString &currency,
+                     const QString &newOrderId,
+                     const QString &account,
+                     const QList<SaleLineItemInput> &lineItems,
+                     const VatResolver &vatResolver,
+                     const TaxResolver &taxResolver,
+                     PaymentType paymentType = PaymentType::EndOfNextMonth,
+                     int paymentDays = 0,
+                     bool vatOnPayment = true,
+                     const std::function<bool()> &onMissingVatRate = nullptr);
+
     // QAbstractTableModel overrides for the 3 extra columns
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
@@ -78,6 +119,10 @@ private:
 
     void _setExtra(const QString &rowId, const QString &reference, const QString &title, bool vatOnPayment, const QString &paymentTerm);
     static QString _paymentTermStr(const QDate &orderDate, const QDate &paymentDate);
+
+    // Creates a credit-note entry mirroring rowId with all amounts negated,
+    // stored under refundOrderId.
+    void _createRefundEntry(const QString &rowId, const QString &refundOrderId);
 };
 
 #endif // SERVICESALESBOOKSTABLE_H

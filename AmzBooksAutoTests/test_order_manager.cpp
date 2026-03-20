@@ -15,11 +15,14 @@
 #include "orders/ImporterFileAmazonVatEu.h"
 #include "orders/ImporterFileAmazonFbaInvoicing.h"
 #include "orders/ImporterFileAmazonTransactions.h"
-#include "books/FbaCentersTable.h"
 #include <QDirIterator>
 #include <QSqlError>
 #include <QFile>
 #include "orders/OrderInvoicingTable.h"
+#include "books/ServiceSalesBooksTable.h"
+#include "books/ServiceClientManager.h"
+#include "books/VatResolver.h"
+#include "books/TaxResolver.h"
 
 class TestOrderManager : public QObject
 {
@@ -59,6 +62,7 @@ private slots:
     void test_recordInvoicingInfo_recordInfo_twice();
     void test_removeShipmentsRefunds_dateRange();
     void test_removeShipmentsRefunds_createdAfter();
+    void test_publish_partiallyPublished_byDate();
     void test_importOrderInvariance(); // Keep this test last
 };
 
@@ -3482,6 +3486,115 @@ void TestOrderManager::test_removeShipmentsRefunds_createdAfter()
     manager.removeShipmentsRefunds(QDate::currentDate());
 
     QVERIFY(!checkOrderExists("ord4")); // Should be deleted since it's exactly >= Date
+}
+
+void TestOrderManager::test_publish_partiallyPublished_byDate()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager manager(tempDir.path());
+    ServiceClientManager clientManager(tempDir.path());
+    clientManager.addClient("TestClient", "Consulting", "FR", "FR123", "EUR");
+
+    ServiceSalesBooksTable serviceTable(nullptr, &manager, tempDir.path());
+    VatResolver vatResolver(tempDir.path());
+    TaxResolver taxResolver(tempDir.path());
+
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.fr", "Report1"};
+    const QDate publishDate(2025, 6, 30);
+
+    // --- Entries BEFORE publishDate ---
+
+    // Shipment Jan 15
+    const QString shipId1 = "ship-2025-01-15";
+    {
+        auto actRes = Activity::create(
+            "evt_s1", "act_s1", "",
+            QDateTime(QDate(2025, 1, 15), QTime(10, 0)),
+            QDateTime(QDate(2025, 1, 15), QTime(10, 0)),
+            "EUR", "FR", "DE", false, "DE",
+            Amount(100.0, 20.0), TaxSource::MarketplaceProvided,
+            "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        QVERIFY(actRes.value.has_value());
+        Shipment shipment({*actRes.value}, "", true);
+        manager.recordShipmentFromSource(shipId1, &source, &shipment, QDate());
+    }
+
+    // Shipment Mar 20
+    const QString shipId2 = "ship-2025-03-20";
+    {
+        auto actRes = Activity::create(
+            "evt_s2", "act_s2", "",
+            QDateTime(QDate(2025, 3, 20), QTime(10, 0)),
+            QDateTime(QDate(2025, 3, 20), QTime(10, 0)),
+            "EUR", "FR", "DE", false, "DE",
+            Amount(200.0, 40.0), TaxSource::MarketplaceProvided,
+            "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        QVERIFY(actRes.value.has_value());
+        Shipment shipment({*actRes.value}, "", true);
+        manager.recordShipmentFromSource(shipId2, &source, &shipment, QDate());
+    }
+
+    // Service sale Apr 10
+    const QString saleId1 = "sale-2025-04-10";
+    using Item = ServiceSalesBooksTable::SaleLineItemInput;
+    serviceTable.createSale(&clientManager, 0, QDate(2025, 4, 10), "EUR", saleId1, "",
+                            {Item{"Consulting", 500.0, 1.0}}, vatResolver, taxResolver);
+
+    // Service sale Jun 15
+    const QString saleId2 = "sale-2025-06-15";
+    serviceTable.createSale(&clientManager, 0, QDate(2025, 6, 15), "EUR", saleId2, "",
+                            {Item{"Consulting", 600.0, 1.0}}, vatResolver, taxResolver);
+
+    // --- Entries AFTER publishDate ---
+
+    // Shipment Jul 1
+    const QString shipId3 = "ship-2025-07-01";
+    {
+        auto actRes = Activity::create(
+            "evt_s3", "act_s3", "",
+            QDateTime(QDate(2025, 7, 1), QTime(10, 0)),
+            QDateTime(QDate(2025, 7, 1), QTime(10, 0)),
+            "EUR", "FR", "DE", false, "DE",
+            Amount(150.0, 30.0), TaxSource::MarketplaceProvided,
+            "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+        QVERIFY(actRes.value.has_value());
+        Shipment shipment({*actRes.value}, "", true);
+        manager.recordShipmentFromSource(shipId3, &source, &shipment, QDate());
+    }
+
+    // Service sale Sep 15
+    const QString saleId3 = "sale-2025-09-15";
+    serviceTable.createSale(&clientManager, 0, QDate(2025, 9, 15), "EUR", saleId3, "",
+                            {Item{"Consulting", 700.0, 1.0}}, vatResolver, taxResolver);
+
+    // --- Verify all are Draft before publish() ---
+    const QStringList allIds = {shipId1, shipId2, saleId1, saleId2, shipId3, saleId3};
+    for (const auto &id : std::as_const(allIds)) {
+        QVERIFY2(!manager.isOrderPublished(id),
+                 qPrintable(QString("Expected '%1' to be Draft before publish()").arg(id)));
+    }
+
+    // --- Publish up to publishDate ---
+    QDate publishDateCopy = publishDate;
+    manager.publish(publishDateCopy);
+
+    // --- Entries on/before publishDate must be Published ---
+    const QStringList beforeIds = {shipId1, shipId2, saleId1, saleId2};
+    for (const auto &id : std::as_const(beforeIds)) {
+        QVERIFY2(manager.isOrderPublished(id),
+                 qPrintable(QString("Expected '%1' to be Published after publish(%2)")
+                                .arg(id, publishDate.toString(Qt::ISODate))));
+    }
+
+    // --- Entries after publishDate must remain Draft ---
+    const QStringList afterIds = {shipId3, saleId3};
+    for (const auto &id : std::as_const(afterIds)) {
+        QVERIFY2(!manager.isOrderPublished(id),
+                 qPrintable(QString("Expected '%1' to remain Draft after publish(%2)")
+                                .arg(id, publishDate.toString(Qt::ISODate))));
+    }
 }
 
 QTEST_MAIN(TestOrderManager)

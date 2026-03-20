@@ -79,6 +79,7 @@ public:
     void removeShipmentsRefunds(const QDate &dateFromCreated);
     bool containsOrder(const QString &orderId) const;
     bool containsShipmentOrRefund(const QString &shipmentOrRefundId) const;
+    bool isOrderPublished(const QString &orderId) const;
     void recordOrders(const QHash<QString, OrderInfo> &orderId_infos); // Batch upsert, 1000 at a time
     QHash<QString, QString> getStores(const QList<QSharedPointer<Shipment>> &shipments) const; // orderId → store
     void recordAddressesTo(const QHash<QString, Address> &orderId_addressTo); // Batch upsert, 1000 at a time

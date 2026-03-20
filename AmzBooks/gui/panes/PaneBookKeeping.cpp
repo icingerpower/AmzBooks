@@ -1643,6 +1643,170 @@ void PaneBookKeeping::serviceRemoveSale()
     serviceTable->setInvoiceGenerator(nullptr);
 }
 
+void PaneBookKeeping::serviceEditSale()
+{
+    auto *serviceTable = static_cast<ServiceSalesBooksTable *>(ui->tableServices->model());
+    if (!serviceTable) {
+        return;
+    }
+
+    const QModelIndexList selection = ui->tableServices->selectionModel()->selectedRows();
+    if (selection.isEmpty()) {
+        QMessageBox::warning(this, tr("No Selection"), tr("Please select a sale to edit."));
+        return;
+    }
+
+    const int row = selection.first().row();
+    const QString rowId = serviceTable->getRowId(serviceTable->index(row, 0));
+
+    if (m_orderManager->isOrderPublished(rowId)) {
+        QMessageBox::warning(this, tr("Cannot Edit Sale"),
+                             tr("The sale \"%1\" has been published and cannot be modified.").arg(rowId));
+        return;
+    }
+
+    ServiceClientManager clientManager(WorkingDirectoryManager::instance()->workingDir());
+    VatResolver vatResolver(WorkingDirectoryManager::instance()->workingDir());
+    TaxResolver taxResolver(WorkingDirectoryManager::instance()->workingDir());
+
+    auto onMissingVatRate = [&vatResolver, this]() -> bool {
+        DialogVatParams dlg(
+            tr("Missing VAT Rate"),
+            tr("No VAT rate was found for this service sale. Please configure it in the VAT settings."),
+            this
+        );
+        if (dlg.exec() == QDialog::Accepted) {
+            vatResolver.reload();
+            return true;
+        }
+        return false;
+    };
+
+    DialogAddSaleService dialog(&clientManager, this);
+    dialog.setWindowTitle(tr("Edit Service Sale"));
+    dialog.setDate(serviceTable->getDate(row));
+    dialog.setReference(serviceTable->data(serviceTable->index(row, ServiceSalesBooksTable::IND_REFERENCE), Qt::EditRole).toString());
+    dialog.setClientByServiceLabel(serviceTable->getLabel(row));
+    dialog.setVatOnPayment(serviceTable->data(serviceTable->index(row, ServiceSalesBooksTable::IND_VAT_ON_PAYMENT), Qt::EditRole).toBool());
+    dialog.setPaymentTermFromString(serviceTable->data(serviceTable->index(row, ServiceSalesBooksTable::IND_PAYMENT_TERM), Qt::EditRole).toString());
+    dialog.setLineItems(serviceTable->getLineItems(rowId));
+
+    QDir workingDir{WorkingDirectoryManager::instance()->workingDir()};
+    CompanyInfosTable companyInfos(workingDir);
+    CompanyAddressTable companyAddress(workingDir);
+    const QString apiKey = companyInfos.getApiKeyFixer();
+    CurrencyRateManager currencyRates(workingDir, apiKey);
+    VatNumbersTable vatNumbers(workingDir);
+    InvoiceGenerator generator(workingDir, &companyInfos, &companyAddress, &currencyRates, &vatNumbers);
+
+    while (dialog.exec() == QDialog::Accepted) {
+        try {
+            serviceTable->setInvoiceGenerator(&generator);
+            serviceTable->replaceSale(
+                rowId,
+                &clientManager,
+                dialog.getSelectedClientRow(),
+                dialog.getDate(),
+                dialog.getCurrency(),
+                dialog.getInvoiceId(),
+                dialog.getAccount(),
+                dialog.getLineItems(),
+                vatResolver,
+                taxResolver,
+                dialog.getPaymentType(),
+                dialog.getPaymentDays(),
+                dialog.getVatOnPayment(),
+                onMissingVatRate
+            );
+            serviceTable->setInvoiceGenerator(nullptr);
+            break;
+        } catch (const ExceptionWithTitleText &e) {
+            serviceTable->setInvoiceGenerator(nullptr);
+            QMessageBox::warning(this, e.errorTitle(), e.errorText());
+        } catch (const std::exception &e) {
+            serviceTable->setInvoiceGenerator(nullptr);
+            QMessageBox::warning(this, tr("Error"), tr("An error occurred: %1").arg(e.what()));
+        }
+    }
+}
+
+void PaneBookKeeping::serviceReInvoice()
+{
+    auto *serviceTable = static_cast<ServiceSalesBooksTable *>(ui->tableServices->model());
+    if (!serviceTable) {
+        return;
+    }
+
+    const QModelIndexList selection = ui->tableServices->selectionModel()->selectedRows();
+    if (selection.isEmpty()) {
+        QMessageBox::warning(this, tr("No Selection"),
+                             tr("Please select a published sale to re-invoice."));
+        return;
+    }
+
+    const int row = selection.first().row();
+    const QString rowId = serviceTable->getRowId(serviceTable->index(row, 0));
+
+    if (!m_orderManager->isOrderPublished(rowId)) {
+        QMessageBox::warning(this, tr("Sale Not Published"),
+                             tr("The sale \"%1\" has not been published. "
+                                "Re-invoicing only applies to published sales.").arg(rowId));
+        return;
+    }
+
+    ServiceClientManager clientManager(WorkingDirectoryManager::instance()->workingDir());
+    VatResolver vatResolver(WorkingDirectoryManager::instance()->workingDir());
+    TaxResolver taxResolver(WorkingDirectoryManager::instance()->workingDir());
+
+    auto onMissingVatRate = [&vatResolver, this]() -> bool {
+        DialogVatParams dlg(
+            tr("Missing VAT Rate"),
+            tr("No VAT rate was found for this service sale. Please configure it in the VAT settings."),
+            this
+        );
+        if (dlg.exec() == QDialog::Accepted) {
+            vatResolver.reload();
+            return true;
+        }
+        return false;
+    };
+
+    DialogAddSaleService dialog(&clientManager, this);
+    dialog.setWindowTitle(tr("Re-invoice Sale"));
+    dialog.setDate(serviceTable->getDate(row));
+    dialog.setReference(serviceTable->data(serviceTable->index(row, ServiceSalesBooksTable::IND_REFERENCE), Qt::EditRole).toString());
+    dialog.setClientByServiceLabel(serviceTable->getLabel(row));
+    dialog.setVatOnPayment(serviceTable->data(serviceTable->index(row, ServiceSalesBooksTable::IND_VAT_ON_PAYMENT), Qt::EditRole).toBool());
+    dialog.setPaymentTermFromString(serviceTable->data(serviceTable->index(row, ServiceSalesBooksTable::IND_PAYMENT_TERM), Qt::EditRole).toString());
+    dialog.setLineItems(serviceTable->getLineItems(rowId));
+
+    while (dialog.exec() == QDialog::Accepted) {
+        try {
+            serviceTable->replacePublishedSale(
+                rowId,
+                &clientManager,
+                dialog.getSelectedClientRow(),
+                dialog.getDate(),
+                dialog.getCurrency(),
+                dialog.getInvoiceId(),
+                dialog.getAccount(),
+                dialog.getLineItems(),
+                vatResolver,
+                taxResolver,
+                dialog.getPaymentType(),
+                dialog.getPaymentDays(),
+                dialog.getVatOnPayment(),
+                onMissingVatRate
+            );
+            break;
+        } catch (const ExceptionWithTitleText &e) {
+            QMessageBox::warning(this, e.errorTitle(), e.errorText());
+        } catch (const std::exception &e) {
+            QMessageBox::warning(this, tr("Error"), tr("An error occurred: %1").arg(e.what()));
+        }
+    }
+}
+
 void PaneBookKeeping::serviceEditClients()
 {
     ServiceClientManager clientManager(WorkingDirectoryManager::instance()->workingDir());
@@ -2081,6 +2245,14 @@ void PaneBookKeeping::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneBookKeeping::serviceEditClients);
+    connect(ui->buttonServiceEditSale,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::serviceEditSale);
+    connect(ui->buttonServiceReInvoice,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::serviceReInvoice);
     connect(ui->buttonAmzPaymentAdd,
             &QPushButton::clicked,
             this,
@@ -2101,6 +2273,8 @@ void PaneBookKeeping::_updateServiceButtonsEnabled()
     bool hasClients = clientManager.rowCount() > 0;
     ui->buttonServiceAdd->setEnabled(hasClients);
     ui->buttonServiceRemove->setEnabled(hasClients);
+    ui->buttonServiceEditSale->setEnabled(hasClients);
+    ui->buttonServiceReInvoice->setEnabled(hasClients);
     ui->buttonServiceCreateSel->setEnabled(hasClients);
 }
 

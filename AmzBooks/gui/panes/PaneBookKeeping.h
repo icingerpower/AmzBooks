@@ -65,6 +65,8 @@ public slots:
 
     void serviceAddSale();
     void serviceRemoveSale();
+    void serviceEditSale();
+    void serviceReInvoice();
     void serviceEditClients();
     void serviceCreateFromSelection();
 

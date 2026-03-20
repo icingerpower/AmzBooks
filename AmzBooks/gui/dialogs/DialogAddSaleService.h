@@ -21,6 +21,10 @@ public:
     // Setters for pre-filling
     void setDate(const QDate &date);
     void setReference(const QString &ref);
+    void setClientByServiceLabel(const QString &label);
+    void setVatOnPayment(bool vop);
+    void setPaymentTermFromString(const QString &term);
+    void setLineItems(const QList<ServiceSalesBooksTable::SaleLineItemInput> &items);
     // Pre-fills the unit price of the first article row (used when opening from a bank entry)
     void setFirstArticleUnitPrice(double price);
 

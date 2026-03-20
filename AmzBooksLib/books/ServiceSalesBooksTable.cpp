@@ -378,6 +378,216 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     _setExtra(orderId, orderId, displayTitle, vatOnPayment, _paymentTermStr(date, paymentDate));
 }
 
+QList<ServiceSalesBooksTable::SaleLineItemInput> ServiceSalesBooksTable::getLineItems(const QString &rowId) const
+{
+    QList<SaleLineItemInput> result;
+    const auto info = m_orderManager->getInvoicingInfo(rowId);
+    if (!info) {
+        return result;
+    }
+    for (const auto &item : info->getItems()) {
+        result.append({item.getName(), item.getAmountTaxed(), item.getQuantity()});
+    }
+    return result;
+}
+
+void ServiceSalesBooksTable::_createRefundEntry(const QString &rowId, const QString &refundOrderId)
+{
+    // Locate the original row in the in-memory table
+    int origRow = -1;
+    for (int i = 0; i < rowCount(); ++i) {
+        if (getRowId(index(i, 0)) == rowId) {
+            origRow = i;
+            break;
+        }
+    }
+    if (origRow == -1) {
+        return;
+    }
+
+    const QDate   origDate     = getDate(origRow);
+    const QString origLabel    = getLabel(origRow);
+    const QString origCurrency = getCurrency(origRow);
+    const QString origAccount  = getAccount1(origRow);
+
+    // Retrieve the original shipment from OrderManager to access full Activity data
+    auto filter = [&rowId](const ActivitySource *source, const Shipment *shipment) -> bool {
+        if (!source) return false;
+        if (source->type != ActivitySourceType::API) return false;
+        if (source->channel != CHANNEL_SALE) return false;
+        if (source->reportOrMethode != ActivitySource::METHOD_USER_ENTRY) return false;
+        if (!shipment || shipment->getActivities().isEmpty()) return false;
+        return shipment->getActivities().first().getEventId() == rowId;
+    };
+    const auto shipmentsMap = m_orderManager->getShipmentAndRefunds(origDate, origDate, filter);
+    if (shipmentsMap.isEmpty()) {
+        return;
+    }
+    const auto &origShipment = shipmentsMap.constBegin().value();
+    if (!origShipment || origShipment->getActivities().isEmpty()) {
+        return;
+    }
+    const Activity &origAct = origShipment->getActivities().first();
+
+    // Build the negated Activity (credit note amounts)
+    const Amount refundAmount(-origAct.getAmountTaxed(), -origAct.getAmountTaxes());
+    auto refundRes = Activity::create(
+        refundOrderId,
+        refundOrderId,
+        origAct.getSubActivityId(),
+        origAct.getDateTime(),
+        origAct.getDateTimeTax(),
+        origAct.getCurrency(),
+        origAct.getCountryCodeFrom(),
+        origAct.getCountryCodeTo(),
+        origAct.getIsCompany(),
+        origAct.getCountryCodeVatPaidTo(),
+        refundAmount,
+        TaxSource::SelfComputed,
+        origAct.getTaxDeclaringCountryCode(),
+        origAct.getTaxScheme(),
+        origAct.getTaxJurisdictionLevel(),
+        SaleType::Service,
+        origAct.getVatTerritoryFrom(),
+        origAct.getVatTerritoryTo(),
+        origAct.getInvoiceId()
+    );
+    if (!refundRes.value) {
+        return;
+    }
+    refundRes.value->setTaxes(-origAct.getAmountTaxes());
+
+    // Record the refund shipment in OrderManager
+    QList<Activity> refundActivities;
+    refundActivities.append(*refundRes.value);
+    const QString clientAccount = origShipment->customerAccount();
+    Shipment refundShipment(refundActivities, clientAccount, false);
+
+    ActivitySource source;
+    source.type             = ActivitySourceType::API;
+    source.channel          = CHANNEL_SALE;
+    source.subchannel       = "";
+    source.reportOrMethode  = ActivitySource::METHOD_USER_ENTRY;
+
+    m_orderManager->recordShipmentFromSource(refundOrderId, &source, &refundShipment, origDate, false);
+    m_orderManager->recordOrders({{refundOrderId, OrderManager::OrderInfo{QString(), false, clientAccount}}});
+
+    // Carry over the billing address
+    const auto origAddress = m_orderManager->getAddressTo(rowId);
+    if (origAddress) {
+        m_orderManager->recordAddressesTo({{refundOrderId, *origAddress}});
+    }
+
+    // Build negated InvoicingInfo (line items with reversed sign) for the credit note
+    const auto origInfo = m_orderManager->getInvoicingInfo(rowId);
+    bool origVatOnPayment = false;
+    QString origTitle;
+    if (origInfo) {
+        origVatOnPayment = origInfo->getVatOnPayment();
+        const double vatRate = origAct.getVatRate();
+        QList<LineItem> refundItems;
+        for (const auto &item : origInfo->getItems()) {
+            auto li = LineItem::create(item.getSku(), item.getName(),
+                                       -item.getAmountTaxed(), vatRate,
+                                       item.getQuantity());
+            if (li.ok()) {
+                refundItems.append(*li.value);
+            }
+        }
+        if (!origInfo->getItems().isEmpty()) {
+            origTitle = origInfo->getItems().first().getName();
+        }
+        auto resInfo = InvoicingInfo::create(nullptr, refundItems,
+                                             std::nullopt, std::nullopt, std::nullopt);
+        if (resInfo.ok()) {
+            resInfo.value->setVatOnPayment(origVatOnPayment);
+            resInfo.value->setReference(refundOrderId);
+            m_orderManager->recordInvoicingInfo(refundOrderId, &resInfo.value.value());
+        }
+    }
+
+    // Add to the in-memory table with negated amounts
+    add(refundOrderId,
+        refundOrderId,
+        origDate,
+        -origAct.getAmountTaxed(),
+        origCurrency,
+        origLabel,
+        origAccount,
+        QString{},
+        -origAct.getAmountTaxes(),
+        origAct.getCountryCodeTo(),
+        origCurrency);
+
+    _setExtra(refundOrderId, refundOrderId, origTitle, origVatOnPayment,
+              ServiceClientManager::paymentTypeLabel(PaymentType::Instant));
+}
+
+void ServiceSalesBooksTable::replacePublishedSale(
+        const QString &rowId,
+        const ServiceClientManager *clientManager,
+        int clientRow,
+        const QDate &date,
+        const QString &currency,
+        const QString &newOrderId,
+        const QString &account,
+        const QList<SaleLineItemInput> &lineItems,
+        const VatResolver &vatResolver,
+        const TaxResolver &taxResolver,
+        PaymentType paymentType,
+        int paymentDays,
+        bool vatOnPayment,
+        const std::function<bool()> &onMissingVatRate)
+{
+    if (!m_orderManager->isOrderPublished(rowId)) {
+        ExceptionWithTitleText ex(tr("Sale Not Published"),
+                                  tr("The sale \"%1\" has not been published. "
+                                     "Use replaceSale for unpublished sales.").arg(rowId));
+        ex.raise();
+    }
+
+    const QString refundOrderId = rowId + QStringLiteral("-CREDIT");
+    if (m_orderManager->containsOrder(refundOrderId)) {
+        ExceptionWithTitleText ex(tr("Credit Note Exists"),
+                                  tr("A credit note for sale \"%1\" already exists.").arg(rowId));
+        ex.raise();
+    }
+
+    _createRefundEntry(rowId, refundOrderId);
+
+    createSale(clientManager, clientRow, date, currency, newOrderId, account,
+               lineItems, vatResolver, taxResolver, paymentType, paymentDays,
+               vatOnPayment, onMissingVatRate);
+}
+
+void ServiceSalesBooksTable::replaceSale(const QString &rowId,
+                                         const ServiceClientManager *clientManager,
+                                         int clientRow,
+                                         const QDate &date,
+                                         const QString &currency,
+                                         const QString &newOrderId,
+                                         const QString &account,
+                                         const QList<SaleLineItemInput> &lineItems,
+                                         const VatResolver &vatResolver,
+                                         const TaxResolver &taxResolver,
+                                         PaymentType paymentType,
+                                         int paymentDays,
+                                         bool vatOnPayment,
+                                         const std::function<bool()> &onMissingVatRate)
+{
+    if (m_orderManager->isOrderPublished(rowId)) {
+        ExceptionWithTitleText ex(tr("Sale Cannot Be Edited"),
+                                  tr("The sale \"%1\" has been published and cannot be modified.").arg(rowId));
+        ex.raise();
+    }
+
+    remove(rowId);
+
+    createSale(clientManager, clientRow, date, currency, newOrderId, account,
+               lineItems, vatResolver, taxResolver, paymentType, paymentDays,
+               vatOnPayment, onMissingVatRate);
+}
+
 bool ServiceSalesBooksTable::remove(const QString &rowId)
 {
     // 1. Remove the invoice registry entry BEFORE removeOrder deletes invoicing_infos

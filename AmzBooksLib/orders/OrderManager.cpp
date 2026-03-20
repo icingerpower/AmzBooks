@@ -237,6 +237,14 @@ bool OrderManager::containsOrder(const QString &orderId) const
     return q.exec() && q.next();
 }
 
+bool OrderManager::isOrderPublished(const QString &orderId) const
+{
+    QSqlQuery q(m_db);
+    q.prepare("SELECT COUNT(*) FROM shipments WHERE order_id = ? AND status = 'Published'");
+    q.addBindValue(orderId);
+    return q.exec() && q.next() && q.value(0).toInt() > 0;
+}
+
 bool OrderManager::containsShipmentOrRefund(const QString &shipmentOrRefundId) const
 {
     QSqlQuery q(m_db);
