@@ -479,6 +479,12 @@ QList<JournalEntryFactory::GroupedShipmentData> JournalEntryFactory::computeGrou
 
             key.currency = activity.getCurrency();
 
+            // For DomesticVat the declaring country is countryFrom, so countryTo is
+            // irrelevant for grouping — normalise it so IT→BE and IT→DE merge together.
+            if (key.scheme == TaxScheme::DomesticVat) {
+                key.countryTo = key.countryFrom;
+            }
+
             if (!dataByKey.contains(key)) {
                 GroupedShipmentData g;
                 g.taxScheme    = key.scheme;
@@ -510,8 +516,8 @@ QList<JournalEntryFactory::GroupedShipmentData> JournalEntryFactory::computeGrou
             info.origCurrency     = activity.getCurrency();
             info.vatRatePct       = key.vatRate;
             info.taxScheme        = key.scheme;
-            info.countryFrom      = key.countryFrom;
-            info.countryTo        = key.countryTo;
+            info.countryFrom      = activity.getCountryCodeFrom();
+            info.countryTo        = activity.getCountryCodeTo();
             info.isCompany        = activity.getIsCompany();
             g.shipments.append(info);
         }
