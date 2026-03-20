@@ -333,6 +333,10 @@ void BooksAccountsSalesTable::_fillIfEmpty()
         }
 
         const QStringList panEu = CountriesEu::getAmazonPanEuCountryCodes();
+        createRow(TaxScheme::DomesticVat, "GB", "", 0.0,
+                  QString("7070DOM%1%2").arg("GB", "0"),
+                  QString("4457DOM%1%2").arg("GB", "0"),
+                  QString("4457DOM%1%2_PAY").arg("GB", "0"));
 
         // Iterate all EU countries (and associated territories) to populate OSS/IOSS entries,
         // plus DomesticVat entries for PanEU countries.
