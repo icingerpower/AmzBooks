@@ -89,6 +89,10 @@ private slots:
     // Regression: stale OM entry written under Amazon order ID must not poison lookups
     void test_refundInvoiceNumbers_staleOmData();
 
+    // Regression: each shipment must use its own date for the invoice number prefix,
+    // not the date of the first shipment in the group
+    void test_invoiceNumber_usesShipmentDate_notGroupFirstDate();
+
     // Regression: service sale getInvoicingInfo must not return null before invoice is generated
     void test_serviceSale_getInvoicingInfo_beforeInvoiceGeneration();
 
@@ -1441,16 +1445,21 @@ static QStringList generateInvoiceNumbers(
                 }
 
                 QStringList shipmentIds;
+                QList<QDate> perEntryDates;
                 for (const auto &shipment : entry.shipmentsRefundsSameActivity) {
-                    if (shipment && !shipment->getActivities().isEmpty())
+                    if (shipment && !shipment->getActivities().isEmpty()) {
                         shipmentIds.append(shipment->getActivities().first().getEventId());
-                    else
+                        perEntryDates.append(shipment->getActivities().first().getDateTime().date());
+                    } else {
                         shipmentIds.append(QString());
+                        perEntryDates.append(fallbackDate);
+                    }
                 }
 
                 QStringList invoiceNumbers = generator.getNextInvoiceNumbers(
                     date, taxContext, channel, store,
-                    entry.invoicesToDo, existingNumber, shipmentIds, &orderManager);
+                    entry.invoicesToDo, existingNumber, shipmentIds, &orderManager,
+                    {}, perEntryDates);
 
                 for (int i = 0; i < invoiceNumbers.size(); ++i) {
                     if (entry.invoicesToDo.value(i, false) && !invoiceNumbers[i].isEmpty())
@@ -1979,6 +1988,101 @@ void TestInvoicing::test_serviceSale_fractionalQuantity()
     LineItem reloaded = LineItem::fromJson(json);
     QCOMPARE(reloaded.getQuantity(), 1.5);
     QVERIFY(qAbs(reloaded.getTotalTaxed() - original.getTotalTaxed()) < 0.001);
+}
+
+// ===========================================================================
+// test_invoiceNumber_usesShipmentDate_notGroupFirstDate
+//
+// Regression: when two independent orders with the same tax context are grouped
+// together (e.g. both OSS-PL on Amazon), the invoice number for each order must
+// use that order's own shipment date as the YYYYMM prefix — not the date of
+// whichever shipment happens to appear first in the group.
+//
+// Bug scenario (before fix):
+//   - ORDER-ALPHA (2026-02) sorts before ORDER-BETA (2025-01) alphabetically.
+//   - get_channel_site_ShipmentAndRefundsNoInvoices groups them together because
+//     they share channel + store + TaxContext.
+//   - generateInvoices takes `date` from the first shipment (2026-02) and passes
+//     it to getNextInvoiceNumbers for the whole batch.
+//   - Result: ORDER-BETA (Jan 2025 sale) receives invoice number "202602-..." and
+//     is placed in folder 2026/02 instead of 2025/01.
+//
+// Fix: getNextInvoiceNumbers now accepts perEntryDates so each new base invoice
+// uses its own shipment date for the YYYYMM prefix.
+// ===========================================================================
+void TestInvoicing::test_invoiceNumber_usesShipmentDate_notGroupFirstDate()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    OrderManager orderManager(tempDir.path());
+    ActivitySource source{ActivitySourceType::Report, "Amazon", "amazon.pl", "RegressionTest"};
+
+    // Two orders with the same OSS-PL tax context but different shipment dates.
+    // ORDER-ALPHA sorts before ORDER-BETA alphabetically, so in the SQL result
+    // the 2026 order appears first — reproducing the bug.
+    const QDate date2026(2026, 2, 15);
+    const QDate date2025(2025, 1, 12);
+
+    auto act2026Res = Activity::create(
+        "ORDER-ALPHA-001", "SHIP-ALPHA-001", "",
+        QDateTime(date2026, QTime(10, 0)), QDateTime(date2026, QTime(10, 0)),
+        "PLN", "DE", "PL", false, "PL",
+        Amount(30.0, 6.9),
+        TaxSource::MarketplaceProvided, "PL",
+        TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    QVERIFY(act2026Res.ok());
+    Shipment ship2026(QList<Activity>{*act2026Res.value}, QString(), true);
+
+    auto act2025Res = Activity::create(
+        "ORDER-BETA-001", "SHIP-BETA-001", "",
+        QDateTime(date2025, QTime(10, 0)), QDateTime(date2025, QTime(10, 0)),
+        "PLN", "DE", "PL", false, "PL",
+        Amount(52.84, 12.15),
+        TaxSource::MarketplaceProvided, "PL",
+        TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
+    QVERIFY(act2025Res.ok());
+    Shipment ship2025(QList<Activity>{*act2025Res.value}, QString(), true);
+
+    QList<OrderManager::ShipmentFromSourceEntry> entries;
+    entries.append({"ORDER-ALPHA-001", &ship2026, QDate(), false, false});
+    entries.append({"ORDER-BETA-001",  &ship2025, QDate(), false, false});
+    orderManager.recordShipmentsFromSource(&source, entries);
+    QDate pubDate(2026, 3, 1);
+    orderManager.publish(pubDate);
+
+    // Fetch no-invoice groups spanning both years (mirrors year=2026 with addYears(-1))
+    auto noInvoicesMap = orderManager.get_channel_site_ShipmentAndRefundsNoInvoices(
+        QDate(2025, 1, 1), QDate(2026, 12, 31));
+    QVERIFY(!noInvoicesMap.isNull());
+    QVERIFY(!noInvoicesMap->isEmpty());
+
+    CompanyInfosTable companyInfos(tempDir.path());
+    CompanyAddressTable companyAddress(tempDir.path());
+    CurrencyRateManager currencyRates(tempDir.path(), "");
+    InvoiceGenerator generator(tempDir.path(), &companyInfos, &companyAddress, &currencyRates);
+
+    const QStringList invoiceNumbers = generateInvoiceNumbers(
+        *noInvoicesMap, generator, orderManager, QDate(2026, 1, 1));
+
+    QCOMPARE(invoiceNumbers.size(), 2);
+
+    // Each invoice must carry the YYYYMM prefix matching its own shipment date.
+    QString inv2025, inv2026;
+    for (const QString &num : invoiceNumbers) {
+        if (num.startsWith(QLatin1String("202501"))) {
+            inv2025 = num;
+        } else if (num.startsWith(QLatin1String("202602"))) {
+            inv2026 = num;
+        }
+    }
+
+    QVERIFY2(!inv2025.isEmpty(),
+        qPrintable(QString("Expected an invoice with prefix '202501-' for the Jan 2025 order, "
+                           "got: %1").arg(invoiceNumbers.join(", "))));
+    QVERIFY2(!inv2026.isEmpty(),
+        qPrintable(QString("Expected an invoice with prefix '202602-' for the Feb 2026 order, "
+                           "got: %1").arg(invoiceNumbers.join(", "))));
 }
 
 QTEST_MAIN(TestInvoicing)

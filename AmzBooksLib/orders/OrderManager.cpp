@@ -1131,12 +1131,33 @@ void OrderManager::recordInvoicingInfo(const QString &shipmentOrRefundId,
         }
     }
     
-    // 2. Persist the Info
-    // We use INSERT OR REPLACE to update existing info or create new one.
+    // 2. Build JSON, preserving invoiceNumber / invoiceLink from any existing
+    //    record when the new data does not supply them.  This prevents a later
+    //    FBA-invoicing re-import (which carries items but no invoice fields)
+    //    from silently erasing an invoice number stored by an earlier VAT-EU
+    //    import.
+    QJsonObject newJson = invoicingInfo->toJson();
+    if (!newJson.contains("invoiceNumber") || !newJson.contains("invoiceLink")) {
+        QSqlQuery qExist(m_db);
+        qExist.prepare("SELECT json FROM invoicing_infos WHERE shipment_root_id = ?");
+        qExist.addBindValue(rootId);
+        if (qExist.exec() && qExist.next()) {
+            const QJsonObject existJson =
+                QJsonDocument::fromJson(qExist.value(0).toString().toUtf8()).object();
+            if (!newJson.contains("invoiceNumber") && existJson.contains("invoiceNumber")) {
+                newJson["invoiceNumber"] = existJson["invoiceNumber"];
+            }
+            if (!newJson.contains("invoiceLink") && existJson.contains("invoiceLink")) {
+                newJson["invoiceLink"] = existJson["invoiceLink"];
+            }
+        }
+    }
+
+    // 3. Persist the Info
     QSqlQuery q(m_db);
     q.prepare("INSERT OR REPLACE INTO invoicing_infos (shipment_root_id, json) VALUES (?, ?)");
     q.addBindValue(rootId);
-    q.addBindValue(QString::fromUtf8(QJsonDocument(invoicingInfo->toJson()).toJson(QJsonDocument::Compact)));
+    q.addBindValue(QString::fromUtf8(QJsonDocument(newJson).toJson(QJsonDocument::Compact)));
     if (!q.exec()) {
         qWarning() << "Failed to record invoicing info:" << q.lastError();
     }

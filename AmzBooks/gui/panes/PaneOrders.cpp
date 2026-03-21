@@ -234,7 +234,11 @@ void PaneOrders::displayOrdersNoInvoices()
     QList<QSharedPointer<Shipment>> shipmentsList;
     if (shipmentRefundsList) {
         for (const auto &item : *shipmentRefundsList) {
-            shipmentsList.append(item.shipmentsRefundsSameActivity);
+            for (int i = 0; i < item.shipmentsRefundsSameActivity.size(); ++i) {
+                if (item.invoicesToDo.value(i, false)) {
+                    shipmentsList.append(item.shipmentsRefundsSameActivity[i]);
+                }
+            }
         }
     }
     

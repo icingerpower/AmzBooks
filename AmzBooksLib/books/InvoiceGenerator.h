@@ -53,10 +53,15 @@ public:
                                                     // this generator's own registry, so that
                                                     // refunds for those orders receive -Rxx
                                                     // suffixes instead of new base numbers.
-        const QStringList &activityIds = {}); // Per-entry activity IDs (e.g. "3105_refund").
+        const QStringList &activityIds = {},  // Per-entry activity IDs (e.g. "3105_refund").
                                               // When provided, revision records store the
                                               // activityId so that regenerateInvoices can
                                               // retrieve the correct invoicingInfo for refunds.
+        const QList<QDate> &perEntryDates = {}); // Per-entry dates for new base invoice numbers.
+                                                 // When provided, each new base invoice uses
+                                                 // perEntryDates[i] instead of `date`, so orders
+                                                 // from different months get the correct YYYYMM
+                                                 // prefix even when grouped under the same context.
 
     void generateInvoice(
         const QString &invoiceNumber,

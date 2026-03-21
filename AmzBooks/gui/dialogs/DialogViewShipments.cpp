@@ -67,6 +67,13 @@ DialogViewShipments::DialogViewShipments(const QList<OrderManager::ShipmentRefun
                 item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable);
                 return item;
             };
+            auto makeCheckableItem = [](const QString &text) {
+                auto *item = new QStandardItem(text);
+                item->setData(text, Qt::UserRole);
+                item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable | Qt::ItemIsUserCheckable);
+                item->setCheckState(Qt::Checked);
+                return item;
+            };
             auto makeNumericItem = [](double value) {
                 auto *item = new QStandardItem(QString::number(value, 'f', 2));
                 item->setData(value, Qt::UserRole);
@@ -75,7 +82,7 @@ DialogViewShipments::DialogViewShipments(const QList<OrderManager::ShipmentRefun
             };
 
             QList<QStandardItem *> row;
-            row << makeItem(store);
+            row << makeCheckableItem(store);
             row << makeItem(dateStr);
             row << makeItem(orderId);
             row << makeItem(shipmentId);
@@ -108,4 +115,35 @@ DialogViewShipments::DialogViewShipments(const QList<OrderManager::ShipmentRefun
 DialogViewShipments::~DialogViewShipments()
 {
     delete ui;
+}
+
+QSet<QString> DialogViewShipments::getSelectedShipmentIds() const
+{
+    QSet<QString> selected;
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        if (m_model->item(row, 0)->checkState() == Qt::Checked) {
+            selected.insert(m_model->item(row, 3)->text());
+        }
+    }
+    return selected;
+}
+
+void DialogViewShipments::on_checkBoxSelectAll_stateChanged(int state)
+{
+    Qt::CheckState checkState = static_cast<Qt::CheckState>(state);
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        m_model->item(row, 0)->setCheckState(checkState);
+    }
+}
+
+void DialogViewShipments::on_buttonUnselectCurrentMonth_clicked()
+{
+    QDate currentYearMonth = QDate::currentDate();
+    for (int row = 0; row < m_model->rowCount(); ++row) {
+        QString dateStr = m_model->item(row, 1)->text();
+        QDate rowDate = QDate::fromString(dateStr, Qt::ISODate);
+        if (rowDate.year() == currentYearMonth.year() && rowDate.month() == currentYearMonth.month()) {
+            m_model->item(row, 0)->setCheckState(Qt::Unchecked);
+        }
+    }
 }

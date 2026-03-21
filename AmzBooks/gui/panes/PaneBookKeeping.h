@@ -44,6 +44,9 @@ private:
     QList<AbstractBooksTable *> getAllNonBankTables() const;
     AbstractBooksTableBank *getVisibleBankTable() const;
 
+#include <optional>
+#include <QSet>
+
 public slots:
     void loadYearSelected();
     void generateBookKeeping();
@@ -75,6 +78,7 @@ public slots:
     void amzPaymentRemove();
 
 private:
+    void generateInvoicesWithSelection(std::optional<QSet<QString>> selectedShipmentIds);
     BooksConnections *m_booksConnections;
     class OrderManager *m_orderManager;
     bool m_splitterInitialized = false;

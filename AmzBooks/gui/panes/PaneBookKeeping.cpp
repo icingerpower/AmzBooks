@@ -492,9 +492,11 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         QMessageBox::information(this, tr("Success"), tr("Bookkeeping generated successfully in %1").arg(outDir.absolutePath()));
 
         // Check if there are orders without invoices in the period.
-        // Start one year earlier so that refunds arriving in the current year for
-        // sales from the previous year are included in the check.
-        auto noInvoicesList = m_orderManager->getShipmentAndRefundsNoInvoices(from.addYears(-1), to);
+        // Use `from` (not addYears(-1)) so that only orders with activity in the
+        // selected year are shown.  Cross-year cases (e.g. a 2025 sale with a 2026
+        // refund) are handled inside getShipmentAndRefundsNoInvoices: Phase 1 finds
+        // the 2026 refund, Phase 2 fetches the 2025 sale together with it.
+        auto noInvoicesList = m_orderManager->getShipmentAndRefundsNoInvoices(from, to);
         if (noInvoicesList && !noInvoicesList->isEmpty()) {
             int count = 0;
             for (const auto &entry : *noInvoicesList) {
@@ -507,7 +509,12 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
             if (count > 0) {
                 DialogViewShipments dialog(*noInvoicesList, year, m_orderManager, this);
                 if (dialog.exec() == QDialog::Accepted) {
-                    generateInvoices();
+                    QSet<QString> selected = dialog.getSelectedShipmentIds();
+                    if (selected.size() == count) {
+                        generateInvoicesWithSelection(std::nullopt);
+                    } else {
+                        generateInvoicesWithSelection(selected);
+                    }
                 }
             }
         }
@@ -525,6 +532,11 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
 
 void PaneBookKeeping::generateInvoices()
 {
+    generateInvoicesWithSelection(std::nullopt);
+}
+
+void PaneBookKeeping::generateInvoicesWithSelection(std::optional<QSet<QString>> selectedShipmentIds)
+{
     // 1. Ask for output directory (persist last used path in QSettings)
     QSettings settings;
     QString lastDir = settings.value("lastInvoicesDir", QDir::homePath()).toString();
@@ -539,13 +551,34 @@ void PaneBookKeeping::generateInvoices()
     QDate to(year, 12, 31);
 
     // 3. Retrieve orders without invoices for the period.
-    // Start one year earlier so that refunds arriving in the current year for sales
-    // from the previous year are not missed.
-    auto noInvoicesMap = m_orderManager->get_channel_site_ShipmentAndRefundsNoInvoices(from.addYears(-1), to);
+    // Use `from` (not addYears(-1)): cross-year cases (e.g. a 2025 sale paired
+    // with a 2026 refund) are already handled inside the function — Phase 1 finds
+    // the 2026 refund and Phase 2 pulls the entire order including the 2025 sale.
+    // Using addYears(-1) here would additionally pull in standalone 2025 orders
+    // that never got invoiced, generating 2025-dated invoices when 2026 is loaded.
+    auto noInvoicesMap = m_orderManager->get_channel_site_ShipmentAndRefundsNoInvoices(from, to);
     if (!noInvoicesMap || noInvoicesMap->isEmpty()) {
         QMessageBox::information(this, tr("No Invoices to Generate"),
             tr("All orders for %1 already have invoices.").arg(year));
         return;
+    }
+
+    if (selectedShipmentIds.has_value()) {
+        for (auto chanIt = (*noInvoicesMap).begin(); chanIt != (*noInvoicesMap).end(); ++chanIt) {
+            for (auto storeIt = chanIt.value().begin(); storeIt != chanIt.value().end(); ++storeIt) {
+                for (auto ctxIt = storeIt.value().begin(); ctxIt != storeIt.value().end(); ++ctxIt) {
+                    auto &entry = ctxIt.value();
+                    for (int i = 0; i < entry.shipmentsRefundsSameActivity.size(); ++i) {
+                        if (entry.invoicesToDo.value(i, false)) {
+                            if (entry.shipmentsRefundsSameActivity[i]
+                                && !selectedShipmentIds->contains(entry.shipmentsRefundsSameActivity[i]->getId())) {
+                                entry.invoicesToDo[i] = false;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // 4. Count total invoices to generate (for the progress dialog)
@@ -603,20 +636,26 @@ void PaneBookKeeping::generateInvoices()
                         existingNumber = optNum;
                 }
 
-                // Build per-entry shipment IDs so that entries from the same order
-                // share a base number while entries from different orders each get
-                // their own sequential number.
+                // Build per-entry shipment IDs, activity IDs, and dates so that:
+                //  - Entries from the same order share a base number.
+                //  - Entries from different orders each use their own date for the
+                //    invoice number prefix (YYYYMM), preventing 2025 orders from
+                //    receiving a 2026 invoice number when grouped with 2026 orders.
                 QStringList shipmentIds;
                 QStringList activityIds;
+                QList<QDate> perEntryDates;
                 shipmentIds.reserve(entry.shipmentsRefundsSameActivity.size());
                 activityIds.reserve(entry.shipmentsRefundsSameActivity.size());
+                perEntryDates.reserve(entry.shipmentsRefundsSameActivity.size());
                 for (const auto &shipment : entry.shipmentsRefundsSameActivity) {
                     if (shipment && !shipment->getActivities().isEmpty()) {
                         shipmentIds.append(shipment->getActivities().first().getEventId());
                         activityIds.append(shipment->getActivities().first().getActivityId());
+                        perEntryDates.append(shipment->getActivities().first().getDateTime().date());
                     } else {
                         shipmentIds.append(QString());
                         activityIds.append(QString());
+                        perEntryDates.append(from);
                     }
                 }
 
@@ -628,7 +667,7 @@ void PaneBookKeeping::generateInvoices()
                 // (e.g. "3105_refund") for correct invoicingInfo lookup on regeneration.
                 QStringList invoiceNumbers = generator.getNextInvoiceNumbers(
                     date, taxContext, channel, store, entry.invoicesToDo, existingNumber, shipmentIds,
-                    m_orderManager, activityIds);
+                    m_orderManager, activityIds, perEntryDates);
 
                 // Fallback address when none is recorded (e.g. manual service sales)
                 const Address emptyAddr("", "", "", "", "", "", "", "", "", "", "", "");
@@ -677,7 +716,7 @@ void PaneBookKeeping::generateInvoices()
                     // Sanitize invoice number for use as a filename
                     QString sanitized = invoiceNumber;
                     sanitized.replace('/', '-').replace('\\', '-');
-                    QString subDirName = QString("%1/%2").arg(date.year()).arg(date.month(), 2, 10, QChar('0'));
+                    QString subDirName = QString("%1/%2").arg(invoiceDate.year()).arg(invoiceDate.month(), 2, 10, QChar('0'));
                     QDir subDir(outDir.filePath(subDirName));
                     subDir.mkpath(".");
                     const QString pdfPath = subDir.absoluteFilePath(sanitized + ".pdf");

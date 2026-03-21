@@ -258,7 +258,8 @@ QStringList InvoiceGenerator::getNextInvoiceNumbers(
     const std::optional<QString> &existingInvoiceNumber,
     const QStringList &shipmentIds,
     const OrderManager *orderManager,
-    const QStringList &activityIds)
+    const QStringList &activityIds,
+    const QList<QDate> &perEntryDates)
 {
     QStringList result;
 
@@ -380,10 +381,15 @@ QStringList InvoiceGenerator::getNextInvoiceNumbers(
 
         const QString sid = shipmentIds.value(i);
 
+        // Use the per-entry date if provided; fall back to the group-level date.
+        // This ensures that orders from different months grouped under the same
+        // tax context each receive the correct YYYYMM prefix in their invoice number.
+        const QDate entryDate = perEntryDates.size() > i ? perEntryDates[i] : date;
+
         if (!shipmentStates.contains(sid)) {
             // New shipment: generate a fresh sequential base number
             ShipmentState state;
-            state.baseNumber = getBaseInvoiceNumber(date, taxContext, channel, store, sid);
+            state.baseNumber = getBaseInvoiceNumber(entryDate, taxContext, channel, store, sid);
             state.baseAppended = true;
             shipmentStates[sid] = state;
             result.append(state.baseNumber);
@@ -401,7 +407,7 @@ QStringList InvoiceGenerator::getNextInvoiceNumbers(
                     .arg(state.revCounter, 2, 10, QChar('0'));
 
                 InvoiceRecord record;
-                record.date = date;
+                record.date = entryDate;
                 record.taxDeclaringCountry = taxContext.taxDeclaringCountryCode;
                 record.taxScheme = taxSchemeToString(taxContext.taxScheme);
                 record.taxJurisdiction = taxJurisdictionLevelToString(taxContext.taxJurisdictionLevel);

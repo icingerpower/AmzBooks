@@ -2,6 +2,8 @@
 #include "books/FbaCentersTable.h"
 #include "books/Activity.h"
 #include "CountriesEu.h"
+#include "orders/InvoicingInfo.h"
+#include "orders/LineItem.h"
 #include "orders/Shipment.h"
 #include "utils/CsvReader.h"
 #include "utils/CsvHeader.h"
@@ -115,17 +117,21 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
     int idxAddr2 = getOptionalPos(QStringList{"Delivery Address 2", "Shipping Address 2"});
     int idxAddr3 = getOptionalPos(QStringList{"Delivery Address 3", "Shipping Address 3"});
     int idxCity = getOptionalPos(QStringList{"Delivery City/Town", "Shipping City"});
-    int idxCounty = getOptionalPos(QStringList{"Delivery County", "Shipping State/Province/Region"}); 
+    int idxCounty = getOptionalPos(QStringList{"Delivery County", "Shipping State/Province/Region"});
     int idxPostcode = getOptionalPos(QStringList{"Delivery Postcode", "Shipping Postal Code"});
     int idxPhone = getOptionalPos(QStringList{"Delivery Phone Number", "Shipping Phone Number"});
     int idxEmail = getOptionalPos(QStringList{"Buyer E-mail", "Buyer Email", "Buyer Name"});
-    
+    int idxTitle = getOptionalPos(QStringList{"Title"});
+    int idxSku = getOptionalPos(QStringList{"Merchant SKU"});
+    int idxQty = getOptionalPos(QStringList{"Dispatched Quantity"});
+
     // Track added addresses to avoid duplicates
     QSet<QString> addedAddresses;
 
-    // Accumulate activities per shipId to merge multi-item shipments into one Shipment
+    // Accumulate activities and line items per shipId to merge multi-item shipments into one Shipment
     QList<QString> shipIdOrder;
     QHash<QString, QList<Activity>> shipIdActivities;
+    QHash<QString, QList<LineItem>> shipIdLineItems;
 
     for (const auto &line : csvData->lines) {
         if (line.isEmpty()) {
@@ -219,8 +225,27 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         if (!shipIdActivities.contains(shipId)) {
             shipIdOrder.append(shipId);
             shipIdActivities[shipId] = QList<Activity>();
+            shipIdLineItems[shipId] = QList<LineItem>();
         }
         shipIdActivities[shipId].append(*actResult.value);
+
+        // Line item for InvoicingInfo (one per CSV row / item)
+        {
+            const QString sku = (idxSku >= 0) ? line.value(idxSku) : QString();
+            QString title = (idxTitle >= 0) ? line.value(idxTitle) : QString();
+            if (title.isEmpty()) {
+                title = sku;
+            }
+            const int qty = (idxQty >= 0) ? qMax(1, line.value(idxQty).toInt()) : 1;
+            const double taxedTotal = price + tax;
+            const double vatRate = (qAbs(price) > 0.001) ? (tax / price) : 0.0;
+            if (!title.isEmpty() && qAbs(taxedTotal) > 0.001) {
+                auto liRes = LineItem::create(sku, title, taxedTotal / qty, vatRate, qty);
+                if (liRes.ok()) {
+                    shipIdLineItems[shipId].append(*liRes.value);
+                }
+            }
+        }
 
         // Address
         if (!addedAddresses.contains(orderId)) {
@@ -253,6 +278,19 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
     for (const QString &sId : shipIdOrder) {
         Shipment shipment(shipIdActivities[sId], "", isGroupedOrders());
         ret.orderInfos->shipments.append(shipment);
+
+        // Create InvoicingInfo from the accumulated line items so that invoice
+        // generation can find invoicing data even for orders that only appear in
+        // the FBA invoicing report (e.g. non-EU exports not in the VAT EU report).
+        const QList<LineItem> &lineItems = shipIdLineItems.value(sId);
+        if (!lineItems.isEmpty()) {
+            auto infoRes = InvoicingInfo::create(
+                &ret.orderInfos->shipments.last(), lineItems,
+                std::nullopt, std::nullopt, std::nullopt);
+            if (infoRes.ok()) {
+                ret.orderInfos->invoicingInfos.append({sId, *infoRes.value});
+            }
+        }
     }
 
     // Min/Max dates

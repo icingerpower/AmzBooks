@@ -3,6 +3,7 @@
 
 #include <QDialog>
 #include <QSharedPointer>
+#include <QSet>
 #include "orders/OrderManager.h"
 
 namespace Ui {
@@ -19,6 +20,12 @@ public:
                                  const OrderManager *orderManager,
                                  QWidget *parent = nullptr);
     ~DialogViewShipments();
+
+    QSet<QString> getSelectedShipmentIds() const;
+
+private slots:
+    void on_checkBoxSelectAll_stateChanged(int arg1);
+    void on_buttonUnselectCurrentMonth_clicked();
 
 private:
     Ui::DialogViewShipments *ui;
