@@ -607,21 +607,28 @@ void PaneBookKeeping::generateInvoices()
                 // share a base number while entries from different orders each get
                 // their own sequential number.
                 QStringList shipmentIds;
+                QStringList activityIds;
                 shipmentIds.reserve(entry.shipmentsRefundsSameActivity.size());
+                activityIds.reserve(entry.shipmentsRefundsSameActivity.size());
                 for (const auto &shipment : entry.shipmentsRefundsSameActivity) {
-                    if (shipment && !shipment->getActivities().isEmpty())
+                    if (shipment && !shipment->getActivities().isEmpty()) {
                         shipmentIds.append(shipment->getActivities().first().getEventId());
-                    else
+                        activityIds.append(shipment->getActivities().first().getActivityId());
+                    } else {
                         shipmentIds.append(QString());
+                        activityIds.append(QString());
+                    }
                 }
 
                 // Generate invoice numbers for all shipments/refunds in this group.
                 // Pass m_orderManager so that refunds whose sale invoice was imported
                 // externally (e.g. Amazon FBA invoicing) receive -R01/-R02 suffixes
                 // relative to the existing sale invoice rather than new base numbers.
+                // Pass activityIds so that revision records store the per-activity ID
+                // (e.g. "3105_refund") for correct invoicingInfo lookup on regeneration.
                 QStringList invoiceNumbers = generator.getNextInvoiceNumbers(
                     date, taxContext, channel, store, entry.invoicesToDo, existingNumber, shipmentIds,
-                    m_orderManager);
+                    m_orderManager, activityIds);
 
                 // Fallback address when none is recorded (e.g. manual service sales)
                 const Address emptyAddr("", "", "", "", "", "", "", "", "", "", "", "");
@@ -656,6 +663,12 @@ void PaneBookKeeping::generateInvoices()
                         errors++;
                         errorMsgs << tr("Missing invoicing info for %1").arg(orderId);
                         continue;
+                    }
+
+                    // Propagate the order currency so the PDF can show original + converted amounts.
+                    const QString &orderCurrency = shipment->getActivities().first().getCurrency();
+                    if (!orderCurrency.isEmpty() && info->getCurrency().isEmpty()) {
+                        info->setCurrency(orderCurrency);
                     }
 
                     const Address &addressTo = entry.addressTo ? *entry.addressTo : emptyAddr;

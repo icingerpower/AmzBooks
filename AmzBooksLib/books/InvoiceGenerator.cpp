@@ -84,7 +84,8 @@ const QStringList InvoiceGenerator::HEADER_IDS = {
     "Channel",
     "Store",
     "InvoiceNumber",
-    "ShipmentId"
+    "ShipmentId",
+    "ActivityId"
 };
 
 // Static helper methods
@@ -256,7 +257,8 @@ QStringList InvoiceGenerator::getNextInvoiceNumbers(
     const QList<bool> &invoicesToDo,
     const std::optional<QString> &existingInvoiceNumber,
     const QStringList &shipmentIds,
-    const OrderManager *orderManager)
+    const OrderManager *orderManager,
+    const QStringList &activityIds)
 {
     QStringList result;
 
@@ -408,6 +410,7 @@ QStringList InvoiceGenerator::getNextInvoiceNumbers(
                 record.store = store;
                 record.invoiceNumber = revisionNumber;
                 record.shipmentId = sid;
+                record.activityId = activityIds.value(i);
 
                 beginInsertRows(QModelIndex(), m_data.size(), m_data.size());
                 m_data.append(record);
@@ -548,6 +551,7 @@ void InvoiceGenerator::generateInvoice(
         <div class="totals-row" style="font-size: 1.2em; border-top: 1px solid #000; padding-top: 5px;">
             <b>Total TTC</b> <span>%19 %18</span>
         </div>
+        %26
     </div>
 
     <div class="clear"></div>
@@ -610,23 +614,19 @@ void InvoiceGenerator::generateInvoice(
     double totalHT = 0.0;
     double totalTax = 0.0;
     double totalTTC = 0.0;
-    QString currency = "EUR"; // Default, should come from InvoicingInfo/Amount
+    const QString &companyCurrency = m_companyInfos->getCurrency();
+    const QString &infoCurrency = invoicingInfo.getCurrency();
+    const QString currency = infoCurrency.isEmpty() ? companyCurrency : infoCurrency;
+    const bool showConverted = (currency != companyCurrency) && (m_currencyRates != nullptr);
 
     for (const auto &item : invoicingInfo.getItems()) {
-        double ht = item.getAmountUntaxed();
-        double tax = item.getTaxes();
-        double quantity = item.getQuantity();
-        
-        // Wait, LineItem uses Amount structure? No, getAmountTaxed returns double.
-        // Assuming single currency for all items.
-        // Currency is implicit in Amount? LineItem doesn't seem to expose currency symbol directly easily, 
-        // but OrderManager usually works with a currency. Let's assume order currency.
-        // For display, we need formatting.
-        
-        double vatRate = (ht > 0) ? (tax / ht * 100.0) : 0.0;
-        double ttc = ht + tax;
+        const double ht = item.getAmountUntaxed();
+        const double tax = item.getTaxes();
+        const double quantity = item.getQuantity();
+        const double vatRate = (ht != 0.0) ? (tax / ht * 100.0) : 0.0;
+        const double ttc = ht + tax;
 
-        totalHT += quantity * ht;
+        totalHT  += quantity * ht;
         totalTax += quantity * tax;
         totalTTC += quantity * ttc;
 
@@ -642,12 +642,35 @@ void InvoiceGenerator::generateInvoice(
             </tr>
         )")
         .arg(item.getName(),
-             QString::number(item.getQuantity(), 'f', 1),
+             QString::number(quantity, 'f', 1),
              QString::number(vatRate, 'f', 2),
              QString::number(ht, 'f', 2),
              QString::number(tax, 'f', 2),
              QString::number(ttc, 'f', 2),
              currency);
+    }
+
+    // Converted totals block — only shown when order currency differs from company currency.
+    QString convertedTotalsHtml;
+    if (showConverted) {
+        try {
+            const double convHT  = m_currencyRates->convert(totalHT,  currency, companyCurrency, invoiceDate);
+            const double convTax = m_currencyRates->convert(totalTax, currency, companyCurrency, invoiceDate);
+            const double convTTC = m_currencyRates->convert(totalTTC, currency, companyCurrency, invoiceDate);
+            convertedTotalsHtml =
+                QString("<div class=\"totals-row\" style=\"color:#555;border-top:1px dashed #aaa;margin-top:6px;padding-top:5px;\">"
+                        "<b>= Total HT</b> <span>%1 %4</span></div>"
+                        "<div class=\"totals-row\" style=\"color:#555;\">"
+                        "<b>= TVA</b> <span>%2 %4</span></div>"
+                        "<div class=\"totals-row\" style=\"color:#555;font-weight:bold;\">"
+                        "<b>= Total TTC</b> <span>%3 %4</span></div>")
+                .arg(QString::number(convHT,  'f', 2),
+                     QString::number(convTax, 'f', 2),
+                     QString::number(convTTC, 'f', 2),
+                     companyCurrency);
+        } catch (...) {
+            // Conversion rate unavailable — omit rather than show wrong data
+        }
     }
 
     // EU-to-EU without VAT: both company and destination are EU members and no VAT was charged
@@ -705,7 +728,8 @@ void InvoiceGenerator::generateInvoice(
         .arg(rowsHtml, QString::number(totalHT, 'f', 2), QString::number(totalTax, 'f', 2), currency, QString::number(totalTTC, 'f', 2))
         .arg(shareCapital, rcs, siret, legalFooter)
         .arg(vatOnPaymentHtml)
-        .arg(taxContextHtml);
+        .arg(taxContextHtml)
+        .arg(convertedTotalsHtml);  // %26
 
 
     // 3. Print to PDF
@@ -877,6 +901,7 @@ void InvoiceGenerator::_load()
         int idxStore = colMap.value("Store", -1);
         int idxInvoice = colMap.value("InvoiceNumber", -1);
         int idxShipmentId = colMap.value("ShipmentId", -1);
+        int idxActivityId = colMap.value("ActivityId", -1);
 
         if (idxDate != -1 && idxDate < parts.size()) {
             record.date = QDate::fromString(parts[idxDate], Qt::ISODate);
@@ -905,7 +930,10 @@ void InvoiceGenerator::_load()
         if (idxShipmentId != -1 && idxShipmentId < parts.size()) {
             record.shipmentId = parts[idxShipmentId];
         }
-        
+        if (idxActivityId != -1 && idxActivityId < parts.size()) {
+            record.activityId = parts[idxActivityId];
+        }
+
         if (!record.invoiceNumber.isEmpty()) {
             m_data.append(record);
         }
@@ -931,7 +959,8 @@ void InvoiceGenerator::_save()
             << record.channel << ";"
             << record.store << ";"
             << record.invoiceNumber << ";"
-            << record.shipmentId << "\n";
+            << record.shipmentId << ";"
+            << record.activityId << "\n";
     }
 }
 
@@ -977,12 +1006,18 @@ void InvoiceGenerator::regenerateInvoices(
         if (record.shipmentId.isEmpty())
             continue;
 
-        // Retrieve InvoicingInfo and address from the OrderManager
-        QSharedPointer<InvoicingInfo> info = orderManager.getInvoicingInfo(record.shipmentId);
+        // Retrieve InvoicingInfo and address from the OrderManager.
+        // For revision (refund) records, activityId points to the refund entry
+        // (e.g. "3105_refund") while shipmentId holds the eventId ("3105").
+        // Using activityId ensures we fetch the refund's invoicingInfo (-124.99)
+        // rather than the original order's invoicingInfo (+124.99).
+        const QString lookupId = record.activityId.isEmpty() ? record.shipmentId : record.activityId;
+        QSharedPointer<InvoicingInfo> info = orderManager.getInvoicingInfo(lookupId);
         if (!info) {
             continue;
         }
 
+        // Address is always keyed by the order/eventId, same for order and refund.
         QSharedPointer<Address> addrPtr = orderManager.getAddressTo(record.shipmentId);
         const Address &addr = addrPtr ? *addrPtr : emptyAddr;
 
@@ -1005,9 +1040,12 @@ void InvoiceGenerator::regenerateInvoices(
         subDir.mkpath(".");
         const QString pdfPath = subDir.absoluteFilePath(sanitized + ".pdf");
 
+        // Pass activityId as the shipmentId param so generateInvoice records
+        // the invoicingInfo under the correct key (e.g. "3105_refund" for refunds)
+        // rather than overwriting the base order's entry under "3105".
         generateInvoice(record.invoiceNumber, prevNumber, pdfPath,
                         addr, *info, record.shipmentId, orderManager,
-                        record.date);
+                        record.date, record.activityId);
     }
 }
 

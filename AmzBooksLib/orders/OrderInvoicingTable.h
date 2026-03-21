@@ -15,6 +15,13 @@ public:
         COL_INVOICE_NUMBER,
         COL_PAYMENT_DATE,
         COL_LINK,
+        // Line-item columns — one row per item; repeated from the parent InvoicingInfo.
+        // Rows whose InvoicingInfo has no items use these columns with empty/zero values.
+        COL_ITEM_SKU,
+        COL_ITEM_NAME,
+        COL_ITEM_QUANTITY,
+        COL_ITEM_UNIT_PRICE_HT,  // per-unit untaxed amount
+        COL_ITEM_TOTAL_TTC,      // qty × taxed amount (total incl. tax)
         COL_COUNT
     };
 
@@ -27,6 +34,14 @@ public:
 
 private:
     QList<AbstractImporter::InvoicingInfoWithId> m_data;
+
+    // Flat row index: one entry per line item (or one entry per info when items is empty).
+    struct Row {
+        int dataIdx; // index into m_data
+        int itemIdx; // index into m_data[dataIdx].invoicingInfo.getItems(), or -1 if none
+    };
+    QList<Row> m_rows;
+
     static const QStringList COL_NAMES;
 };
 

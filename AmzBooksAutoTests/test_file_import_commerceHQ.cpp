@@ -136,6 +136,16 @@ void TestFileImportCommerceHQ::test_basicImport()
     // No refund on this row
     QCOMPARE(result.orderInfos->refunds.size(), 0);
 
+    // InvoicingInfo — must be present so PaneBookKeeping::generateInvoices() can produce a PDF
+    QCOMPARE(result.orderInfos->invoicingInfos.size(), 1);
+    const auto &inv = result.orderInfos->invoicingInfos.first();
+    QCOMPARE(inv.shipmentOrRefundId, QString("3101"));
+    QVERIFY(!inv.invoicingInfo.getItems().isEmpty());
+    // Single line item: whole order; taxed total == 79.70, no VAT
+    const auto &item = inv.invoicingInfo.getItems().first();
+    QVERIFY(qAbs(item.getTotalTaxed() - 79.70) < 0.01);
+    QVERIFY(qAbs(item.getTotalTaxes() - 0.00)  < 0.01);
+
     // Address populated
     QCOMPARE(result.orderInfos->orderAddresses.size(), 1);
     const auto &addr = result.orderInfos->orderAddresses.first().address;
@@ -489,6 +499,26 @@ void TestFileImportCommerceHQ::test_refundClueVsRefund()
     const auto &clue = result.orderInfos->orderId_refundClue["7002"];
     QVERIFY(qAbs(clue.value - 30.00) < 0.01);
     QCOMPARE(clue.currency, QString("USD"));
+
+    // InvoicingInfo — 2 shipments + 1 full refund = 3 entries
+    // Without this, PaneBookKeeping::generateInvoices() fails with
+    // "Missing invoicing info for <orderId>" for every CommerceHQ order.
+    QCOMPARE(result.orderInfos->invoicingInfos.size(), 3);
+
+    // Verify shipment invoicingInfos have positive amounts
+    int shipInvCount = 0;
+    int refundInvCount = 0;
+    for (const auto &inv : std::as_const(result.orderInfos->invoicingInfos))
+    {
+        QVERIFY(!inv.invoicingInfo.getItems().isEmpty());
+        const double total = inv.invoicingInfo.getItems().first().getTotalTaxed();
+        if (total > 0.0)
+            ++shipInvCount;
+        else if (total < 0.0)
+            ++refundInvCount;
+    }
+    QCOMPARE(shipInvCount,   2); // 7001 and 7002 shipments
+    QCOMPARE(refundInvCount, 1); // 7001 refund (−60.00)
 }
 
 // ---------------------------------------------------------------------------

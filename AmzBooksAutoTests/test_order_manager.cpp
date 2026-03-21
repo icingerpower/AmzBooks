@@ -2451,20 +2451,68 @@ void TestOrderManager::test_OrderInvoicingTable()
     OrderInvoicingTable table(aggregated.invoicingInfos);
     
     // Verify Table Data
+    // Info has no line items → 1 row, line-item columns return null
     QCOMPARE(table.rowCount(), 1);
     QCOMPARE(table.columnCount(), OrderInvoicingTable::COL_COUNT);
-    
+
     // Check Data Access - this would trigger segfault if dangling pointer is dereferenced
     QCOMPARE(table.data(table.index(0, OrderInvoicingTable::COL_ID)).toString(), infoWithId.shipmentOrRefundId);
     QCOMPARE(table.data(table.index(0, OrderInvoicingTable::COL_INVOICE_NUMBER)).toString(), QString("INV-001"));
-    
+
     // Check COL_PAYMENT_DATE
     QDate expectedDate(2023, 1, 2);
     // Note: In Qt 6, toString(Qt::ISODate) outputs YYYY-MM-DD
     QCOMPARE(table.data(table.index(0, OrderInvoicingTable::COL_PAYMENT_DATE)).toString(), expectedDate.toString(Qt::ISODate));
-    
+
     // Check COL_LINK
     QCOMPARE(table.data(table.index(0, OrderInvoicingTable::COL_LINK)).toString(), QString("http://link"));
+
+    // Line-item columns are empty when the info has no items
+    QVERIFY(!table.data(table.index(0, OrderInvoicingTable::COL_ITEM_SKU)).isValid());
+    QVERIFY(!table.data(table.index(0, OrderInvoicingTable::COL_ITEM_NAME)).isValid());
+
+    // --- Test with line items -----------------------------------------------
+    // InvoicingInfo with two line items: one product + one discount
+    auto li1 = LineItem::create("SKU-A", "Widget",  50.0, 0.20, 2); // 2 × 50 TTC = 100
+    auto li2 = LineItem::create("SKU-B", "Gadget", 30.0, 0.10, 1); // 1 × 30 TTC = 30
+    QVERIFY(li1.ok());
+    QVERIFY(li2.ok());
+
+    auto act2Res = Activity::create("evt2", "act2", "",
+        QDateTime(QDate(2024, 3, 1), QTime(9, 0)),
+        QDateTime(QDate(2024, 3, 1), QTime(9, 0)),
+        "EUR", "FR", "DE", false, "DE",
+        Amount(130.0, 18.0), TaxSource::MarketplaceProvided,
+        "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country,
+        SaleType::Products);
+    Shipment ship2({*act2Res.value}, "", true);
+
+    auto infoRes2 = InvoicingInfo::create(&ship2, {*li1.value, *li2.value}, "INV-002", std::nullopt, std::nullopt);
+    QVERIFY(infoRes2.ok());
+
+    OrderInvoicingTable table2({AbstractImporter::InvoicingInfoWithId{"act2", *infoRes2.value}});
+
+    // Two line items → two rows
+    QCOMPARE(table2.rowCount(), 2);
+
+    // Both rows share the same invoice header columns
+    QCOMPARE(table2.data(table2.index(0, OrderInvoicingTable::COL_ID)).toString(), QString("act2"));
+    QCOMPARE(table2.data(table2.index(1, OrderInvoicingTable::COL_ID)).toString(), QString("act2"));
+    QCOMPARE(table2.data(table2.index(0, OrderInvoicingTable::COL_INVOICE_NUMBER)).toString(), QString("INV-002"));
+
+    // Row 0: Widget line item
+    QCOMPARE(table2.data(table2.index(0, OrderInvoicingTable::COL_ITEM_SKU)).toString(),  QString("SKU-A"));
+    QCOMPARE(table2.data(table2.index(0, OrderInvoicingTable::COL_ITEM_NAME)).toString(), QString("Widget"));
+    QVERIFY(qAbs(table2.data(table2.index(0, OrderInvoicingTable::COL_ITEM_QUANTITY)).toDouble()  - 2.0)   < 0.001);
+    // COL_ITEM_UNIT_PRICE_HT may differ slightly from 50/1.20 due to adjustItemTaxes rounding
+    QVERIFY(table2.data(table2.index(0, OrderInvoicingTable::COL_ITEM_UNIT_PRICE_HT)).isValid());
+    QVERIFY(qAbs(table2.data(table2.index(0, OrderInvoicingTable::COL_ITEM_TOTAL_TTC)).toDouble() - 100.0) < 0.01);
+
+    // Row 1: Gadget line item
+    QCOMPARE(table2.data(table2.index(1, OrderInvoicingTable::COL_ITEM_SKU)).toString(),  QString("SKU-B"));
+    QCOMPARE(table2.data(table2.index(1, OrderInvoicingTable::COL_ITEM_NAME)).toString(), QString("Gadget"));
+    QVERIFY(qAbs(table2.data(table2.index(1, OrderInvoicingTable::COL_ITEM_QUANTITY)).toDouble()  - 1.0)  < 0.001);
+    QVERIFY(qAbs(table2.data(table2.index(1, OrderInvoicingTable::COL_ITEM_TOTAL_TTC)).toDouble() - 30.0) < 0.01);
 }
 
 void TestOrderManager::test_conflictResolution_isWrongIfConflict()

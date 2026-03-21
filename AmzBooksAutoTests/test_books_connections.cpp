@@ -501,9 +501,9 @@ void TestBooksConnection::test_tryToConnect_overload()
     // 100 vs 100.9. Diff 0.9. Max 100.9. 0.9/100.9 < 0.01
     runTestCase("3_Same_Tol_Success", 100.0, "EUR", 100.9, "EUR", 1.0, true);
 
-    // 4. Same Currency, Outside 1% Tolerance (1.1% Diff)
-    // 100 vs 101.1. Diff 1.1. Max 101.1. 1.1/101.1 > 0.01
-    runTestCase("4_Same_Tol_Fail", 100.0, "EUR", 101.1, "EUR", 1.0, false);
+    // 4. Same Currency, Outside 1.7% Tolerance (2% Diff)
+    // 100 vs 102.0. Diff 2.0. Tol = max(0.4, 0.017*102.0) = 1.734. 2.0 > 1.734.
+    runTestCase("4_Same_Tol_Fail", 100.0, "EUR", 102.0, "EUR", 1.0, false);
 
     // 5. Diff Currency (EUR/USD), Exact Match
     // 100 EUR vs 110 USD. Rate USD->EUR = 100/110 ~= 0.9090909
@@ -594,10 +594,9 @@ void TestBooksConnection::test_tryToConnect_overload()
     // Diff 0.0066. < 1%. Success.
     runTestCase("18_UsdIdr_Tol_Success", 1.0, "USD", 14900.0, "IDR", 1.0/15000.0, true);
 
-    // 19. IDR -> USD with large error (10000 instead of 15000)
-    // 10000 * (1/15000) = 0.66.
-    // Diff 0.33. > 1%. Fail.
-    runTestCase("19_UsdIdr_Tol_Fail", 1.0, "USD", 10000.0, "IDR", 1.0/15000.0, false);
+    // 19. IDR -> USD with large error (5000 instead of 15000)
+    // 5000 * (1/15000) = 0.333 USD. Diff = 0.667. Tol = max(0.4, 0.017*1.0) = 0.4. 0.667 > 0.4. Fail.
+    runTestCase("19_UsdIdr_Tol_Fail", 1.0, "USD", 5000.0, "IDR", 1.0/15000.0, false);
 
     // 20. Three Currencies Chain (Conceptual)
     // A: 100 EUR. B: 110 USD. C: 85 GBP.
@@ -814,8 +813,9 @@ void TestBooksConnection::test_tryToConnect_more2()
     // 14. Epsilon Split
     runMultiTest("14_EpsSplit", {{b1, 0.03, "EUR"}}, {{k1, 0.01, "EUR"}, {k1, 0.01, "EUR"}, {k1, 0.01, "EUR"}}, true);
     
-    // 15. Epsilon Fail
-    runMultiTest("15_EpsFail", {{b1, 0.04, "EUR"}}, {{k1, 0.01, "EUR"}, {k1, 0.01, "EUR"}, {k1, 0.01, "EUR"}}, false);
+    // 15. Epsilon Fail — diff 0.6 exceeds floor tolerance of 0.4
+    // Book 0.9 EUR vs 3 * 0.1 = 0.3 EUR. Diff = 0.6. Tol = max(0.4, 0.017*0.9) = 0.4. 0.6 > 0.4.
+    runMultiTest("15_EpsFail", {{b1, 0.9, "EUR"}}, {{k1, 0.1, "EUR"}, {k1, 0.1, "EUR"}, {k1, 0.1, "EUR"}}, false);
 
     // 16. Single Left, Empty Right (Should handle gracefully/Fail or Return?)
     // Code returns if empty. No exception, no connection.

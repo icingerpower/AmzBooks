@@ -30,6 +30,11 @@ public:
     QString getReference() const { return m_reference; }
     void setReference(const QString &reference) { m_reference = reference; }
 
+    // ISO 4217 currency code for all amounts in this invoicing info (e.g. "USD", "GBP").
+    // Empty means unknown / falls back to company currency in the PDF generator.
+    QString getCurrency() const { return m_currency; }
+    void setCurrency(const QString &currency) { m_currency = currency; }
+
     /// Renames the line item at position index without touching its amounts.
     void setItemName(int index, const QString &name);
 
@@ -56,6 +61,7 @@ private:
     std::optional<QDate> m_paymentDate;
     bool m_vatOnPayment = false;
     QString m_reference;
+    QString m_currency;
 };
 
 #endif // INVOICINGINFO_H

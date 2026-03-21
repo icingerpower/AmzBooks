@@ -4,6 +4,8 @@
 #include "orders/Shipment.h"
 #include "orders/Refund.h"
 #include "orders/Address.h"
+#include "orders/InvoicingInfo.h"
+#include "orders/LineItem.h"
 #include "utils/CsvReader.h"
 #include "utils/CsvHeader.h"
 #include <QFileInfo>
@@ -145,6 +147,11 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
     int idxOrderTime  = csvData->header.contains("order-time")      ? csvData->header.pos("order-time")      : -1;
     int idxRefunded   = csvData->header.contains("refunded-amount") ? csvData->header.pos("refunded-amount") : -1;
     int idxRefundDate = csvData->header.contains("refund-date")     ? csvData->header.pos("refund-date")     : -1;
+    // Line-item columns (optional — used to build InvoicingInfo for invoice generation)
+    int idxSku          = csvData->header.contains("sku")            ? csvData->header.pos("sku")            : -1;
+    int idxProductTitle = csvData->header.contains("product-title")  ? csvData->header.pos("product-title")  : -1;
+    int idxQuantity     = csvData->header.contains("quantity")        ? csvData->header.pos("quantity")        : -1;
+
     // Address columns (all optional — absence degrades gracefully to empty strings)
     int idxFullName   = csvData->header.contains("full-name")       ? csvData->header.pos("full-name")       : -1;
     int idxStreetAddr = csvData->header.contains("street-address")  ? csvData->header.pos("street-address")  : -1;
@@ -160,6 +167,12 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
     static const QString currency = "USD";
 
     // Per-order accumulator: amounts from multiple SKU rows are summed into one shipment.
+    struct LineItemAccum {
+        QString sku;
+        QString name;
+        double  subtotal = 0.0; // untaxed amount for this row (subtotal-paid column)
+        int     quantity = 1;
+    };
     struct OrderAccum {
         QDateTime firstDt;
         double    subtotalSum    = 0.0;
@@ -167,6 +180,8 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
         double    refundedAmount = 0.0; // taken from first row that carries a non-zero value
         QDate     refundDate;
         QString   destCountry;
+        // Per-row line items — used to build InvoicingInfo for invoice generation
+        QList<LineItemAccum> lineItems;
         // Address fields captured from the first row of this order
         QString   fullName, streetAddr, addrLine2, city, zip, state, email, phone;
     };
@@ -217,8 +232,19 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
         }
 
         OrderAccum &acc  = orderMap[orderNumber];
-        acc.subtotalSum += parseAmount(line.value(idxSubtotal));
+        const double rowSubtotal = parseAmount(line.value(idxSubtotal));
+        acc.subtotalSum += rowSubtotal;
         acc.taxSum      += parseAmount(line.value(idxTax));
+
+        // Accumulate per-row line item data for InvoicingInfo construction
+        {
+            LineItemAccum li;
+            li.sku      = (idxSku          != -1) ? line.value(idxSku).trimmed()          : QString{};
+            li.name     = (idxProductTitle != -1) ? line.value(idxProductTitle).trimmed() : QString{};
+            li.subtotal = rowSubtotal;
+            li.quantity = (idxQuantity != -1) ? qMax(1, line.value(idxQuantity).toInt()) : 1;
+            acc.lineItems.append(li);
+        }
 
         // Refund fields: capture from the first row that carries a non-zero refunded-amount
         if (idxRefunded != -1 && acc.refundedAmount == 0.0)
@@ -279,6 +305,57 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
         Shipment shipment(acts, "", isGroupedOrders());
         ret.orderInfos->shipments.append(shipment);
 
+        // Build InvoicingInfo for this shipment so that generateInvoices() can produce a PDF.
+        // vatRate is derived from the order totals and applied uniformly to all rows.
+        // Use qAbs() throughout: some CommerceHQ exports carry negative subtotal-paid for
+        // refunded orders, which would otherwise invert the sign of the invoice line items.
+        {
+            const double absSubtotalSum = qAbs(acc.subtotalSum);
+            const double vatRate = (absSubtotalSum > 0.0001)
+                ? (qAbs(acc.taxSum) / absSubtotalSum) : 0.0;
+
+            QList<LineItem> lineItems;
+            for (const auto &li : std::as_const(acc.lineItems))
+            {
+                if (li.subtotal == 0.0 || li.quantity <= 0)
+                    continue;
+                const double taxedPerUnit = qAbs(li.subtotal) * (1.0 + vatRate) / li.quantity;
+                const QString name = !li.name.isEmpty() ? li.name
+                                   : (!li.sku.isEmpty() ? li.sku : QObject::tr("Products"));
+                auto liRes = LineItem::create(li.sku, name, taxedPerUnit, vatRate, li.quantity);
+                if (liRes.ok())
+                    lineItems.append(*liRes.value);
+            }
+            // Fall back to one aggregate line item if all per-row entries were zero
+            if (lineItems.isEmpty())
+            {
+                const double total = qAbs(acc.subtotalSum + acc.taxSum);
+                if (total != 0.0)
+                {
+                    auto liRes = LineItem::create("", QObject::tr("Products"), total, vatRate, 1);
+                    if (liRes.ok())
+                        lineItems.append(*liRes.value);
+                }
+            }
+            if (!lineItems.isEmpty())
+            {
+                auto infoRes = InvoicingInfo::create(
+                    &ret.orderInfos->shipments.last(),
+                    lineItems, std::nullopt, std::nullopt, std::nullopt);
+                if (infoRes.ok())
+                {
+                    ret.orderInfos->invoicingInfos.append(
+                        InvoicingInfoWithId{ret.orderInfos->shipments.last().getId(),
+                                            *infoRes.value});
+                }
+                else
+                {
+                    qWarning() << "ImporterFileCommerceHQ: InvoicingInfo failed for order"
+                               << orderNumber;
+                }
+            }
+        }
+
         // Delivery address (one per order)
         Address addr(
             acc.fullName, acc.streetAddr, acc.addrLine2,
@@ -298,7 +375,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
         // Refund handling: full refund → Refund entry; partial → orderId_refundClue
         if (acc.refundedAmount > 0.0)
         {
-            const double totalGross  = acc.subtotalSum + acc.taxSum;
+            const double totalGross  = qAbs(acc.subtotalSum + acc.taxSum);
             const bool isFullRefund  = totalGross > 0.001 && qAbs(acc.refundedAmount - totalGross) < 0.01;
 
             if (isFullRefund)
@@ -333,6 +410,49 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
                     refundActs.append(*refundActResult.value);
                     Refund refund(refundActs, "", isGroupedOrders());
                     ret.orderInfos->refunds.append(refund);
+
+                    // Build InvoicingInfo for the refund.
+                    // Negate the same per-SKU line items as the shipment so the invoice
+                    // shows the actual product(s) being refunded, not a generic "Refund" label.
+                    const double absSubtotalSumR = qAbs(acc.subtotalSum);
+                    const double refundVatRate = (absSubtotalSumR > 0.0001)
+                        ? (qAbs(acc.taxSum) / absSubtotalSumR) : 0.0;
+                    QList<LineItem> refundItems;
+                    for (const auto &li : std::as_const(acc.lineItems))
+                    {
+                        if (li.subtotal == 0.0 || li.quantity <= 0)
+                            continue;
+                        const double taxedPerUnit = -qAbs(li.subtotal) * (1.0 + refundVatRate) / li.quantity;
+                        const QString name = !li.name.isEmpty() ? li.name
+                                           : (!li.sku.isEmpty() ? li.sku : QObject::tr("Refund"));
+                        auto liRes = LineItem::create(li.sku, name, taxedPerUnit, refundVatRate, li.quantity);
+                        if (liRes.ok())
+                            refundItems.append(*liRes.value);
+                    }
+                    if (refundItems.isEmpty())
+                    {
+                        // Fallback: no per-SKU data — use a single generic line item
+                        auto liRes = LineItem::create("", QObject::tr("Refund"), -acc.refundedAmount, refundVatRate, 1);
+                        if (liRes.ok())
+                            refundItems.append(*liRes.value);
+                    }
+                    if (!refundItems.isEmpty())
+                    {
+                        auto refundInfoRes = InvoicingInfo::create(
+                            &ret.orderInfos->refunds.last(),
+                            refundItems, std::nullopt, std::nullopt, std::nullopt);
+                        if (refundInfoRes.ok())
+                        {
+                            ret.orderInfos->invoicingInfos.append(
+                                InvoicingInfoWithId{ret.orderInfos->refunds.last().getId(),
+                                                    *refundInfoRes.value});
+                        }
+                        else
+                        {
+                            qWarning() << "ImporterFileCommerceHQ: InvoicingInfo failed for refund"
+                                       << orderNumber;
+                        }
+                    }
                 }
             }
             else

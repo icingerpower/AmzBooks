@@ -1332,23 +1332,33 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
 QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfo(const QString &shipmentId) const
 {
     // 1. Resolve to Root ID
-    // The incoming shipmentId might be a specific version/revision. 
+    // The incoming shipmentId might be a specific version/revision.
     // We need to look up the info using the stable root ID.
     QString rootId = shipmentId;
+    bool foundInShipmentsTable = false;
     {
         QSqlQuery q(m_db);
         q.prepare("SELECT COALESCE(root_id, id) FROM shipments WHERE id = ?");
         q.addBindValue(shipmentId);
         if (q.exec() && q.next()) {
             rootId = q.value(0).toString();
+            foundInShipmentsTable = true;
         }
     }
-    
+
     // 2. Retrieve Data by root shipment ID
     QSqlQuery q(m_db);
     q.prepare("SELECT json FROM invoicing_infos WHERE shipment_root_id = ?");
     q.addBindValue(rootId);
     if (q.exec() && q.next()) {
+        if (foundInShipmentsTable) {
+            // rootId was resolved from the shipments table — it is a proper shipment
+            // root, so return the invoicingInfo directly without any guard.
+            QJsonObject json = QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
+            return QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(json));
+        }
+
+        // shipmentId was NOT in the shipments table, so rootId == shipmentId (unchanged).
         // Guard: verify that rootId is not being used as an Amazon order ID.
         // If there are shipments whose order_id equals rootId AND whose id is
         // different from rootId, then rootId is an Amazon order ID (not a proper
@@ -1356,15 +1366,11 @@ QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfo(const QString &ship
         // by a previous broken run of generateInvoice (which used getEventId()
         // instead of getActivityId() for recordInvoicingInfo).
         // Fall through to the order-level fallback to find the correct entry.
-        //
-        // We must exclude id = rootId to avoid a false positive for service sales,
-        // where the shipment id equals the order id (both are the orderId).
         QSqlQuery guardQ(m_db);
         guardQ.prepare("SELECT 1 FROM shipments WHERE order_id = ? AND id != ? LIMIT 1");
         guardQ.addBindValue(rootId);
         guardQ.addBindValue(rootId);
         if (!(guardQ.exec() && guardQ.next())) {
-            // rootId is a proper shipment root — use this entry
             QJsonObject json = QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
             return QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(json));
         }
@@ -2179,7 +2185,10 @@ OrderManager::get_channel_site_ShipmentAndRefundsNoInvoices(const QDate &dateFro
         "LEFT JOIN invoicing_infos inv ON COALESCE(s.root_id, s.id) = inv.shipment_root_id "
         "WHERE s.order_id IN ("
         + quotedIds.join(", ") + ") "
-        "ORDER BY s.order_id, s.event_date";
+        // Sort orders before refunds within the same order_id so that the base
+        // invoice number is always assigned to the sale and -R01/-R02 suffixes go
+        // to the refunds/credit-notes, regardless of which has an earlier event_date.
+        "ORDER BY s.order_id, s.is_refund, s.event_date";
 
     QSqlQuery query(m_db);
     query.exec(queryStr);
@@ -2376,7 +2385,7 @@ OrderManager::getShipmentAndRefundsNoInvoices(const QDate &dateFrom, const QDate
         quotedIds << QString("'%1'").arg(id);
     }
     queryStr += quotedIds.join(", ") + ")";
-    queryStr += " ORDER BY s.order_id, s.event_date";
+    queryStr += " ORDER BY s.order_id, s.is_refund, s.event_date";
 
     QSqlQuery query(m_db);
     query.exec(queryStr);

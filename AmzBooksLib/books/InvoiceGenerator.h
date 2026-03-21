@@ -48,11 +48,15 @@ public:
         const QList<bool> &invoicesToDo,
         const std::optional<QString> &existingInvoiceNumber,
         const QStringList &shipmentIds,
-        const OrderManager *orderManager = nullptr); // When provided, discovers sale invoices
-                                                     // stored in OrderManager but not yet in
-                                                     // this generator's own registry, so that
-                                                     // refunds for those orders receive -Rxx
-                                                     // suffixes instead of new base numbers.
+        const OrderManager *orderManager = nullptr, // When provided, discovers sale invoices
+                                                    // stored in OrderManager but not yet in
+                                                    // this generator's own registry, so that
+                                                    // refunds for those orders receive -Rxx
+                                                    // suffixes instead of new base numbers.
+        const QStringList &activityIds = {}); // Per-entry activity IDs (e.g. "3105_refund").
+                                              // When provided, revision records store the
+                                              // activityId so that regenerateInvoices can
+                                              // retrieve the correct invoicingInfo for refunds.
 
     void generateInvoice(
         const QString &invoiceNumber,
@@ -124,7 +128,11 @@ private:
         QString channel;
         QString store;
         QString invoiceNumber;
-        QString shipmentId; // Persisted for idempotent re-generation after delete + recreate
+        QString shipmentId;  // eventId — used as orderId in PDF and for address lookup
+        QString activityId;  // activityId for revision records (e.g. "3105_refund"); empty
+                             // for base records. When non-empty, regenerateInvoices uses
+                             // this to fetch the correct invoicingInfo and to record the
+                             // generated invoice under the right key in OrderManager.
     };
 
     QString _buildContextKey(
