@@ -246,55 +246,55 @@ void PaneOrderFiles::importFile()
                 QMessageBox::warning(self, tr("Import Errors"), errors.join("\n\n"));
             }
 
-            if (!aggregatedResult.orderInfos->shipments.isEmpty() || !aggregatedResult.orderInfos->refunds.isEmpty()) {
-                // Save to OrderManager
-                // We instantiate OrderManager here.
-                // CAUTION: Ensure DB connection doesn't conflict if app uses shared connection.
-                // Assuming OrderManager handles its own connection or default connection is safe.
-
+            const bool hasShipmentsOrRefunds = !aggregatedResult.orderInfos->shipments.isEmpty()
+                                               || !aggregatedResult.orderInfos->refunds.isEmpty();
+            const bool hasRefundClues = !aggregatedResult.orderInfos->orderId_refundClue.isEmpty();
+            if (hasShipmentsOrRefunds || hasRefundClues) {
                 int importedCount = 0;
-                // Preview Dialog
                 QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
                 CompanyInfosTable companyInfo(workingDir);
-                CurrencyRateManager currencyRateManager(workingDir, companyInfo.getApiKeyFixer());
 
-                if (importer->recomputeTaxes()) {
-                    VatTerritoryResolver vatTerritoryResolver(workingDir);
-                    TaxResolver taxResolver(workingDir);
-                    VatResolver vatResolver(workingDir);
+                if (hasShipmentsOrRefunds) {
+                    CurrencyRateManager currencyRateManager(workingDir, companyInfo.getApiKeyFixer());
 
-                    QHash<QString, const Address *> orderIdToAddress;
-                    for (const auto &addrWithId : aggregatedResult.orderInfos->orderAddresses) {
-                        orderIdToAddress[addrWithId.orderId] = &addrWithId.address;
-                    }
+                    if (importer->recomputeTaxes()) {
+                        VatTerritoryResolver vatTerritoryResolver(workingDir);
+                        TaxResolver taxResolver(workingDir);
+                        VatResolver vatResolver(workingDir);
 
-                    auto computeShipmentTax = [&](Shipment &shipment) {
-                        QString vatTerritoryTo;
-                        if (!shipment.getActivities().isEmpty()) {
-                            const Address *addr = orderIdToAddress.value(
-                                        shipment.getActivities().first().getEventId(), nullptr);
-                            if (addr) {
-                                vatTerritoryTo = vatTerritoryResolver.getTerritoryId(
-                                            addr->getCountryCode(),
-                                            addr->getPostalCode(),
-                                            addr->getCity());
-                            }
+                        QHash<QString, const Address *> orderIdToAddress;
+                        for (const auto &addrWithId : aggregatedResult.orderInfos->orderAddresses) {
+                            orderIdToAddress[addrWithId.orderId] = &addrWithId.address;
                         }
-                        shipment.computeTax(&taxResolver, &vatResolver, QString{}, vatTerritoryTo);
-                    };
 
-                    for (auto &shipment : aggregatedResult.orderInfos->shipments) {
-                        computeShipmentTax(shipment);
-                    }
-                    for (auto &refund : aggregatedResult.orderInfos->refunds) {
-                        computeShipmentTax(refund);
-                    }
-                }
+                        auto computeShipmentTax = [&](Shipment &shipment) {
+                            QString vatTerritoryTo;
+                            if (!shipment.getActivities().isEmpty()) {
+                                const Address *addr = orderIdToAddress.value(
+                                            shipment.getActivities().first().getEventId(), nullptr);
+                                if (addr) {
+                                    vatTerritoryTo = vatTerritoryResolver.getTerritoryId(
+                                                addr->getCountryCode(),
+                                                addr->getPostalCode(),
+                                                addr->getCity());
+                                }
+                            }
+                            shipment.computeTax(&taxResolver, &vatResolver, QString{}, vatTerritoryTo);
+                        };
 
-                DialogViewOrders dialog(*aggregatedResult.orderInfos, &currencyRateManager, companyInfo.getCurrency(), workingDir, companyInfo.getCompanyCountryCode(), self);
-                if (dialog.exec() != QDialog::Accepted) {
-                    self->ui->buttonImport->setEnabled(true);
-                    co_return;
+                        for (auto &shipment : aggregatedResult.orderInfos->shipments) {
+                            computeShipmentTax(shipment);
+                        }
+                        for (auto &refund : aggregatedResult.orderInfos->refunds) {
+                            computeShipmentTax(refund);
+                        }
+                    }
+
+                    DialogViewOrders dialog(*aggregatedResult.orderInfos, &currencyRateManager, companyInfo.getCurrency(), workingDir, companyInfo.getCompanyCountryCode(), self);
+                    if (dialog.exec() != QDialog::Accepted) {
+                        self->ui->buttonImport->setEnabled(true);
+                        co_return;
+                    }
                 }
                 setCursor(Qt::WaitCursor);
 

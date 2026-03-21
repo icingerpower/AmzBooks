@@ -50,6 +50,7 @@ private:
 public slots:
     void loadYearSelected();
     void generateBookKeeping();
+    void generateReports();
     void generateInvoices();
     void regenerateInvoices();
     void unselectAll();

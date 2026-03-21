@@ -768,8 +768,6 @@ void PaneBookKeeping::generateInvoicesWithSelection(std::optional<QSet<QString>>
         }
     }
     QMessageBox::information(this, tr("Invoice Generation Complete"), msg);
-
-    generateSaleReports(outDir);
 }
 
 void PaneBookKeeping::regenerateInvoices()
@@ -841,6 +839,19 @@ void PaneBookKeeping::regenerateInvoices()
     } catch (const ExceptionWithTitleText &e) {
         QMessageBox::warning(this, e.errorTitle(), e.errorText());
     }
+}
+
+void PaneBookKeeping::generateReports()
+{
+    // 1. Ask for the output folder
+    QSettings settings;
+    QString lastDir = settings.value("lastInvoicesDir", QDir::homePath()).toString();
+    QString dir = QFileDialog::getExistingDirectory(this, tr("Select Reports Output Folder"), lastDir);
+    if (dir.isEmpty()) {
+        return;
+    }
+    settings.setValue("lastInvoicesDir", dir);
+    QDir outDir(dir);
 
     generateSaleReports(outDir);
 }
@@ -2260,6 +2271,10 @@ void PaneBookKeeping::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneBookKeeping::generateBookKeeping);
+    connect(ui->buttonGenerateReports,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::generateReports);
     connect(ui->buttonGenerateInvoices,
             &QPushButton::clicked,
             this,
