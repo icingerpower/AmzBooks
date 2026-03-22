@@ -149,6 +149,11 @@ private:
     int _getNextSequenceForContext(const QString &contextKey);
 
 public:
+    // Returns the invoice number for a revision/refund record by its activityId.
+    // Fallback for cases where invoicing_infos DB was not updated but CSV persists
+    // (e.g. generateInvoice threw after _save() was called by a prior generateInvoice).
+    QString getInvoiceNumberForActivityId(const QString &activityId) const;
+
     // Remove the invoice record associated with a shipmentId (base + any revisions).
     // Call this before deleting the corresponding sale so that if the sale is
     // recreated, the same invoice number is re-assigned from scratch.

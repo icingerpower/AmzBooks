@@ -110,6 +110,7 @@ DialogViewShipments::DialogViewShipments(const QList<OrderManager::ShipmentRefun
     ui->tableView->setAlternatingRowColors(true);
     ui->tableView->setSelectionBehavior(QAbstractItemView::SelectItems);
     ui->tableView->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked);
+    proxy->sort(1, Qt::DescendingOrder);
 }
 
 DialogViewShipments::~DialogViewShipments()

@@ -32,8 +32,11 @@
 #include "PaneBookKeeping.h"
 #include "ui_PaneBookKeeping.h"
 
+#include <QApplication>
+#include <QFile>
 #include <QFileDialog>
 #include <QMessageBox>
+#include <QProgressDialog>
 #include <QSettings>
 #include <QTimer>
 #include <QShowEvent>
@@ -532,7 +535,42 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
 
 void PaneBookKeeping::generateInvoices()
 {
-    generateInvoicesWithSelection(std::nullopt);
+    int year = ui->comboBoxYear->currentText().toInt();
+    QDate from(year, 1, 1);
+    QDate to(year, 12, 31);
+
+    auto noInvoicesList = m_orderManager->getShipmentAndRefundsNoInvoices(from, to);
+    if (!noInvoicesList || noInvoicesList->isEmpty()) {
+        QMessageBox::information(this, tr("No Invoices to Generate"),
+            tr("All orders for %1 already have invoices.").arg(year));
+        return;
+    }
+
+    int count = 0;
+    for (const auto &entry : std::as_const(*noInvoicesList)) {
+        for (bool needed : entry.invoicesToDo) {
+            if (needed) {
+                count++;
+            }
+        }
+    }
+    if (count == 0) {
+        QMessageBox::information(this, tr("No Invoices to Generate"),
+            tr("All orders for %1 already have invoices.").arg(year));
+        return;
+    }
+
+    DialogViewShipments dialog(*noInvoicesList, year, m_orderManager, this);
+    if (dialog.exec() != QDialog::Accepted) {
+        return;
+    }
+
+    QSet<QString> selected = dialog.getSelectedShipmentIds();
+    if (selected.size() == count) {
+        generateInvoicesWithSelection(std::nullopt);
+    } else {
+        generateInvoicesWithSelection(selected);
+    }
 }
 
 void PaneBookKeeping::generateInvoicesWithSelection(std::optional<QSet<QString>> selectedShipmentIds)
@@ -602,6 +640,7 @@ void PaneBookKeeping::generateInvoicesWithSelection(std::optional<QSet<QString>>
     QProgressDialog progress(tr("Generating Invoices..."), tr("Cancel"), 0, totalSteps, this);
     progress.setWindowModality(Qt::WindowModal);
     progress.setMinimumDuration(0);
+    QApplication::setOverrideCursor(Qt::WaitCursor);
     int currentStep = 0;
     int generated = 0;
     int errors = 0;
@@ -681,13 +720,19 @@ void PaneBookKeeping::generateInvoicesWithSelection(std::optional<QSet<QString>>
                     if (invoiceNumber.isEmpty()) continue;
 
                     const auto &shipment = entry.shipmentsRefundsSameActivity[i];
-                    if (!shipment || shipment->getActivities().isEmpty()) { errors++; errorMsgs << tr("Empty activities"); continue; }
+                    if (!shipment || shipment->getActivities().isEmpty()) {
+                        errors++;
+                        errorMsgs << tr("Empty activities");
+                        generator.removeInvoiceByNumber(invoiceNumber);
+                        continue;
+                    }
 
                     const QString &orderId = shipment->getActivities().first().getEventId();
                     const QString &activityId = shipment->getActivities().first().getActivityId();
                     if (activityId.isEmpty()) {
                         errors++;
                         errorMsgs << tr("Empty shipmentId");
+                        generator.removeInvoiceByNumber(invoiceNumber);
                         continue;
                     }
 
@@ -701,6 +746,7 @@ void PaneBookKeeping::generateInvoicesWithSelection(std::optional<QSet<QString>>
                     if (!info) {
                         errors++;
                         errorMsgs << tr("Missing invoicing info for %1").arg(orderId);
+                        generator.removeInvoiceByNumber(invoiceNumber);
                         continue;
                     }
 
@@ -743,11 +789,24 @@ void PaneBookKeeping::generateInvoicesWithSelection(std::optional<QSet<QString>>
                         generator.generateInvoice(invoiceNumber, prevNumber, pdfPath,
                                                    addressTo, *info, orderId, *m_orderManager,
                                                    invoiceDate, activityId);
-                        generated++;
+                        if (QFile::exists(pdfPath)) {
+                            generated++;
+                        } else {
+                            // PDF was not written (e.g. disk full, invalid path).
+                            // Remove the prematurely-saved CSV record so the system
+                            // does not consider this invoice as having been generated.
+                            errors++;
+                            errorMsgs << tr("PDF not created for %1").arg(orderId);
+                            generator.removeInvoiceByNumber(invoiceNumber);
+                        }
                     } catch (const std::exception &ex) {
                         qWarning() << "[generateInvoices] Failed for" << orderId << ":" << ex.what();
                         errors++;
                         errorMsgs << tr("Failed for %1: %2").arg(orderId, ex.what());
+                        // Remove the CSV record allocated by getNextInvoiceNumbers so it
+                        // is not left as a ghost entry (present in invoices.csv but absent
+                        // from invoicing_infos and without a matching PDF on disk).
+                        generator.removeInvoiceByNumber(invoiceNumber);
                     }
                 }
             }
@@ -755,6 +814,7 @@ void PaneBookKeeping::generateInvoicesWithSelection(std::optional<QSet<QString>>
     }
 
     progress.setValue(totalSteps);
+    QApplication::restoreOverrideCursor();
 
     QString msg = tr("Generated %1 invoice(s).").arg(generated);
     if (errors > 0) {
@@ -827,17 +887,28 @@ void PaneBookKeeping::regenerateInvoices()
     }
 
     // 5. Regenerate
-    try {
-        generator.regenerateInvoices(outDir, from, to, *m_orderManager);
+    {
+        QProgressDialog progress(tr("Regenerating invoices for %1...").arg(year),
+                                 QString(), 0, 0, this);
+        progress.setWindowModality(Qt::WindowModal);
+        progress.setMinimumDuration(0);
+        QApplication::setOverrideCursor(Qt::WaitCursor);
+        QApplication::processEvents();
 
-        QMessageBox::information(
-            this,
-            tr("Regeneration Complete"),
-            tr("Invoices for %1 have been regenerated in:\n%2")
-                .arg(year)
-                .arg(outDir.absolutePath()));
-    } catch (const ExceptionWithTitleText &e) {
-        QMessageBox::warning(this, e.errorTitle(), e.errorText());
+        try {
+            generator.regenerateInvoices(outDir, from, to, *m_orderManager);
+            QApplication::restoreOverrideCursor();
+
+            QMessageBox::information(
+                this,
+                tr("Regeneration Complete"),
+                tr("Invoices for %1 have been regenerated in:\n%2")
+                    .arg(year)
+                    .arg(outDir.absolutePath()));
+        } catch (const ExceptionWithTitleText &e) {
+            QApplication::restoreOverrideCursor();
+            QMessageBox::warning(this, e.errorTitle(), e.errorText());
+        }
     }
 }
 
@@ -884,6 +955,10 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
     const QString companyCurrency = companyInfos.getCurrency();
     const QString apiKey = companyInfos.getApiKeyFixer();
     CurrencyRateManager currencyRateManager(workingDir, apiKey);
+    CompanyAddressTable companyAddress(workingDir);
+    VatNumbersTable vatNumbers(workingDir);
+    InvoiceGenerator invoiceGen(workingDir, &companyInfos, &companyAddress,
+                                &currencyRateManager, &vatNumbers);
 
     auto acceptGrouped = [](const ActivitySource *, const Shipment *s) {
         return s->isGrouped();
@@ -900,21 +975,34 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
     };
     const int NB_COLS = tableHeaders.size();
 
+    // Count processable months for the progress dialog
+    const QDate today = QDate::currentDate();
+    int totalMonths = 0;
+    for (int m = 1; m <= 12; ++m) {
+        if (!(year > today.year() || (year == today.year() && m >= today.month()))) {
+            ++totalMonths;
+        }
+    }
+
+    QProgressDialog progress(tr("Generating sale reports..."), QString(), 0, totalMonths, this);
+    progress.setWindowModality(Qt::WindowModal);
+    progress.setMinimumDuration(0);
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    int progressStep = 0;
+
     for (int month = 1; month <= 12; ++month) {
         // Skip current and future months (data may be incomplete)
-        const QDate today = QDate::currentDate();
-        if (year > today.year() || (year == today.year() && month >= today.month()))
+        if (year > today.year() || (year == today.year() && month >= today.month())) {
             continue;
+        }
 
-        ReportGenerator report;
-        report.setLandscape(true);
-        report.setPageSize(QPageSize::A3);
-        report.setFontScale(1.5);
+        progress.setValue(progressStep++);
+        QApplication::processEvents();
 
         const QString monthStr = QString("%1").arg(month, 2, 10, QChar('0'));
-        report.addTitle(tr("Sale amazon") + QString(" %1/%2").arg(year).arg(monthStr));
 
-        bool hasData = false;
+        // One ReportGenerator per channel (key = channel name, e.g. "Amazon", "Temu")
+        QMap<QString, ReportGenerator> channelReports;
 
         for (auto it = sourceMapGrouped.cbegin(); it != sourceMapGrouped.cend(); ++it) {
             ActivitySource source = it.key();
@@ -930,8 +1018,22 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
                     monthlyShipmentList.append(jt.value());
                 }
             }
-            if (monthlyShipments.isEmpty())
+            if (monthlyShipments.isEmpty()) {
                 continue;
+            }
+
+            const QString &channelKey = source.channel;
+
+            // Initialise the report for this channel on first use
+            if (!channelReports.contains(channelKey)) {
+                ReportGenerator &r = channelReports[channelKey];
+                r.setLandscape(true);
+                r.setPageSize(QPageSize::A3);
+                r.setFontScale(1.5);
+                r.addTitle(tr("Sale %1").arg(channelKey) +
+                           QString(" %1/%2").arg(year).arg(monthStr));
+            }
+            ReportGenerator &report = channelReports[channelKey];
 
             const QHash<QString, QString> orderId_store =
                 m_orderManager->getStores(monthlyShipmentList);
@@ -956,8 +1058,6 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
             }
 
             for (const auto &group : std::as_const(vatGroups)) {
-                hasData = true;
-
                 // Subtitle: e.g. "Amazon Europe | DOM FR→FR 20.00% EUR [706000 / 445711]"
                 QString subtitle =
                     QString("%1 %2 | %3 %4\u2192%5 %6% %7")
@@ -968,8 +1068,9 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
                              group.currency);
                 if (!group.saleAccount.isEmpty()) {
                     subtitle += " [" + group.saleAccount;
-                    if (group.vatRatePct > 0.01 && !group.vatAccount.isEmpty())
+                    if (group.vatRatePct > 0.01 && !group.vatAccount.isEmpty()) {
                         subtitle += " / " + group.vatAccount;
+                    }
                     subtitle += "]";
                 }
                 report.addSubtitle(subtitle);
@@ -981,7 +1082,7 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
                 std::sort(rows.begin(), rows.end(),
                     [](const JournalEntryFactory::ShipmentReportInfo &a,
                        const JournalEntryFactory::ShipmentReportInfo &b) {
-                        if (a.store != b.store) return a.store < b.store;
+                        if (a.store != b.store) { return a.store < b.store; }
                         return a.date < b.date;
                     });
 
@@ -996,9 +1097,6 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
                 }
 
                 double sumUntaxed = 0.0, sumTaxes = 0.0, sumTaxed = 0.0;
-
-                const QDir invoiceSubDir(dirTo.filePath(
-                    QString("%1/%2").arg(year).arg(monthStr)));
 
                 for (const auto &row : std::as_const(rows)) {
                     sumUntaxed += row.untaxedAmount;
@@ -1019,6 +1117,12 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
                                 invoiceLinkHtml =
                                     "<a href=\"" + *info->getInvoiceLink() + "\">" + tr("Open") + "</a>";
                             }
+                        }
+                        // Fallback: invoicing_infos DB may be missing the entry (e.g. generateInvoice
+                        // threw after _save() had already written the record to invoices.csv).
+                        if (invoiceNumberStr.isEmpty()) {
+                            invoiceNumberStr =
+                                invoiceGen.getInvoiceNumberForActivityId(row.shipmentRefundId);
                         }
                     }
 
@@ -1057,19 +1161,25 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
             }
         }
 
-        if (hasData) {
+        if (!channelReports.isEmpty()) {
             const QString subDirName = QString("%1/%2").arg(year).arg(monthStr);
             QDir subDir(dirTo.filePath(subDirName));
             subDir.mkpath(".");
-            const QString reportPath = subDir.absoluteFilePath(
-                QString("sale_amazon_%1_%2.pdf").arg(year).arg(monthStr));
-            try {
-                report.save(reportPath);
-            } catch (const std::exception &ex) {
-                qWarning() << "[generateSaleReports] Failed to save report:" << ex.what();
+            for (auto it = channelReports.cbegin(); it != channelReports.cend(); ++it) {
+                const QString channelFilename = it.key().toLower();
+                const QString reportPath = subDir.absoluteFilePath(
+                    QString("sale_%1_%2_%3.pdf").arg(channelFilename).arg(year).arg(monthStr));
+                try {
+                    it.value().save(reportPath);
+                } catch (const std::exception &ex) {
+                    qWarning() << "[generateSaleReports] Failed to save report:" << ex.what();
+                }
             }
         }
     }
+
+    progress.setValue(totalMonths);
+    QApplication::restoreOverrideCursor();
 }
 
 void PaneBookKeeping::unselectAll()

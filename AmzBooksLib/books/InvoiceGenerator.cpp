@@ -1055,6 +1055,19 @@ void InvoiceGenerator::regenerateInvoices(
     }
 }
 
+QString InvoiceGenerator::getInvoiceNumberForActivityId(const QString &activityId) const
+{
+    if (activityId.isEmpty()) {
+        return {};
+    }
+    for (const auto &record : std::as_const(m_data)) {
+        if (record.activityId == activityId) {
+            return record.invoiceNumber;
+        }
+    }
+    return {};
+}
+
 void InvoiceGenerator::removeInvoiceRecord(const QString &shipmentId)
 {
     if (shipmentId.isEmpty())
