@@ -10,6 +10,7 @@
 #include "CurrencyRateManager.h"
 
 #include "BooksConnections.h"
+#include "CompanyInfosTable.h"
 
 // Fixed approximate EUR conversion rates (mirrors PurchaseAmzPaymentsManager::toEur)
 static double toEurApprox(double amount, const QString &currency)
@@ -298,10 +299,11 @@ bool BooksConnections::containsSelf(const QString &booksTableId, const QString &
 }
 
 void BooksConnections::associateTablesToIds(
-        QList<AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable)
+        QList<AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable, const CompanyInfosTable *companyInfosTable)
 {
     m_cacheId_table.clear();
     m_cacheId_tableSelf.clear();
+    m_internalBankAccount = companyInfosTable ? companyInfosTable->getInternalBankAccount() : QStringLiteral("58000");
 
     // Map Book Tables
     for (const AbstractBooksTable *table : bookTables) {
@@ -339,6 +341,9 @@ QString BooksConnections::getAccount2(AbstractBooksTableBank *tableBank, int row
     if (m_cacheId_table.contains(otherId))
     {
         auto [otherTable, otherRow] = m_cacheId_table[otherId];
+        if (qobject_cast<const AbstractBooksTableBank *>(otherTable)) {
+            return m_internalBankAccount;
+        }
         return otherTable->getAccount2(otherRow);
     }
     else if (m_cacheId_tableSelf.contains(otherId))
@@ -346,9 +351,8 @@ QString BooksConnections::getAccount2(AbstractBooksTableBank *tableBank, int row
         auto [selfTable, selfRow] = m_cacheId_tableSelf[otherId];
         return selfTable->getAccount(selfRow);
     }
-    return "TODO"; //TODOCEDRIC
-    //Q_ASSERT(false); // Should not happen
-    return QString{};
+    Q_ASSERT(false); // Should not happen
+    return "TODOACT2";
 }
 
 QString BooksConnections::_getId(const QString &booksTableId, const QString &rowId) const

@@ -20,6 +20,7 @@ const QString CompanyInfosTable::ID_LEGAL_RCS = "Legal_RCS";
 const QString CompanyInfosTable::ID_LEGAL_VAT_INTRACOMMUNITY = "Legal_VATIntracommunity";
 const QString CompanyInfosTable::ID_LEGAL_INVOICE_BOTTOM = "Legal_InvoiceBottom";
 const QString CompanyInfosTable::ID_VAT_ON_PAYMENT_TEXT  = "Legal_VatOnPaymentText";
+const QString CompanyInfosTable::ID_INTERNAL_BANK_ACCOUNT = "InternalBankAccount";
 
 CompanyInfosTable::CompanyInfosTable(
     const QDir &workingDir, QObject *parent)
@@ -124,6 +125,17 @@ const QString &CompanyInfosTable::getVatOnPaymentText() const
     }
     static QString empty;
     return empty;
+}
+
+const QString &CompanyInfosTable::getInternalBankAccount() const
+{
+    for (const auto &item : m_data) {
+        if (item.id == ID_INTERNAL_BANK_ACCOUNT) {
+            return item.value;
+        }
+    }
+    static QString defaultAccount = QStringLiteral("58000");
+    return defaultAccount;
 }
 
 bool CompanyInfosTable::hadData() const
@@ -300,6 +312,16 @@ void CompanyInfosTable::_initDefaultRows()
         item.id = ID_VAT_ON_PAYMENT_TEXT;
         item.parameter = tr("VAT on Payment Text");
         item.value = "TVA acquittée sur encaissements";
+        item.encrypt = false;
+        m_data.append(item);
+    }
+
+    // Row 10: Internal bank account (used for bank-to-bank transfers)
+    {
+        InfoItem item;
+        item.id = ID_INTERNAL_BANK_ACCOUNT;
+        item.parameter = tr("Internal Bank Account");
+        item.value = "58000";
         item.encrypt = false;
         m_data.append(item);
     }

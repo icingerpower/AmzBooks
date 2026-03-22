@@ -164,13 +164,14 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     settings.setValue("lastBookKeepingDir", dir);
     QDir outDir(dir);
 
-    qDebug() << "[PaneBookKeeping] Associating tables...";
-    // 2. Associate tables
-    m_booksConnections->associateTablesToIds(getAllBookTables(), getSeflEntryTable());
-
-    qDebug() << "[PaneBookKeeping] Preparing factory and dependencies...";
     QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
     CompanyInfosTable companyInfo{workingDir};
+
+    qDebug() << "[PaneBookKeeping] Associating tables...";
+    // 2. Associate tables
+    m_booksConnections->associateTablesToIds(getAllBookTables(), getSeflEntryTable(), &companyInfo);
+
+    qDebug() << "[PaneBookKeeping] Preparing factory and dependencies...";
     BooksAccountsSalesTable salesAccountTable(workingDir); // Load sales accounts config
     
     // Purchase Account Table needs company country code

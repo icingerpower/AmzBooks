@@ -22,6 +22,7 @@ public:
     static const QString ID_LEGAL_VAT_INTRACOMMUNITY;
     static const QString ID_LEGAL_INVOICE_BOTTOM;
     static const QString ID_VAT_ON_PAYMENT_TEXT;
+    static const QString ID_INTERNAL_BANK_ACCOUNT;
     explicit CompanyInfosTable(const QDir &workingDir, QObject *parent = nullptr);
     const QString &getCompanyCountryCode() const;
     static QColor getHighlightColorDark();
@@ -32,6 +33,7 @@ public:
     const QString &getLegalVatIntracommunity() const;
     const QString &getInvoiceLegalBottom() const;
     const QString &getVatOnPaymentText() const;
+    const QString &getInternalBankAccount() const;
     bool hadData() const;
     int getRowById(const QString &id) const;
 

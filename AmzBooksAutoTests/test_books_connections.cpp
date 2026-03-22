@@ -75,6 +75,7 @@ private slots:
     void test_tryToConnect_overload();
     void test_tryToConnect_more2();
     void test_getAccount2();
+    void test_getAccount2_bankToBank();
     void test_bankToBank_connect();
 };
 
@@ -891,6 +892,37 @@ void TestBooksConnection::test_getAccount2()
 
     // Bank row 0 (BANK_1) is connected to BOOK_0 (row 0) -> must return SUPPLIER_A
     QCOMPARE(connections.getAccount2(&bankTable, 0), QString("SUPPLIER_A"));
+}
+
+void TestBooksConnection::test_getAccount2_bankToBank()
+{
+    // When two bank rows are connected (bank-to-bank transfer), getAccount2 must return
+    // the internal bank account (58000 by default) instead of the other bank's account2.
+    QTemporaryDir tempDir;
+    QDir dir(tempDir.path());
+    BooksConnections connections(dir);
+    CurrencyRateManager rateManager(dir, "DUMMY");
+
+    ConcreteBooksTableBank  bankA(&connections, dir);
+    ConcreteBooksTableBank2 bankB(&connections, dir);
+
+    // Bank A: outgoing transfer -100 EUR
+    bankA.add("BANK_A_1", "", QDate::currentDate().addDays(-1), -100.0, "EUR", "Transfer out", "512001", "", 0, "", "");
+    // Bank B: incoming transfer +100 EUR
+    bankB.add("BANK_B_1", "", QDate::currentDate().addDays(-1),  100.0, "EUR", "Transfer in",  "512002", "", 0, "", "");
+
+    {
+        QHash<AbstractBooksTable*, QModelIndexList> sel;
+        sel[&bankA] = {bankA.index(0, 0)};
+        sel[&bankB] = {bankB.index(0, 0)};
+        connections.tryToConnect(sel, &rateManager);
+    }
+
+    // Build cache with both bank tables — no CompanyInfosTable passed, so default "58000" is used
+    connections.associateTablesToIds({&bankA, &bankB}, nullptr, nullptr);
+
+    QCOMPARE(connections.getAccount2(&bankA, 0), QString("58000"));
+    QCOMPARE(connections.getAccount2(&bankB, 0), QString("58000"));
 }
 
 void TestBooksConnection::test_bankToBank_connect()

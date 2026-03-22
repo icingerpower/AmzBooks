@@ -100,7 +100,7 @@ void BookSaverFull::save(
         // Header
         // "date / journal / account / debit / credit / label"
         // Prompt says "; as column separator"
-        out << "date;journal;account;debit;credit;label\n";
+        // out << "date;journal;account;debit;credit;label\n";
         
         for (const auto &line : lines) {
             out << line.date.toString("dd/MM/yyyy") << ";"

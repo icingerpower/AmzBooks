@@ -11,6 +11,7 @@ class AbstractBooksTable;
 class AbstractBooksTableBank;
 class EntrySelfTable;
 class CurrencyRateManager;
+class CompanyInfosTable;
 
 class BooksConnections
 {
@@ -28,7 +29,7 @@ public:
                     , const QModelIndex &index);
     bool contains(const QString &booksTableId, const QString &rowId) const;
     bool containsSelf(const QString &booksTableId, const QString &rowId) const;
-    void associateTablesToIds(QList<AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable);
+    void associateTablesToIds(QList<AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable, const CompanyInfosTable *companyInfosTable = nullptr);
     QString getAccount2(AbstractBooksTableBank *tableBank, int row) const;
 
 private:
@@ -39,6 +40,7 @@ private:
     void _load();
     QHash<QString, QPair<const AbstractBooksTable *, int>> m_cacheId_table;
     QHash<QString, QPair<const EntrySelfTable *, int>> m_cacheId_tableSelf;
+    QString m_internalBankAccount;
 };
 
 #endif // BOOKSCONNECTIONS_H
