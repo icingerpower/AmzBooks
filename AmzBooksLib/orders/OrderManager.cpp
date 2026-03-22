@@ -1164,7 +1164,7 @@ void OrderManager::recordInvoicingInfo(const QString &shipmentOrRefundId,
 }
 
 QCoro::Task<QString> OrderManager::tryRecordRefund(
-        const QString &orderId, double amount, const QString &currency, const QString &shipmentId,
+        const QString &orderId, double amount, const QString &currency, const QString &shipmentId, const QDate &refundDate,
         std::function<QCoro::Task<QString>(const QString &errorTitle,
                                            const QString &errorText,
                                            const QList<QSharedPointer<Shipment>> &shipmentsToPick)> callbackPickShipment)
@@ -1248,7 +1248,7 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
 
             ::Amount negatedAmount(refundTaxed, refundTaxes);
             auto res = Activity::create(
-                act.getEventId() + "-refund",
+                act.getEventId(),
                 act.getActivityId() + "-refund",
                 act.getSubActivityId(),
                 act.getDateTime(),
@@ -1288,7 +1288,7 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
             source.reportOrMethode = parts[3];
         }
 
-        recordShipmentFromSource(orderId, &source, &refund, QDate::currentDate(), false);
+        recordShipmentFromSource(orderId, &source, &refund, refundDate.isValid() ? refundDate : QDate::currentDate(), false);
         return QString{}; // Success
     };
 
@@ -1331,9 +1331,9 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
     }
 
     QString errorTitle = QObject::tr("Ambiguous refund for order %1").arg(orderId);
-    QString errorText = QObject::tr("Cannot determine which shipment to refund for order %1 (amount=%2 %3).\n"
-              "Existing shipments:\n%4")
-            .arg(orderId, QString::number(amount, 'f', 2), currency, details.join("\n"));
+    QString errorText = QObject::tr("Cannot determine which shipment to refund for order %1 (date=%2, amount=%3 %4).\n"
+              "Existing shipments:\n%5")
+            .arg(orderId, refundDate.isValid() ? refundDate.toString(Qt::ISODate) : QObject::tr("unknown"), QString::number(amount, 'f', 2), currency, details.join("\n"));
 
     if (callbackPickShipment) {
         QString pickedId = co_await callbackPickShipment(errorTitle, errorText, shipmentPtrs);

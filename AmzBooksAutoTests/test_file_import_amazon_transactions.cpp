@@ -108,17 +108,16 @@ void TestFileImportAmazonTransactions::test_amazonTransactions_structure()
     QCOMPARE(result.orderInfos->shipments.size(), 0);
     QCOMPARE(result.orderInfos->invoicingInfos.size(), 0);
 
-    // Expected valid refund clues (valid date + non-empty orderId):
-    // 1 (1111111), 2 (1111112), 3 (1111113), 9 (1111117), 10 (1111118),
+    // Expected valid refund clues (valid date + non-empty orderId + non-zero amount):
+    // 1 (1111111), 2 (1111112), 3 (1111113), 9 (1111117),
     // 11 (1111119), 12 (1111120), 13 (1111121), 14 (1111122), 15 (1111123),
     // 18 (1111126), 19 (1111127)
-    // Skipped: 4(Payment), 5(Service), 6(NoID), 7(BadDate), 8(EmptyDate), 16(EmptyType), 17(lowercase)
+    // Skipped: 4(Payment), 5(Service), 6(NoID), 7(BadDate), 8(EmptyDate), 10(ZeroAmount), 16(EmptyType), 17(lowercase)
     QSet<QString> expectedIds = {
         "111-1111111-1111111",
         "111-1111111-1111112",
         "111-1111111-1111113",
         "111-1111111-1111117",
-        "111-1111111-1111118",
         "111-1111111-1111119",
         "111-1111111-1111120",
         "111-1111111-1111121",
@@ -145,10 +144,10 @@ void TestFileImportAmazonTransactions::test_amazonTransactions_structure()
 
     // Verify specific amounts
     QCOMPARE(clues["111-1111111-1111111"].value, -20.00);
-    QCOMPARE(clues["111-1111111-1111117"].value, 20.00);   // Positive
-    QCOMPARE(clues["111-1111111-1111118"].value, 0.00);     // Zero
+    QCOMPARE(clues["111-1111111-1111117"].value, 20.00);    // Positive amount is kept
+    QVERIFY(!clues.contains("111-1111111-1111118"));        // Zero amount must be skipped
     QCOMPARE(clues["111-1111111-1111126"].value, -20000.00); // Large
-    QCOMPARE(clues["111-1111111-1111127"].value, -0.01);     // Small
+    QCOMPARE(clues["111-1111111-1111127"].value, -0.01);    // Small
 
     // Dates
     QVERIFY(result.orderInfos->dateMin.isValid());
@@ -229,6 +228,7 @@ void TestFileImportAmazonTransactions::test_amazonTransactions_realData()
                     if (orderId.isEmpty()) continue;
                     // Note: later entries overwrite earlier ones for same orderId (same as importer)
                     double charges = (indCharges != -1) ? line.value(indCharges).toDouble() : 0.0;
+                    if (qFuzzyIsNull(charges)) continue; // importer skips zero-amount clues
                     expectedClues[orderId] = charges;
                 }
             }

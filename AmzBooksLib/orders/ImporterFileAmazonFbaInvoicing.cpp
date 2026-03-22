@@ -160,9 +160,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         // Amount (Price + Tax)
         double price = line.value(idxItemPrice).toDouble();
         double tax = line.value(idxItemTax).toDouble();
-        // Assuming Price is Net, constructed Amount should be (Gross, Tax)
-        ::Amount amount(price + tax, tax);
-        
+
         // FC Resolution
         const QString &fc = line.value(idxFC).trimmed();
         QString originCountry;
@@ -174,6 +172,16 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
 
         const QString &destCountry = line.value(idxDelivCountry);
         const QString &shippingCountry = originCountry; // From FC
+
+        // For US (amazon.com), MX, and CA marketplaces, Amazon acts as marketplace
+        // facilitator for taxes. Any tax column (Item Tax, Shipping Tax, Gift Wrap Tax,
+        // etc.) must not be included in the seller's bookkeeping.
+        if (destCountry == "US" || destCountry == "MX" || destCountry == "CA") {
+            tax = 0.0;
+        }
+
+        // Amount is constructed after the country check so that the zeroed tax is used.
+        ::Amount amount(price + tax, tax);
 
         // Guess isCompany: GB->GB with 0 tax suggests domestic UK B2B;
         // EU->EU (different countries) with 0 tax suggests intra-Community B2B supply.

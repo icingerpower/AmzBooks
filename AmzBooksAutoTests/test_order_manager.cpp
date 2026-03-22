@@ -1994,7 +1994,7 @@ void TestOrderManager::test_tryRecordRefund()
         Shipment shipment({*actRes.value}, "", true);
         manager.recordShipmentFromSource("ord1", &source, &shipment, QDate());
 
-        QString error = QCoro::waitFor(manager.tryRecordRefund("ord1", -100.0, "EUR", "", noopCallback));
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord1", -100.0, "EUR", "", QDate(), noopCallback));
         QVERIFY2(error.isEmpty(), qPrintable("Case 1 failed: " + error));
 
         QSqlQuery q(manager.m_db);
@@ -2019,7 +2019,7 @@ void TestOrderManager::test_tryRecordRefund()
         Shipment ship2({*actRes2.value}, "", true);
         manager.recordShipmentFromSource("ord2", &source, &ship2, QDate());
 
-        QString error = QCoro::waitFor(manager.tryRecordRefund("ord2", -100.0, "EUR", "", noopCallback));
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord2", -100.0, "EUR", "", QDate(), noopCallback));
         QVERIFY2(error.isEmpty(), qPrintable("Case 2 failed: " + error));
 
         QSqlQuery q(manager.m_db);
@@ -2045,7 +2045,7 @@ void TestOrderManager::test_tryRecordRefund()
         manager.recordShipmentFromSource("ord3", &source, &ship2, QDate());
 
         QString shipId = ship2.getId();
-        QString error = QCoro::waitFor(manager.tryRecordRefund("ord3", -50.0, "EUR", shipId, noopCallback));
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord3", -50.0, "EUR", shipId, QDate(), noopCallback));
         QVERIFY2(error.isEmpty(), qPrintable("Case 3 failed: " + error));
 
         QSqlQuery q(manager.m_db);
@@ -2070,7 +2070,7 @@ void TestOrderManager::test_tryRecordRefund()
         Shipment ship2({*actRes2.value}, "", true);
         manager.recordShipmentFromSource("ord4", &source, &ship2, QDate());
 
-        QString error = QCoro::waitFor(manager.tryRecordRefund("ord4", -100.0, "EUR", "", noopCallback));
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord4", -100.0, "EUR", "", QDate(), noopCallback));
         QVERIFY2(!error.isEmpty(), "Case 4: Expected error but got success");
         QVERIFY(error.contains("ord4"));
 
@@ -2084,7 +2084,7 @@ void TestOrderManager::test_tryRecordRefund()
     {
         QTemporaryDir tempDir;
         OrderManager manager(tempDir.path());
-        QString error = QCoro::waitFor(manager.tryRecordRefund("nonexistent", -50.0, "EUR", "", noopCallback));
+        QString error = QCoro::waitFor(manager.tryRecordRefund("nonexistent", -50.0, "EUR", "", QDate(), noopCallback));
         QVERIFY(!error.isEmpty());
         QVERIFY(error.contains("nonexistent"));
     }
@@ -2111,7 +2111,7 @@ void TestOrderManager::test_tryRecordRefund()
             co_return targetId;
         };
 
-        QString error = QCoro::waitFor(manager.tryRecordRefund("ord6", -100.0, "EUR", "", pickCallback));
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord6", -100.0, "EUR", "", QDate(), pickCallback));
         QVERIFY2(error.isEmpty(), qPrintable("Case 6 failed: " + error));
 
         QSqlQuery q(manager.m_db);
@@ -2141,7 +2141,7 @@ void TestOrderManager::test_tryRecordRefund()
             co_return QString{};
         };
 
-        QString error = QCoro::waitFor(manager.tryRecordRefund("ord7", -100.0, "EUR", "", cancelCallback));
+        QString error = QCoro::waitFor(manager.tryRecordRefund("ord7", -100.0, "EUR", "", QDate(), cancelCallback));
         QVERIFY2(!error.isEmpty(), "Case 7: Expected error but got success");
         QVERIFY(error.contains("ord7"));
 
@@ -2289,7 +2289,7 @@ void TestOrderManager::test_importOrderInvariance()
                 for (auto it = result.orderInfos->orderId_refundClue.begin();
                      it != result.orderInfos->orderId_refundClue.end(); ++it) {
                     QCoro::waitFor(manager.tryRecordRefund(
-                        it.key(), it.value().value, it.value().currency, QString{}, noopCallback));
+                        it.key(), it.value().value, it.value().currency, QString{}, it.value().date, noopCallback));
                 }
             }
         }

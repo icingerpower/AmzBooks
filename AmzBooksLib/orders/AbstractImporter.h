@@ -34,6 +34,11 @@ public:
         double value;
         QString currency;
     };
+    struct RefundClue {
+        double value;
+        QString currency;
+        QDate date;
+    };
     using InventoryMove = ::InventoryMove; // defined in InventoryMove.h
 
     struct OrderInfos{
@@ -41,11 +46,15 @@ public:
         QList<AddressToWithId> orderAddresses;
         QList<Shipment> shipments;
         QList<Refund> refunds;
-        QHash<QString, Amount> orderId_refundClue;
+        QHash<QString, RefundClue> orderId_refundClue;
         QHash<QString, OrderManager::OrderInfo> orderId_infos;
         QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> year_month_countryFrom_countryTo_id_SkuMovedUnits;
         QDate dateMin;
         QDate dateMax;
+
+        int countAll() const {
+            return shipments.size() + refunds.size() + orderId_refundClue.size();
+        }
     };
     struct ReturnOrderInfos{
         QSharedPointer<OrderInfos> orderInfos;

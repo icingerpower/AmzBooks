@@ -881,6 +881,9 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
     const QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
     CompanyInfosTable companyInfos(workingDir);
     BooksAccountsSalesTable salesAccounts(workingDir);
+    const QString companyCurrency = companyInfos.getCurrency();
+    const QString apiKey = companyInfos.getApiKeyFixer();
+    CurrencyRateManager currencyRateManager(workingDir, apiKey);
 
     auto acceptGrouped = [](const ActivitySource *, const Shipment *s) {
         return s->isGrouped();
@@ -982,6 +985,16 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
                         return a.date < b.date;
                     });
 
+                // Convert main amounts to company currency; orig fields keep source values.
+                for (auto &row : rows) {
+                    if (row.currency != companyCurrency) {
+                        row.untaxedAmount = currencyRateManager.convert(row.untaxedAmount, row.currency, companyCurrency, row.date);
+                        row.taxes         = currencyRateManager.convert(row.taxes,         row.currency, companyCurrency, row.date);
+                        row.taxedAmount   = currencyRateManager.convert(row.taxedAmount,   row.currency, companyCurrency, row.date);
+                        row.currency      = companyCurrency;
+                    }
+                }
+
                 double sumUntaxed = 0.0, sumTaxes = 0.0, sumTaxed = 0.0;
 
                 const QDir invoiceSubDir(dirTo.filePath(
@@ -1037,7 +1050,7 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
                 totalRow[5]  = QString::number(sumUntaxed, 'f', 2);
                 totalRow[6]  = QString::number(sumTaxes,   'f', 2);
                 totalRow[7]  = QString::number(sumTaxed,   'f', 2);
-                totalRow[8]  = group.currency;
+                totalRow[8]  = companyCurrency;
                 report.addRowTotal(totalRow);
 
                 report.endTable();

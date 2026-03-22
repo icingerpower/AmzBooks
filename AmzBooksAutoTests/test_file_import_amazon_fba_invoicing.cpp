@@ -166,6 +166,15 @@ void TestFileImportAmazonFbaInvoicing::test_variedSituations()
     // 20. FC in IT (MXP5)
     out << "\"111-0000001-0000020\",\"SHIP020\",\"ITEM020\",\"2025-01-20T10:00:00+00:00\",\"EUR\",\"10.00\",\"2.20\",\"MXP5\",\"IT\",\"amazon.it\",\"Italy\",\"Via Roma\",\"Rome\",\"00100\",\"\",\"\",\"\",\"\",\"\",\n";
 
+    // 21. US / COM — non-zero Item Tax must be zeroed by importer
+    out << "\"111-0000001-0000021\",\"SHIP021\",\"ITEM021\",\"2025-01-21T10:00:00+00:00\",\"USD\",\"20.00\",\"1.90\",\"LEJ1\",\"US\",\"amazon.com\",\"US User2\",\"Main St\",\"LA\",\"90001\",\"\",\"\",\"\",\"\",\"\",\n";
+
+    // 22. CA — non-zero Item Tax must be zeroed by importer
+    out << "\"111-0000001-0000022\",\"SHIP022\",\"ITEM022\",\"2025-01-22T10:00:00+00:00\",\"CAD\",\"30.00\",\"3.90\",\"LEJ1\",\"CA\",\"amazon.ca\",\"CA User\",\"Maple St\",\"Toronto\",\"M5A\",\"\",\"\",\"\",\"\",\"\",\n";
+
+    // 23. MX — non-zero Item Tax must be zeroed by importer
+    out << "\"111-0000001-0000023\",\"SHIP023\",\"ITEM023\",\"2025-01-23T10:00:00+00:00\",\"MXN\",\"100.00\",\"16.00\",\"LEJ1\",\"MX\",\"amazon.com.mx\",\"MX User\",\"Calle 1\",\"CDMX\",\"06600\",\"\",\"\",\"\",\"\",\"\",\n";
+
     f.close();
     
     ImporterFileAmazonFbaInvoicing importer(tempDir.path()); // Working dir needs fbacenters.csv? 
@@ -182,14 +191,15 @@ void TestFileImportAmazonFbaInvoicing::test_variedSituations()
         QVERIFY(result.orderInfos);
         
         // Verify Counts
-        // Lines: 21 data rows.
+        // Lines: 24 data rows.
         // Case 7 (SHIP007): empty Recipient Name AND empty Buyer E-mail -> filtered as Vine refunded order.
-        //   => 20 unique shipIds remaining.
+        //   => 23 unique shipIds remaining.
         // Case 14 (SHIP014): 2 rows share the same Shipment ID -> merged into 1 Shipment with 2 Activities.
-        //   => 19 unique shipIds after merging.
+        //   => 22 unique shipIds after merging.
         // Case 19 (SHIP019): price=0, tax=0 -> filtered out by AbstractImporterFile (zero-total-taxed).
-        //   => 18 shipments in the result.
-        QCOMPARE(result.orderInfos->shipments.size(), 18);
+        //   => 21 shipments in the result.
+        // Cases 21-23 (US/CA/MX): taxes zeroed by country rule, price non-zero -> kept as valid shipments.
+        QCOMPARE(result.orderInfos->shipments.size(), 21);
         
         // Verify specific values
         // Case 1: DE (LEJ1) -> FR
@@ -213,9 +223,9 @@ void TestFileImportAmazonFbaInvoicing::test_variedSituations()
         QCOMPARE(s9.getActivities().first().getCountryCodeFrom(), "FR");
         
         // Addresses
-        // Case 7 is filtered before address is stored (Vine refund), so 18 unique order IDs remain.
-        // Recount: Cases 1-6 (6), 8-14 (7), 15 (1), 16 (1), 17-20 (4). Total = 19 - 1 = 18.
-        QCOMPARE(result.orderInfos->orderAddresses.size(), 18);
+        // Case 7 is filtered before address is stored (Vine refund), so 21 unique order IDs remain.
+        // Recount: Cases 1-6 (6), 8-14 (7), 15 (1), 16 (1), 17-23 (7). Total = 22 - 1 = 21.
+        QCOMPARE(result.orderInfos->orderAddresses.size(), 21);
         
         // Check Address Case 15
         bool found15 = false;
@@ -226,6 +236,27 @@ void TestFileImportAmazonFbaInvoicing::test_variedSituations()
             }
         }
         QVERIFY(found15);
+
+        // Cases 21-23: US/CA/MX — taxes must be zeroed regardless of the CSV value.
+        // The shipments are at indices 18, 19, 20 (insertion order preserved).
+        {
+            const auto &sUs = result.orderInfos->shipments[18];
+            const auto &aUs = sUs.getActivities().first();
+            QCOMPARE(aUs.getAmountTaxed(),       20.00); // price only, tax (1.90) zeroed
+            QCOMPARE(aUs.getAmountTaxesSource(),  0.0);
+        }
+        {
+            const auto &sCa = result.orderInfos->shipments[19];
+            const auto &aCa = sCa.getActivities().first();
+            QCOMPARE(aCa.getAmountTaxed(),       30.00); // price only, tax (3.90) zeroed
+            QCOMPARE(aCa.getAmountTaxesSource(),  0.0);
+        }
+        {
+            const auto &sMx = result.orderInfos->shipments[20];
+            const auto &aMx = sMx.getActivities().first();
+            QCOMPARE(aMx.getAmountTaxed(),       100.00); // price only, tax (16.00) zeroed
+            QCOMPARE(aMx.getAmountTaxesSource(),   0.0);
+        }
 
     } catch (const CsvHeaderException &e) {
         QFAIL(qPrintable(e.getErrorColumns("Missing columns in " + e.getFileName())));
@@ -307,6 +338,10 @@ void TestFileImportAmazonFbaInvoicing::test_realData()
         for (const QString &col : QStringList{"Buyer E-mail", "Buyer Email", "Buyer Name"}) {
             if (csvData->header.contains(col)) { idxCsvEmail = csvData->header.pos(col); break; }
         }
+        int idxCsvCountry = -1;
+        for (const QString &col : QStringList{"Delivery Country Code", "Shipping Country Code"}) {
+            if (csvData->header.contains(col)) { idxCsvCountry = csvData->header.pos(col); break; }
+        }
 
         double csvTotal = 0.0;
         if (idxPrice != -1 && idxTax != -1) {
@@ -318,6 +353,13 @@ void TestFileImportAmazonFbaInvoicing::test_realData()
                  }
                  double p = line.value(idxPrice).toDouble();
                  double t = line.value(idxTax).toDouble();
+                 // Mirror importer logic: US/MX/CA taxes are zeroed out
+                 if (idxCsvCountry >= 0) {
+                     const QString &destCo = line.value(idxCsvCountry);
+                     if (destCo == "US" || destCo == "MX" || destCo == "CA") {
+                         t = 0.0;
+                     }
+                 }
                  csvTotal += (p + t);
             }
         } else {

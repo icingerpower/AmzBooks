@@ -95,6 +95,7 @@ public:
             double amount,
             const QString &currency,
             const QString &shipmentId,
+            const QDate &refundDate,
             std::function<QCoro::Task<QString>(const QString &errorTitle,
                                                const QString &errorText,
                                                const QList<QSharedPointer<Shipment>> &shipmentsToPick)> callbackPickShipment);

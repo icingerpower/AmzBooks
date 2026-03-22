@@ -232,7 +232,7 @@ void PaneOrderApis::import()
                 }
                 manager.recordShipmentsFromSource(&source, entries);
             }
-            importedCount += aggregatedInfos.shipments.size() + aggregatedInfos.refunds.size();
+            importedCount += aggregatedInfos.countAll();
 
             // Process Addresses
             {
@@ -267,7 +267,7 @@ void PaneOrderApis::import()
                     co_return QString{};
                 };
                 QString err = co_await manager.tryRecordRefund(
-                    it.key(), it.value().value, it.value().currency, QString{}, callbackPick);
+                    it.key(), it.value().value, it.value().currency, QString{}, it.value().date, callbackPick);
                 if (!err.isEmpty()) {
                     refundErrors.append(err);
                 }

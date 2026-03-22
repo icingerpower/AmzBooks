@@ -458,7 +458,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
             else
             {
                 // Partial refund — cannot attribute to a specific line item; store as clue
-                ret.orderInfos->orderId_refundClue[orderNumber] = {acc.refundedAmount, currency};
+                ret.orderInfos->orderId_refundClue[orderNumber] = {acc.refundedAmount, currency, acc.refundDate.isValid() ? acc.refundDate : acc.firstDt.date()};
             }
         }
     }

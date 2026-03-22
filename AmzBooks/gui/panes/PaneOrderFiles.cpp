@@ -357,7 +357,7 @@ void PaneOrderFiles::importFile()
                         co_return QString{};
                     };
                     QString err = co_await manager.tryRecordRefund(
-                                it.key(), it.value().value, it.value().currency, QString{}, callbackPick);
+                                it.key(), it.value().value, it.value().currency, QString{}, it.value().date, callbackPick);
                     if (!err.isEmpty()) {
                         refundErrors.append(err);
                     }
@@ -366,7 +366,7 @@ void PaneOrderFiles::importFile()
                     QMessageBox::warning(self, tr("Refund Errors"), refundErrors.join("\n\n"));
                 }
 
-                importedCount = aggregatedResult.orderInfos->shipments.size() + aggregatedResult.orderInfos->refunds.size();
+                importedCount = aggregatedResult.orderInfos->countAll();
 
                 // Update Chart Data
                 if (importedCount > 0) {

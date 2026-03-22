@@ -126,7 +126,10 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::
 
         // Store refund clue: orderId -> {amount, currency}
         double productCharges = line.value(indProductCharges).toDouble();
-        result.orderInfos->orderId_refundClue[orderId] = {productCharges, currency};
+        if (qFuzzyIsNull(productCharges)) {
+            continue;
+        }
+        result.orderInfos->orderId_refundClue[orderId] = {productCharges, currency, date};
     }
 
     co_return result;
