@@ -7,12 +7,20 @@
 #include <QDir>
 #include <QFile>
 #include <QTextStream>
+#include <QTemporaryDir>
+#include <QScopedPointer>
 #include <cmath>
+
+#include <QCoroTask>
 
 #include "inventory/InventoryMoveTree.h"
 #include "inventory/PurchaseCsvLoader.h"
 #include "books/SkuRegradedTable.h"
 #include "CurrencyRateManager.h"
+#include "orders/OrderManager.h"
+#include "orders/ImporterFileAmazonVatEu.h"
+#include "CountriesEu.h"
+#include "utils/CsvHeader.h"
 
 // ---------------------------------------------------------------------------
 // Helper: tolerance comparison for doubles
@@ -52,6 +60,8 @@ private slots:
     void test_sku_regraded_table();            // SkuRegradedTable: append/contains/getSku/data/setData
     void test_sku_regraded_table_persistence(); // SkuRegradedTable: CSV save + reload
     void test_regraded_sku_issue();            // bug: regraded SKU stays in noPrice even after user maps it
+    void test_sameEventId_multiSku();            // bug: same eventId with multiple SKUs — each SKU must get its own unit count
+    void test_csvImport_vs_inventoryMoveTree(); // import 2025+2026 VAT reports; CSV-parsed totals must match InventoryMoveTree; re-import must be idempotent
 
 private:
     QDir m_testDir;
@@ -1714,6 +1724,254 @@ void TestInventoryMove::test_regraded_sku_issue()
 
     delete model;
     delete model2;
+}
+
+// ===========================================================================
+// test_sameEventId_multiSku
+// A single TRANSACTION_EVENT_ID can cover multiple SKUs moving in the same
+// direction.  The importer must record them as separate per-SKU entries instead
+// of merging all units under the last SKU seen.
+// ===========================================================================
+void TestInventoryMove::test_sameEventId_multiSku()
+{
+    // CSV: two FC_TRANSFER rows share eventId "EVT-001" but different SKUs.
+    const QString csvHeader =
+        QStringLiteral("TRANSACTION_TYPE,TRANSACTION_EVENT_ID,ACTIVITY_TRANSACTION_ID,"
+                       "TRANSACTION_COMPLETE_DATE,TAX_CALCULATION_DATE,"
+                       "SELLER_SKU,QTY,DEPARTURE_COUNTRY,ARRIVAL_COUNTRY,"
+                       "VAT_CALCULATION_IMPUTATION_COUNTRY,PRODUCT_TAX_CODE,"
+                       "PRICE_OF_ITEMS_AMT_VAT_EXCL,TOTAL_ACTIVITY_VALUE_VAT_AMT,"
+                       "TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL,VAT_INV_NUMBER,INVOICE_URL,"
+                       "TRANSACTION_CURRENCY_CODE,MARKETPLACE,PRICE_OF_ITEMS_VAT_RATE_PERCENT,"
+                       "TAX_REPORTING_SCHEME,TAX_COLLECTION_RESPONSIBILITY");
+
+    // EVT-001: 2 units of SKU_A + 4 units of SKU_B, both FR→DE on 2025-01-15.
+    const QString row1 =
+        QStringLiteral("FC_TRANSFER,EVT-001,ACT-001,15-01-2025,,SKU_A,2,FR,DE,,,,0,0,,,EUR,,0,,");
+    const QString row2 =
+        QStringLiteral("FC_TRANSFER,EVT-001,ACT-002,15-01-2025,,SKU_B,4,FR,DE,,,,0,0,,,EUR,,0,,");
+
+    QTemporaryDir tmpDir;
+    QVERIFY(tmpDir.isValid());
+    QDir workDir(tmpDir.path());
+
+    const QString csvPath = workDir.filePath(QStringLiteral("test_multisku.csv"));
+    {
+        QFile f(csvPath);
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&f);
+        out << csvHeader << "\n" << row1 << "\n" << row2 << "\n";
+    }
+
+    ImporterFileAmazonVatEu importer(workDir);
+    const auto result = QCoro::waitFor(importer.loadReport(csvPath));
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QVERIFY(!result.orderInfos.isNull());
+
+    const auto &moves = result.orderInfos->year_month_countryFrom_countryTo_eventId_sku_units;
+    QVERIFY(!moves.isEmpty());
+
+    OrderManager manager(workDir);
+    manager.recordInventoryMove(moves);
+
+    // FR exported SKU_A (2 units) and SKU_B (4 units) — separately.
+    const auto exported = manager.getInventoryExported(2025, 1, QStringLiteral("FR"));
+    QCOMPARE(exported.value(QStringLiteral("SKU_A")), 2);
+    QCOMPARE(exported.value(QStringLiteral("SKU_B")), 4);
+    QCOMPARE(exported.size(), 2);
+}
+
+// ===========================================================================
+// test_csvImport_vs_inventoryMoveTree
+// Imports all 2025 and 2026 Amazon VAT EU reports via ImporterFileAmazonVatEu,
+// then verifies that the InventoryMoveTree parent-row unit totals match a
+// reference independently computed from the CSV files.  Re-importing all files
+// a second time must produce identical counts (idempotency of recordInventoryMove).
+// ===========================================================================
+void TestInventoryMove::test_csvImport_vs_inventoryMoveTree()
+{
+    QTemporaryDir tmpDir;
+    QVERIFY(tmpDir.isValid());
+    QDir workDir(tmpDir.path());
+
+    // ── 1. Collect VAT EU files from 2025/ and 2026/ ────────────────────────
+    QStringList vatFiles;
+    for (const QString &year : {"2025", "2026"}) {
+        QDir yearDir(QDir::current().filePath(
+            QStringLiteral("data/amazon-vat-reports/") + year));
+        const QStringList names = yearDir.entryList(
+            {QStringLiteral("*.csv"), QStringLiteral("*.txt")}, QDir::Files, QDir::Name);
+        for (const QString &name : names) {
+            vatFiles << yearDir.filePath(name);
+        }
+    }
+    vatFiles.sort();
+    QVERIFY2(!vatFiles.isEmpty(),
+             "No VAT EU files found — did the test data copy step run?");
+
+    // ── 2. Import each file; build last-file-wins reference per period ───────
+    // periodMap: "year/month/from/to" → { eventId → { sku → units } }
+    using SkuUnits = QHash<QString, int>;
+    using EventMap = QHash<QString, SkuUnits>;
+    QHash<QString, EventMap> periodMap;
+
+    OrderManager manager(workDir);
+    ImporterFileAmazonVatEu importer(workDir);
+
+    for (const QString &filePath : std::as_const(vatFiles)) {
+        AbstractImporter::ReturnOrderInfos result;
+        try {
+            result = QCoro::waitFor(importer.loadReport(filePath));
+        } catch (const CsvHeaderException &) {
+            // File is not a valid VAT EU report (e.g. taxually variant) — skip.
+            continue;
+        }
+        if (!result.orderInfos) {
+            continue;
+        }
+        const auto &moves =
+            result.orderInfos->year_month_countryFrom_countryTo_eventId_sku_units;
+        if (!moves.isEmpty()) {
+            manager.recordInventoryMove(moves);
+        }
+
+        // Update reference for 2025/2026 data only.
+        for (auto it1 = moves.cbegin(); it1 != moves.cend(); ++it1) {
+            const int year = it1.key();
+            if (year != 2025 && year != 2026) {
+                continue;
+            }
+            for (auto it2 = it1.value().cbegin(); it2 != it1.value().cend(); ++it2) {
+                for (auto it3 = it2.value().cbegin(); it3 != it2.value().cend(); ++it3) {
+                    for (auto it4 = it3.value().cbegin(); it4 != it3.value().cend(); ++it4) {
+                        const QString key =
+                            QString::number(year) + QLatin1Char('/')
+                            + QString::number(it2.key()) + QLatin1Char('/')
+                            + it3.key() + QLatin1Char('/') + it4.key();
+                        // Whole period replaced: last file processed for this
+                        // period wins, matching recordInventoryMove() semantics.
+                        periodMap[key] = it4.value();
+                    }
+                }
+            }
+        }
+    }
+
+    // ── 3. Aggregate reference totals per Pan-EU country ────────────────────
+    const QStringList &panEu = CountriesEu::getAmazonPanEuCountryCodes();
+
+    QHash<QString, int> refExported; // cc → total units moved OUT of cc
+    QHash<QString, int> refImported; // cc → total units moved IN to cc
+
+    for (auto it = periodMap.cbegin(); it != periodMap.cend(); ++it) {
+        const QStringList parts = it.key().split(QLatin1Char('/'));
+        QCOMPARE(parts.size(), 4);
+        const QString from = parts.at(2);
+        const QString to   = parts.at(3);
+        int periodTotal = 0;
+        for (auto it2 = it.value().cbegin(); it2 != it.value().cend(); ++it2) {
+            // it2: eventId → QHash<sku, units>
+            for (auto it3 = it2.value().cbegin(); it3 != it2.value().cend(); ++it3) {
+                periodTotal += it3.value();
+            }
+        }
+        if (panEu.contains(from)) {
+            refExported[from] += periodTotal;
+        }
+        if (panEu.contains(to)) {
+            refImported[to] += periodTotal;
+        }
+    }
+
+    QVERIFY2(!refExported.isEmpty() || !refImported.isEmpty(),
+             "No FC_TRANSFER data found in 2025/2026 files");
+
+    // ── 4. Build InventoryMoveTree from DB (same logic as PaneOrders) ────────
+    QHash<QString, QHash<QString, int>> treeImported;
+    QHash<QString, QHash<QString, int>> treeExported;
+
+    for (int year = 2025; year <= 2026; ++year) {
+        for (int month = 1; month <= 12; ++month) {
+            for (const QString &cc : panEu) {
+                const auto imp = manager.getInventoryImported(year, month, cc);
+                for (auto it = imp.constBegin(); it != imp.constEnd(); ++it) {
+                    treeImported[cc][it.key()] += it.value();
+                }
+                const auto exp = manager.getInventoryExported(year, month, cc);
+                for (auto it = exp.constBegin(); it != exp.constEnd(); ++it) {
+                    treeExported[cc][it.key()] += it.value();
+                }
+            }
+        }
+    }
+
+    // The importer copies imported files into workDir/reports/…, so we must NOT
+    // pass workDir as the InventoryMoveTree purchaseDir — the tree would find
+    // the copied VAT-EU CSVs and reject them (wrong filename prefix).
+    // Use a dedicated empty subdirectory instead.
+    QDir treePurchaseDir(workDir.filePath(QStringLiteral("tree_purchases")));
+    QVERIFY(treePurchaseDir.mkpath(QStringLiteral(".")));
+
+    QScopedPointer<InventoryMoveTree> tree(
+        new InventoryMoveTree(treePurchaseDir, treeImported, treeExported,
+                              {}, QString(), nullptr,
+                              {}, QString(), nullptr, nullptr));
+
+    // ── 5. Compare tree parent-row units vs reference ────────────────────────
+    for (const QString &cc : panEu) {
+        if (refExported.contains(cc)) {
+            const int row = findParentRow(*tree, cc, QStringLiteral("EU"));
+            QVERIFY2(row >= 0,
+                     qPrintable(QStringLiteral("No exported parent row for %1 → EU").arg(cc)));
+            const int treeUnits = parentData(*tree, row, InventoryMoveTree::COL_UNITS).toInt();
+            QCOMPARE(treeUnits, refExported.value(cc));
+        }
+        if (refImported.contains(cc)) {
+            const int row = findParentRow(*tree, QStringLiteral("EU"), cc);
+            QVERIFY2(row >= 0,
+                     qPrintable(QStringLiteral("No imported parent row for EU → %1").arg(cc)));
+            const int treeUnits = parentData(*tree, row, InventoryMoveTree::COL_UNITS).toInt();
+            QCOMPARE(treeUnits, refImported.value(cc));
+        }
+    }
+
+    // ── 6. Re-import all files: counts must not change (idempotency) ─────────
+    for (const QString &filePath : std::as_const(vatFiles)) {
+        AbstractImporter::ReturnOrderInfos result;
+        try {
+            result = QCoro::waitFor(importer.loadReport(filePath));
+        } catch (const CsvHeaderException &) {
+            continue;
+        }
+        if (!result.orderInfos) {
+            continue;
+        }
+        const auto &moves =
+            result.orderInfos->year_month_countryFrom_countryTo_eventId_sku_units;
+        if (!moves.isEmpty()) {
+            manager.recordInventoryMove(moves);
+        }
+    }
+
+    QHash<QString, QHash<QString, int>> treeImported2;
+    QHash<QString, QHash<QString, int>> treeExported2;
+    for (int year = 2025; year <= 2026; ++year) {
+        for (int month = 1; month <= 12; ++month) {
+            for (const QString &cc : panEu) {
+                const auto imp = manager.getInventoryImported(year, month, cc);
+                for (auto it = imp.constBegin(); it != imp.constEnd(); ++it) {
+                    treeImported2[cc][it.key()] += it.value();
+                }
+                const auto exp = manager.getInventoryExported(year, month, cc);
+                for (auto it = exp.constBegin(); it != exp.constEnd(); ++it) {
+                    treeExported2[cc][it.key()] += it.value();
+                }
+            }
+        }
+    }
+
+    QCOMPARE(treeImported2, treeImported);
+    QCOMPARE(treeExported2, treeExported);
 }
 
 QTEST_MAIN(TestInventoryMove)

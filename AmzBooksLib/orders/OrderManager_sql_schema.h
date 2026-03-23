@@ -63,7 +63,11 @@ const QString CREATE_TABLE_INVENTORY_MOVES = R"(
         country_to   TEXT    NOT NULL,
         sku          TEXT    NOT NULL,
         units        INTEGER NOT NULL,
-        PRIMARY KEY (id)
+        -- Composite PK: the same event ID can legitimately appear for different
+        -- (country_from, country_to) pairs (Amazon batches multiple warehouse
+        -- directions under one event) and for different SKUs within the same
+        -- direction.  (id, country_from, country_to, sku) is the minimal unique key.
+        PRIMARY KEY (id, country_from, country_to, sku)
     )
 )";
 

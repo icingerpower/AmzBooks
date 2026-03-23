@@ -9,7 +9,6 @@
 #include "InvoicingInfo.h"
 #include "Address.h"
 #include "Refund.h"
-#include "InventoryMove.h"
 
 #include "ActivitySource.h"
 #include "OrderManager.h"
@@ -39,8 +38,6 @@ public:
         QString currency;
         QDate date;
     };
-    using InventoryMove = ::InventoryMove; // defined in InventoryMove.h
-
     struct OrderInfos{
         QList<InvoicingInfoWithId> invoicingInfos;
         QList<AddressToWithId> orderAddresses;
@@ -48,7 +45,9 @@ public:
         QList<Refund> refunds;
         QHash<QString, RefundClue> orderId_refundClue;
         QHash<QString, OrderManager::OrderInfo> orderId_infos;
-        QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> year_month_countryFrom_countryTo_id_SkuMovedUnits;
+        // year → month → countryFrom → countryTo → eventId → sku → units
+        // One eventId can cover multiple SKUs; each (eventId, sku) pair is stored separately.
+        QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, QHash<QString, int>>>>>> year_month_countryFrom_countryTo_eventId_sku_units;
         QDate dateMin;
         QDate dateMax;
 

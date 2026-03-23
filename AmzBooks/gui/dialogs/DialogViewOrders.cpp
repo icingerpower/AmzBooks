@@ -89,21 +89,24 @@ DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfo
         QHash<QString, QHash<QString, int>> countryCode_sku_unitExported;
         QHash<int, QHash<QString, double>> pricePerKiloByYear;
 
-        const auto &moves = orderInfos.year_month_countryFrom_countryTo_id_SkuMovedUnits;
+        const auto &moves = orderInfos.year_month_countryFrom_countryTo_eventId_sku_units;
         for (auto it1 = moves.constBegin(); it1 != moves.constEnd(); ++it1) {
             int currentYear = it1.key();
             for (const QString &cc : CountriesEu::getAmazonPanEuCountryCodes())
                 pricePerKiloByYear[currentYear][cc] = ui->widgetPurchases->getShippingPrice(currentYear, cc);
             pricePerKiloByYear[currentYear][QString()] = ui->widgetPurchases->getShippingPrice(currentYear, QString());
-            
+
             for (auto it2 = it1.value().constBegin(); it2 != it1.value().constEnd(); ++it2) {
                 for (auto it3 = it2.value().constBegin(); it3 != it2.value().constEnd(); ++it3) {
                     const QString &from = it3.key();
                     for (auto it4 = it3.value().constBegin(); it4 != it3.value().constEnd(); ++it4) {
                         const QString &to = it4.key();
                         for (auto it5 = it4.value().constBegin(); it5 != it4.value().constEnd(); ++it5) {
-                            countryCode_sku_unitImported[to][it5.value().sku]   += it5.value().units;
-                            countryCode_sku_unitExported[from][it5.value().sku] += it5.value().units;
+                            // it5: eventId → QHash<sku, units>
+                            for (auto it6 = it5.value().constBegin(); it6 != it5.value().constEnd(); ++it6) {
+                                countryCode_sku_unitImported[to][it6.key()]   += it6.value();
+                                countryCode_sku_unitExported[from][it6.key()] += it6.value();
+                            }
                         }
                     }
                 }

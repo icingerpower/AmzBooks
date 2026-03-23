@@ -132,9 +132,7 @@ QCoro::Task<void> ImporterApiAmazonEu::_populateMovedUnits(const QDateTime &date
             if (date.isValid()) break;
         }
         if (!eventId.isEmpty() && !sku.isEmpty() && qty > 0 && !from.isEmpty() && !to.isEmpty() && from != to && date.isValid()) {
-            auto &move = orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits[date.year()][date.month()][from][to][eventId];
-            move.sku = sku;
-            move.units += qty;
+            orderInfos->year_month_countryFrom_countryTo_eventId_sku_units[date.year()][date.month()][from][to][eventId][sku] += qty;
         }
     }
 }

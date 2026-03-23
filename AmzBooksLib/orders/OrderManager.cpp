@@ -97,6 +97,35 @@ void OrderManager::initDb()
          qWarning() << "Failed to create inventory_moves table:" << query.lastError().text();
     }
 
+    // Migration: recreate inventory_moves whenever it lacks the current composite PK.
+    // History:
+    //   v1 — PRIMARY KEY (id)          → too strict: same eventId can appear for different
+    //                                     (country_from, country_to) pairs.
+    //   v2 — no primary key            → too loose: no DB-level uniqueness guarantee.
+    //   v3 — PRIMARY KEY (id, country_from, country_to, sku)  ← current.
+    //         Same event can appear for different directions AND carry multiple SKUs,
+    //         but (id, from, to, sku) must be unique.
+    // Trigger: table exists but DDL does not contain the current PK signature.
+    {
+        QSqlQuery qMig(m_db);
+        if (qMig.exec(QStringLiteral(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='inventory_moves'"))
+                && qMig.next()) {
+            const QString tableSql = qMig.value(0).toString();
+            if (!tableSql.contains(QStringLiteral("PRIMARY KEY (id, country_from, country_to, sku)"))) {
+                QSqlQuery qDrop(m_db);
+                if (!qDrop.exec(QStringLiteral("DROP TABLE inventory_moves"))) {
+                    qWarning() << "Failed to drop old inventory_moves table:" << qDrop.lastError();
+                } else {
+                    QSqlQuery qCreate(m_db);
+                    if (!qCreate.exec(OrderManagerSql::CREATE_TABLE_INVENTORY_MOVES)) {
+                        qWarning() << "Failed to recreate inventory_moves table:" << qCreate.lastError();
+                    }
+                }
+            }
+        }
+    }
+
     // Migration: Add store column if missing
     {
         QSqlQuery qMig(m_db);
@@ -906,17 +935,20 @@ void OrderManager::recordAddressesTo(const QHash<QString, Address> &orderId_addr
 }
 
 void OrderManager::recordInventoryMove(
-        const QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> &year_month_countryFrom_countryTo_id_SkuMovedUnits)
+        const QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, QHash<QString, int>>>>>> &year_month_countryFrom_countryTo_eventId_sku_units)
 {
-    if (year_month_countryFrom_countryTo_id_SkuMovedUnits.isEmpty()) {
+    if (year_month_countryFrom_countryTo_eventId_sku_units.isEmpty()) {
         return;
     }
 
-    // Flatten nested hash into rows; validate transactionIds eagerly before touching the DB
+    // Flatten nested hash into rows; validate transactionIds eagerly before touching the DB.
+    // Also collect unique (year, month, from, to) periods covered by this batch.
     struct Row { int year, month; QString from, to, txnId, sku; int units; };
+    struct Period { int year, month; QString from, to; };
     QList<Row> rows;
-    for (auto it1 = year_month_countryFrom_countryTo_id_SkuMovedUnits.cbegin();
-         it1 != year_month_countryFrom_countryTo_id_SkuMovedUnits.cend(); ++it1)
+    QList<Period> periods;
+    for (auto it1 = year_month_countryFrom_countryTo_eventId_sku_units.cbegin();
+         it1 != year_month_countryFrom_countryTo_eventId_sku_units.cend(); ++it1)
     {
         for (auto it2 = it1.value().cbegin(); it2 != it1.value().cend(); ++it2)
         {
@@ -924,6 +956,7 @@ void OrderManager::recordInventoryMove(
             {
                 for (auto it4 = it3.value().cbegin(); it4 != it3.value().cend(); ++it4)
                 {
+                    periods.append({it1.key(), it2.key(), it3.key(), it4.key()});
                     for (auto it5 = it4.value().cbegin(); it5 != it4.value().cend(); ++it5)
                     {
                         if (it5.key().isEmpty()) {
@@ -931,17 +964,51 @@ void OrderManager::recordInventoryMove(
                                                       "transactionId cannot be empty");
                             ex.raise();
                         }
-                        rows.append({it1.key(), it2.key(),
-                                     it3.key(), it4.key(),
-                                     it5.key(), it5.value().sku, it5.value().units});
+                        for (auto it6 = it5.value().cbegin(); it6 != it5.value().cend(); ++it6)
+                        {
+                            rows.append({it1.key(), it2.key(),
+                                         it3.key(), it4.key(),
+                                         it5.key(), it6.key(), it6.value()});
+                        }
                     }
                 }
             }
         }
     }
 
-    if (rows.isEmpty())
+    if (rows.isEmpty()) {
         return;
+    }
+
+    // Delete existing rows for every (year, month, from, to) covered by this batch before
+    // inserting new ones. This ensures that re-importing a corrected report — which may have
+    // different TRANSACTION_EVENT_IDs for the same period — replaces stale data instead of
+    // accumulating duplicates. Each call to recordInventoryMove() is authoritative for the
+    // periods it covers.
+    {
+        m_db.transaction();
+        bool ok = true;
+        for (const auto &p : std::as_const(periods)) {
+            QSqlQuery q(m_db);
+            q.prepare("DELETE FROM inventory_moves "
+                      "WHERE year = ? AND month = ? AND country_from = ? AND country_to = ?");
+            q.addBindValue(p.year);
+            q.addBindValue(p.month);
+            q.addBindValue(p.from);
+            q.addBindValue(p.to);
+            if (!q.exec()) {
+                qWarning() << "OrderManager::recordInventoryMove DELETE failed:" << q.lastError();
+                ok = false;
+                break;
+            }
+        }
+        if (ok) {
+            m_db.commit();
+        } else {
+            m_db.rollback();
+            return;
+        }
+    }
 
     const int batchSize = 500;
     for (int batchStart = 0; batchStart < rows.size(); batchStart += batchSize)
@@ -962,7 +1029,7 @@ void OrderManager::recordInventoryMove(
 
         m_db.transaction();
         QSqlQuery q(m_db);
-        q.prepare("INSERT OR REPLACE INTO inventory_moves "
+        q.prepare("INSERT INTO inventory_moves "
                   "(id, year, month, country_from, country_to, sku, units) "
                   "VALUES (?, ?, ?, ?, ?, ?, ?)");
         q.addBindValue(ids);

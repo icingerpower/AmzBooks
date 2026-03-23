@@ -269,5 +269,11 @@ target_include_directories(testInventory PRIVATE ../AmzBooksLib)
 
 add_executable(TestInventoryMove test_inventory_move.cpp)
 add_test(NAME TestInventoryMove COMMAND TestInventoryMove)
-target_link_libraries(TestInventoryMove PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib)
-target_include_directories(TestInventoryMove PRIVATE ../AmzBooksLib)
+target_link_libraries(TestInventoryMove PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib QCoro::Core)
+target_include_directories(TestInventoryMove PRIVATE ../AmzBooksLib ../../common)
+
+add_custom_command(TARGET TestInventoryMove POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
+    $<TARGET_FILE_DIR:TestInventoryMove>/data/amazon-vat-reports
+)

@@ -219,12 +219,12 @@ void PaneOrderFiles::importFile()
                    aggregatedResult.orderInfos->orderId_infos.insert(result.orderInfos->orderId_infos);
 
                    // Merge inventory moves (txnIds are unique so inner insert is safe)
-                   for (auto it1 = result.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits.constBegin();
-                        it1 != result.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits.constEnd(); ++it1) {
+                   for (auto it1 = result.orderInfos->year_month_countryFrom_countryTo_eventId_sku_units.constBegin();
+                        it1 != result.orderInfos->year_month_countryFrom_countryTo_eventId_sku_units.constEnd(); ++it1) {
                        for (auto it2 = it1.value().constBegin(); it2 != it1.value().constEnd(); ++it2) {
                            for (auto it3 = it2.value().constBegin(); it3 != it2.value().constEnd(); ++it3) {
                                for (auto it4 = it3.value().constBegin(); it4 != it3.value().constEnd(); ++it4) {
-                                   aggregatedResult.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits
+                                   aggregatedResult.orderInfos->year_month_countryFrom_countryTo_eventId_sku_units
                                            [it1.key()][it2.key()][it3.key()][it4.key()]
                                            .insert(it4.value());
                                }
@@ -338,9 +338,9 @@ void PaneOrderFiles::importFile()
                 }
 
                 // Process Inventory Moves
-                if (!aggregatedResult.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits.isEmpty()) {
+                if (!aggregatedResult.orderInfos->year_month_countryFrom_countryTo_eventId_sku_units.isEmpty()) {
                     manager.recordInventoryMove(
-                            aggregatedResult.orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits);
+                            aggregatedResult.orderInfos->year_month_countryFrom_countryTo_eventId_sku_units);
                 }
 
                 // Process Refund Clues

@@ -56,6 +56,8 @@ private slots:
     void test_OrderInvoicingTable();
     void test_conflictResolution_isWrongIfConflict();
     void test_inventoryMove();
+    void test_inventoryMove_reimport();
+    void test_inventoryMove_fcTransfer_pipeline();
     void test_fixTaxDate();
     void test_recordShipmentsFromSource_performance();
     void test_groupedUngrouped();
@@ -2642,13 +2644,17 @@ void TestOrderManager::test_inventoryMove()
     QVERIFY(tempDir.isValid());                                               // 1
     OrderManager manager(tempDir.path());
 
-    // Helper: build the nested hash for a single move and record it.
+    using InvData = QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, QHash<QString, int>>>>>>;
+
+    // Helper: record a single move as its own call (= one import session for that period).
+    // Because each call is authoritative for its covered (year, month, from, to) combinations,
+    // two successive calls for the same period will REPLACE, not accumulate.
     auto rec = [&](int year, int month,
                    const QString &from, const QString &to,
                    const QString &txn, const QString &sku, int units)
     {
-        QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> data;
-        data[year][month][from][to][txn] = {sku, units};
+        InvData data;
+        data[year][month][from][to][txn][sku] = units;
         manager.recordInventoryMove(data);
     };
 
@@ -2664,7 +2670,7 @@ void TestOrderManager::test_inventoryMove()
     QVERIFY(imp1.contains("SKU-A"));                                          // 5
     QCOMPARE(imp1["SKU-A"], 5);                                               // 6
 
-    auto exp1 = manager.getInventoryExported(2024, 1, "PL");
+    const auto &exp1 = manager.getInventoryExported(2024, 1, "PL");
     QVERIFY(!exp1.isEmpty());                                                 // 7
     QVERIFY(exp1.contains("SKU-A"));                                          // 8
     QCOMPARE(exp1["SKU-A"], 5);                                               // 9
@@ -2681,13 +2687,25 @@ void TestOrderManager::test_inventoryMove()
     QVERIFY(manager.getInventoryImported(2024, 2, "FR").isEmpty());           // 14
     QVERIFY(manager.getInventoryExported(2024, 2, "PL").isEmpty());           // 15
 
-    // ── Two moves of the same SKU are aggregated ───────────────────────────
-    rec(2024, 1, "PL", "FR", "TXN-002", "SKU-A", 3);
+    // ── Two moves of the same SKU in one batch are aggregated ──────────────
+    // Both TXN-001 and TXN-002 are in the same call → single authoritative import.
+    {
+        InvData data;
+        data[2024][1]["PL"]["FR"]["TXN-001"]["SKU-A"] = 5;
+        data[2024][1]["PL"]["FR"]["TXN-002"]["SKU-A"] = 3;
+        manager.recordInventoryMove(data);
+    }
     QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 8);       // 16 (5+3)
     QCOMPARE(manager.getInventoryExported(2024, 1, "PL")["SKU-A"], 8);       // 17
 
-    // ── Multiple distinct SKUs are all returned ────────────────────────────
-    rec(2024, 1, "PL", "FR", "TXN-003", "SKU-B", 10);
+    // ── Multiple distinct SKUs in one batch are all returned ───────────────
+    {
+        InvData data;
+        data[2024][1]["PL"]["FR"]["TXN-001"]["SKU-A"] = 5;
+        data[2024][1]["PL"]["FR"]["TXN-002"]["SKU-A"] = 3;
+        data[2024][1]["PL"]["FR"]["TXN-003"]["SKU-B"] = 10;
+        manager.recordInventoryMove(data);
+    }
     auto imp2 = manager.getInventoryImported(2024, 1, "FR");
     QVERIFY(imp2.contains("SKU-B"));                                          // 18
     QCOMPARE(imp2.size(), 2);                                                 // 19 (SKU-A + SKU-B)
@@ -2699,34 +2717,199 @@ void TestOrderManager::test_inventoryMove()
     QVERIFY(imp3.contains("SKU-C"));                                          // 21
     QCOMPARE(imp3.size(), 3);                                                 // 22 (A + B + C)
     QVERIFY(!manager.getInventoryExported(2024, 1, "PL").contains("SKU-C")); // 23
-    auto expDE = manager.getInventoryExported(2024, 1, "DE");
+    const auto &expDE = manager.getInventoryExported(2024, 1, "DE");
     QVERIFY(expDE.contains("SKU-C"));                                         // 24
     QCOMPARE(expDE["SKU-C"], 7);                                              // 25
 
-    // ── Re-recording same id replaces the row (INSERT OR REPLACE) ──────────
-    // TXN-001 changes from 5 → 99; running total for SKU-A becomes 99+3 = 102
-    rec(2024, 1, "PL", "FR", "TXN-001", "SKU-A", 99);
-    QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 102);      // 26
+    // ── Re-importing with new IDs replaces old data (no double-counting) ───
+    // A second call for the same (year, month, PL, FR) period deletes old rows
+    // and inserts only the new ones — the fix for the Amazon re-import bug.
+    rec(2024, 1, "PL", "FR", "TXN-NEW", "SKU-A", 7);
+    QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 7);       // 26 (replaced, not 5+3+7)
 
     // ── Different month is isolated from month 1 ───────────────────────────
     rec(2024, 3, "PL", "FR", "TXN-005", "SKU-A", 20);
-    QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 102);      // 27 unchanged
-    QCOMPARE(manager.getInventoryImported(2024, 3, "FR")["SKU-A"], 20);       // 28
+    QCOMPARE(manager.getInventoryImported(2024, 1, "FR")["SKU-A"], 7);       // 27 unchanged
+    QCOMPARE(manager.getInventoryImported(2024, 3, "FR")["SKU-A"], 20);      // 28
 
     // ── Empty transactionId raises an exception ────────────────────────────
     bool exceptionRaised = false;
     try {
-        QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> bad;
-        bad[2024][1]["PL"]["FR"][""] = {"SKU-X", 1};
+        InvData bad;
+        bad[2024][1]["PL"]["FR"][""]["SKU-X"] = 1;
         manager.recordInventoryMove(bad);
     } catch (...) {
         exceptionRaised = true;
     }
     QVERIFY(exceptionRaised);                                                  // 29
 
-    // ── A country can be an exporter in one move and an importer in another
+    // ── A country can be an exporter in one move and an importer in another ─
     rec(2024, 1, "FR", "IT", "TXN-006", "SKU-D", 4);
     QVERIFY(manager.getInventoryExported(2024, 1, "FR").contains("SKU-D"));   // 30
+}
+
+// ---------------------------------------------------------------------------
+// test_inventoryMove_reimport
+// Reproduces the production bug: Amazon occasionally resends a corrected VAT EU
+// report under a different filename. Each file passes the duplicate-filename check
+// and is imported, but the new report carries different TRANSACTION_EVENT_IDs for
+// the same physical moves. Before the fix, old rows stayed in the DB alongside new
+// ones, inflating the unit counts. After the fix, recordInventoryMove() deletes all
+// existing rows for each (year, month, from, to) before inserting, so the count
+// stays correct regardless of how many times the period is re-imported.
+// ---------------------------------------------------------------------------
+void TestOrderManager::test_inventoryMove_reimport()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    OrderManager manager(tempDir.path());
+
+    using InvData = QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, QHash<QString, int>>>>>>;
+
+    // ── Session 1: first import of Feb 2026 (DE→FR: 5+2 units, FR→ES: 2 units) ──
+    {
+        InvData data;
+        data[2026][2]["DE"]["FR"]["0fefc7d611a3abc1"]["CJZP121890101AZ"] = 5;
+        data[2026][2]["DE"]["FR"]["cb7967db567adef2"]["CJZP121890101AZ"] = 2;
+        data[2026][2]["FR"]["ES"]["49cab3a79f34xyz3"]["CJZP121890101AZ"] = 2;
+        manager.recordInventoryMove(data);
+    }
+    QCOMPARE(manager.getInventoryExported(2026, 2, "DE")["CJZP121890101AZ"], 7);  // 1
+    QCOMPARE(manager.getInventoryImported(2026, 2, "FR")["CJZP121890101AZ"], 7);  // 2
+    QCOMPARE(manager.getInventoryExported(2026, 2, "FR")["CJZP121890101AZ"], 2);  // 3
+    QCOMPARE(manager.getInventoryImported(2026, 2, "ES")["CJZP121890101AZ"], 2);  // 4
+
+    // ── Session 2: Amazon resends the same period with DIFFERENT event IDs ─
+    // Before the fix: old rows accumulated → 14 total from DE instead of 7.
+    // After the fix: old rows are replaced → stays at 7.
+    {
+        InvData data;
+        data[2026][2]["DE"]["FR"]["new_event_id_aabb"]["CJZP121890101AZ"] = 5;
+        data[2026][2]["DE"]["FR"]["new_event_id_ccdd"]["CJZP121890101AZ"] = 2;
+        data[2026][2]["FR"]["ES"]["new_event_id_eeff"]["CJZP121890101AZ"] = 2;
+        manager.recordInventoryMove(data);
+    }
+    QCOMPARE(manager.getInventoryExported(2026, 2, "DE")["CJZP121890101AZ"], 7);  // 5 (not 14)
+    QCOMPARE(manager.getInventoryImported(2026, 2, "FR")["CJZP121890101AZ"], 7);  // 6
+    QCOMPARE(manager.getInventoryExported(2026, 2, "FR")["CJZP121890101AZ"], 2);  // 7
+    QCOMPARE(manager.getInventoryImported(2026, 2, "ES")["CJZP121890101AZ"], 2);  // 8
+
+    // ── Session 3: re-import again; result must still be identical ──────────
+    {
+        InvData data;
+        data[2026][2]["DE"]["FR"]["yet_another_id_11"]["CJZP121890101AZ"] = 5;
+        data[2026][2]["DE"]["FR"]["yet_another_id_22"]["CJZP121890101AZ"] = 2;
+        data[2026][2]["FR"]["ES"]["yet_another_id_33"]["CJZP121890101AZ"] = 2;
+        manager.recordInventoryMove(data);
+    }
+    QCOMPARE(manager.getInventoryExported(2026, 2, "DE")["CJZP121890101AZ"], 7);  // 9
+    QCOMPARE(manager.getInventoryImported(2026, 2, "FR")["CJZP121890101AZ"], 7);  // 10
+
+    // ── Other periods are unaffected ────────────────────────────────────────
+    {
+        InvData data;
+        data[2026][1]["DE"]["FR"]["jan_id_001"]["CJZP121890101AZ"] = 10;
+        manager.recordInventoryMove(data);
+    }
+    QCOMPARE(manager.getInventoryExported(2026, 1, "DE")["CJZP121890101AZ"], 10); // 11
+    QCOMPARE(manager.getInventoryExported(2026, 2, "DE")["CJZP121890101AZ"], 7);  // 12 Feb unchanged
+}
+
+// ---------------------------------------------------------------------------
+// test_inventoryMove_fcTransfer_pipeline
+// Full pipeline test: writes a minimal Amazon VAT EU CSV containing only
+// FC_TRANSFER rows (matching the exact SKU and counts from the Feb 2026 report
+// that exhibited the production bug), imports it via ImporterFileAmazonVatEu,
+// records the result via OrderManager, and verifies correct unit counts.
+// Then re-imports with a different filename (new event IDs, same data) and
+// confirms no double-counting.
+// ---------------------------------------------------------------------------
+void TestOrderManager::test_inventoryMove_fcTransfer_pipeline()
+{
+    QTemporaryDir tmpDir;
+    QVERIFY(tmpDir.isValid());
+    OrderManager manager(QDir{tmpDir.path()});
+
+    // Minimal CSV header: all columns that ImporterFileAmazonVatEu::_loadReport()
+    // calls header.pos() on (throws if missing), plus the optional FC_TRANSFER columns.
+    const QString csvHeader =
+        "TRANSACTION_TYPE,TRANSACTION_EVENT_ID,ACTIVITY_TRANSACTION_ID,"
+        "TRANSACTION_COMPLETE_DATE,TAX_CALCULATION_DATE,"
+        "SELLER_SKU,QTY,DEPARTURE_COUNTRY,ARRIVAL_COUNTRY,"
+        "VAT_CALCULATION_IMPUTATION_COUNTRY,PRODUCT_TAX_CODE,"
+        "PRICE_OF_ITEMS_AMT_VAT_EXCL,TOTAL_ACTIVITY_VALUE_VAT_AMT,"
+        "TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL,VAT_INV_NUMBER,INVOICE_URL,"
+        "TRANSACTION_CURRENCY_CODE,MARKETPLACE,PRICE_OF_ITEMS_VAT_RATE_PERCENT,"
+        "TAX_REPORTING_SCHEME,TAX_COLLECTION_RESPONSIBILITY";
+
+    // Build one FC_TRANSFER row: eventId is reused as activityId (same value in both cols).
+    auto makeRow = [](const QString &id, const QString &date,
+                      const QString &sku, int qty,
+                      const QString &from, const QString &to) -> QString {
+        return QStringLiteral("FC_TRANSFER,%1,%1,%2,,%3,%4,%5,%6,,,,0,0,,,EUR,,0,,")
+                .arg(id, date, sku, QString::number(qty), from, to);
+    };
+
+    auto writeCsv = [&csvHeader](const QString &filePath, const QStringList &rows) -> bool {
+        QFile f(filePath);
+        if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+            return false;
+        }
+        QString content = csvHeader + "\n";
+        for (const auto &row : std::as_const(rows)) {
+            content += row + "\n";
+        }
+        f.write(content.toUtf8());
+        return true;
+    };
+
+    // ── Session 1: import first version of the Feb 2026 report ─────────────
+    const QString file1 = tmpDir.filePath("vat-eu-2026-02.csv");
+    QVERIFY(writeCsv(file1, {
+        makeRow("0fefc7d611a3abc1", "14-02-2026", "CJZP121890101AZ", 5, "DE", "FR"),
+        makeRow("cb7967db567adef2", "12-02-2026", "CJZP121890101AZ", 2, "DE", "FR"),
+        makeRow("49cab3a79f34xyz3", "19-02-2026", "CJZP121890101AZ", 2, "FR", "ES"),
+    }));
+
+    ImporterFileAmazonVatEu importer(QDir{tmpDir.path()});
+    const auto result1 = QCoro::waitFor(importer.loadReport(file1));
+    QVERIFY2(result1.errorReturned.isEmpty(), qPrintable(result1.errorReturned));
+    QVERIFY(!result1.orderInfos.isNull());
+
+    // Verify the importer parsed the FC_TRANSFER rows correctly.
+    const auto &moves1 = result1.orderInfos->year_month_countryFrom_countryTo_eventId_sku_units;
+    QCOMPARE(moves1[2026][2]["DE"]["FR"].size(), 2);                                               // 1
+    QCOMPARE(moves1[2026][2]["DE"]["FR"]["0fefc7d611a3abc1"]["CJZP121890101AZ"], 5);               // 2
+    QCOMPARE(moves1[2026][2]["DE"]["FR"]["cb7967db567adef2"]["CJZP121890101AZ"], 2);               // 3
+    QCOMPARE(moves1[2026][2]["FR"]["ES"]["49cab3a79f34xyz3"]["CJZP121890101AZ"], 2);               // 4
+
+    manager.recordInventoryMove(moves1);
+    QCOMPARE(manager.getInventoryExported(2026, 2, "DE")["CJZP121890101AZ"], 7);  // 5
+    QCOMPARE(manager.getInventoryImported(2026, 2, "FR")["CJZP121890101AZ"], 7);  // 6
+    QCOMPARE(manager.getInventoryExported(2026, 2, "FR")["CJZP121890101AZ"], 2);  // 7
+    QCOMPARE(manager.getInventoryImported(2026, 2, "ES")["CJZP121890101AZ"], 2);  // 8
+
+    // ── Session 2: Amazon resends a corrected report with different event IDs ─
+    // Different filename → passes the duplicate-filename guard in loadReport().
+    // Before the fix the old rows would remain, giving 14 units instead of 7.
+    const QString file2 = tmpDir.filePath("vat-eu-2026-02-corrected.csv");
+    QVERIFY(writeCsv(file2, {
+        makeRow("new_event_001", "14-02-2026", "CJZP121890101AZ", 5, "DE", "FR"),
+        makeRow("new_event_002", "12-02-2026", "CJZP121890101AZ", 2, "DE", "FR"),
+        makeRow("new_event_003", "19-02-2026", "CJZP121890101AZ", 2, "FR", "ES"),
+    }));
+
+    const auto result2 = QCoro::waitFor(importer.loadReport(file2));
+    QVERIFY2(result2.errorReturned.isEmpty(), qPrintable(result2.errorReturned));
+    QVERIFY(!result2.orderInfos.isNull());
+
+    manager.recordInventoryMove(result2.orderInfos->year_month_countryFrom_countryTo_eventId_sku_units);
+
+    // After the fix: still 7 units from DE, not 14.
+    QCOMPARE(manager.getInventoryExported(2026, 2, "DE")["CJZP121890101AZ"], 7);  // 9
+    QCOMPARE(manager.getInventoryImported(2026, 2, "FR")["CJZP121890101AZ"], 7);  // 10
+    QCOMPARE(manager.getInventoryExported(2026, 2, "FR")["CJZP121890101AZ"], 2);  // 11
+    QCOMPARE(manager.getInventoryImported(2026, 2, "ES")["CJZP121890101AZ"], 2);  // 12
 }
 
 // ---------------------------------------------------------------------------

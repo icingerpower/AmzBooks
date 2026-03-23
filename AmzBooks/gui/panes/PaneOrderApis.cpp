@@ -184,12 +184,12 @@ void PaneOrderApis::import()
             // Merge Inventory Moves from all result sets (txnIds are unique)
             for (auto *resultPtr : {&resultShipments, &resultRefunds, &resultAddresses, &resultInvoiceInfos}) {
                 if (resultPtr->orderInfos) {
-                    for (auto it1 = resultPtr->orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits.constBegin();
-                         it1 != resultPtr->orderInfos->year_month_countryFrom_countryTo_id_SkuMovedUnits.constEnd(); ++it1) {
+                    for (auto it1 = resultPtr->orderInfos->year_month_countryFrom_countryTo_eventId_sku_units.constBegin();
+                         it1 != resultPtr->orderInfos->year_month_countryFrom_countryTo_eventId_sku_units.constEnd(); ++it1) {
                         for (auto it2 = it1.value().constBegin(); it2 != it1.value().constEnd(); ++it2) {
                             for (auto it3 = it2.value().constBegin(); it3 != it2.value().constEnd(); ++it3) {
                                 for (auto it4 = it3.value().constBegin(); it4 != it3.value().constEnd(); ++it4) {
-                                    aggregatedInfos.year_month_countryFrom_countryTo_id_SkuMovedUnits
+                                    aggregatedInfos.year_month_countryFrom_countryTo_eventId_sku_units
                                             [it1.key()][it2.key()][it3.key()][it4.key()]
                                             .insert(it4.value());
                                 }
@@ -248,9 +248,9 @@ void PaneOrderApis::import()
             }
 
             // Process Inventory Moves
-            if (!aggregatedInfos.year_month_countryFrom_countryTo_id_SkuMovedUnits.isEmpty()) {
+            if (!aggregatedInfos.year_month_countryFrom_countryTo_eventId_sku_units.isEmpty()) {
                 manager.recordInventoryMove(
-                        aggregatedInfos.year_month_countryFrom_countryTo_id_SkuMovedUnits);
+                        aggregatedInfos.year_month_countryFrom_countryTo_eventId_sku_units);
             }
 
             // Process Refund Clues

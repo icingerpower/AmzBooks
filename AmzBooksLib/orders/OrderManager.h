@@ -22,7 +22,6 @@
 #include "ActivitySource.h"
 #include "books/TaxResolver.h"
 #include "Address.h"
-#include "InventoryMove.h"
 class ActivitySource;
 class Shipment;
 class InvoicingInfo;
@@ -83,7 +82,9 @@ public:
     void recordOrders(const QHash<QString, OrderInfo> &orderId_infos); // Batch upsert, 1000 at a time
     QHash<QString, QString> getStores(const QList<QSharedPointer<Shipment>> &shipments) const; // orderId → store
     void recordAddressesTo(const QHash<QString, Address> &orderId_addressTo); // Batch upsert, 1000 at a time
-    void recordInventoryMove(const QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, InventoryMove>>>>> &year_month_countryFrom_countryTo_id_SkuMovedUnits); // Batch upsert 500 at a time; throws ExceptionWithTitleText if any transactionId is empty
+    // Batch upsert 500 at a time; throws ExceptionWithTitleText if any transactionId is empty.
+    // year → month → countryFrom → countryTo → eventId → sku → units
+    void recordInventoryMove(const QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, QHash<QString, int>>>>>> &year_month_countryFrom_countryTo_eventId_sku_units);
     QHash<QString, int> getInventoryImported(int year, int month, const QString &countryCodeTo) const;
     QHash<QString, int> getInventoryExported(int year, int month, const QString &countryCodeFrom) const;
     // Records invoicing information (number, link, items) for a given shipment (or its root).
