@@ -288,7 +288,7 @@ private slots:
         auto cbReject = [](const QString&, const QString&) -> QCoro::Task<bool> {
             co_return false;
         };
-        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, cbReject)), ExceptionWithTitleText);
+        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, SaleType::Products, cbReject)), ExceptionWithTitleText);
 
         // 3. Retry loop: Callback calls true (Retry) multiple times then false (Cancel) -> throws ExceptionVatAccount
         int countRetry = 0;
@@ -297,7 +297,7 @@ private slots:
             if (countRetry < 5) co_return true; // Retry
             co_return false; // Cancel
         };
-        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, cbRetryThenCancel)), ExceptionWithTitleText);
+        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 99.9, SaleType::Products, cbRetryThenCancel)), ExceptionWithTitleText);
         // It immediately throws if it wasn't added correctly in the first retry.
         QCOMPARE(countRetry, 1);
 
@@ -313,7 +313,7 @@ private slots:
              co_return true;
         };
         
-        auto res = syncWait(table.getAccounts(vc, 99.9, cbAdd));
+        auto res = syncWait(table.getAccounts(vc, 99.9, SaleType::Products, cbAdd));
         QCOMPARE(res.saleAccount, "DynamicSale");
         
         // 5. Retry loop: Callback calls true (Retry) then Adds on second attempt
@@ -331,7 +331,7 @@ private slots:
              co_return true;
         };
         
-        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 88.8, cbRetryThenAdd)), ExceptionWithTitleText);
+        QVERIFY_EXCEPTION_THROWN(syncWait(table.getAccounts(vc, 88.8, SaleType::Products, cbRetryThenAdd)), ExceptionWithTitleText);
         QCOMPARE(countSuccess, 1);
     }
 
@@ -654,7 +654,7 @@ private slots:
         // 1. Init & Modify
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 9);  // Country, Currency, FixerApiKey + 6 Legal Infos
+            QCOMPARE(table.rowCount(), 10); // Country, Currency, FixerApiKey + 6 Legal Infos + InternalBankAccount
 
             // Modify Country (Row 0, Col 1)
             table.setData(table.index(0, 1), "US");
@@ -666,7 +666,7 @@ private slots:
         // 2. Persistence (New Instance)
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 9);  // Country, Currency, FixerApiKey + 6 Legal Infos
+            QCOMPARE(table.rowCount(), 10); // Country, Currency, FixerApiKey + 6 Legal Infos + InternalBankAccount
 
             // Check Values
             QCOMPARE(table.data(table.index(0, 1)).toString(), "US");
@@ -688,8 +688,8 @@ private slots:
         {
             CompanyInfosTable table(QDir(tempDir.path()));
             // The table enforces a fixed structure; fake rows must be ignored.
-            // We want strict 9 rows.
-            QCOMPARE(table.rowCount(), 9);
+            // We want strict 10 rows.
+            QCOMPARE(table.rowCount(), 10);
             
             // Should still have valid data for known IDs
             QCOMPARE(table.getCompanyCountryCode(), "US");
@@ -705,7 +705,7 @@ private slots:
         // 1. Set API Key (Row 2 = FixerApiKey)
         {
             CompanyInfosTable table(QDir(tempDir.path()));
-            QCOMPARE(table.rowCount(), 9);
+            QCOMPARE(table.rowCount(), 10);
 
             // Row 2 is FixerApiKey
             table.setData(table.index(2, 1), testApiKey);

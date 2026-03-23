@@ -1,6 +1,7 @@
 #include "DialogAddSaleAccount.h"
 #include "ui_DialogAddSaleAccount.h"
 #include "CountriesEu.h"
+#include "orders/SaleType.h"
 
 DialogAddSaleAccount::DialogAddSaleAccount(QWidget *parent) :
     QDialog(parent),
@@ -9,6 +10,7 @@ DialogAddSaleAccount::DialogAddSaleAccount(QWidget *parent) :
     ui->setupUi(this);
     _setupCountries();
     _setupTaxSchemes();
+    _setupSaleTypes();
 }
 
 DialogAddSaleAccount::~DialogAddSaleAccount()
@@ -87,4 +89,20 @@ QString DialogAddSaleAccount::getVatAccount() const
 QString DialogAddSaleAccount::getVatAccountToPay() const
 {
     return ui->editVatAccountToPay->text();
+}
+
+void DialogAddSaleAccount::_setupSaleTypes()
+{
+    ui->comboSaleType->addItem(toString(SaleType::Products), QVariant::fromValue(SaleType::Products));
+    ui->comboSaleType->addItem(toString(SaleType::Service),  QVariant::fromValue(SaleType::Service));
+}
+
+SaleType DialogAddSaleAccount::getSaleType() const
+{
+    return ui->comboSaleType->currentData().value<SaleType>();
+}
+
+QString DialogAddSaleAccount::getClientAccount() const
+{
+    return ui->editClientAccount->text();
 }

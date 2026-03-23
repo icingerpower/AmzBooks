@@ -358,14 +358,15 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     m_orderManager->recordInvoicingInfo(activityId, &resInfo.value.value());
 
     // 7. Add to AbstractBooksTable (gross amount = net + vat)
+    // account1 = client receivable account; account2 = service revenue account
     add(orderId
         , orderId
         , date
         , taxedAmount
         , currency
         , serviceLabel
-        , account  // Account 1
-        , ""       // Account 2
+        , clientAccount  // Account 1: client receivable
+        , account        // Account 2: service revenue account
         , vatAmount
         , country  // VAT Country
         , currency
@@ -405,10 +406,11 @@ void ServiceSalesBooksTable::_createRefundEntry(const QString &rowId, const QStr
         return;
     }
 
-    const QDate   origDate     = getDate(origRow);
-    const QString origLabel    = getLabel(origRow);
-    const QString origCurrency = getCurrency(origRow);
-    const QString origAccount  = getAccount1(origRow);
+    const QDate   origDate      = getDate(origRow);
+    const QString origLabel     = getLabel(origRow);
+    const QString origCurrency  = getCurrency(origRow);
+    const QString origAccount1  = getAccount1(origRow); // client receivable
+    const QString origAccount2  = getAccount2(origRow); // service revenue
 
     // Retrieve the original shipment from OrderManager to access full Activity data
     auto filter = [&rowId](const ActivitySource *source, const Shipment *shipment) -> bool {
@@ -513,8 +515,8 @@ void ServiceSalesBooksTable::_createRefundEntry(const QString &rowId, const QStr
         -origAct.getAmountTaxed(),
         origCurrency,
         origLabel,
-        origAccount,
-        QString{},
+        origAccount1,  // account1: client receivable
+        origAccount2,  // account2: service revenue account
         -origAct.getAmountTaxes(),
         origAct.getCountryCodeTo(),
         origCurrency);
@@ -640,15 +642,15 @@ void ServiceSalesBooksTable::load(int year)
         const QDate orderDate = act.getDateTime().date();
 
         add(act.getEventId(),
-            act.getInvoiceId(),         // bookId (invoice/account code stored here)
+            act.getInvoiceId(),          // bookId (invoice/account code stored here)
             orderDate,
-            act.getAmountTaxed(), // Total Amount (TTC = gross)
+            act.getAmountTaxed(),        // Total Amount (TTC = gross)
             act.getCurrency(),
-            act.getSubActivityId(), // Label stored in subActivityId
-            act.getInvoiceId(),     // account1: recovered from invoiceId field
-            "",
+            act.getSubActivityId(),      // Label stored in subActivityId
+            shipment->customerAccount(), // account1: client receivable
+            act.getInvoiceId(),          // account2: service revenue account
             act.getAmountTaxes(),
-            act.getCountryCodeTo(), // Used as VAT Country
+            act.getCountryCodeTo(),      // Used as VAT Country
             act.getCurrency());
 
         // Populate extra columns from persisted InvoicingInfo

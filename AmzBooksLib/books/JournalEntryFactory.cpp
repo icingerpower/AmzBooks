@@ -594,28 +594,28 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
 
         BooksAccountsSalesTable::Accounts accounts;
         try {
-            accounts = co_await m_saleBookAccounts->getAccounts(vc, vg.vatRatePct, callbackAddIfMissing);
+            accounts = co_await m_saleBookAccounts->getAccounts(vc, vg.vatRatePct, SaleType::Products, callbackAddIfMissing);
         } catch (const ExceptionWithTitleText &e) {
             QString newText = e.errorText() + QString("\n(Sample order ID for this VAT config: %1)").arg(vg.sampleEventId);
             ExceptionWithTitleText newEx(e.errorTitle(), newText);
             newEx.raise();
         }
 
-        // Customer account
-        QString custAcc = accounts.customerAccount;
+        // Grouped client account (receivable account used when multiple orders are aggregated)
+        QString custAcc = accounts.groupedClientAccount;
         while (custAcc.isEmpty() && callbackAddIfMissing) {
             bool shouldRetry = co_await callbackAddIfMissing(
-                QObject::tr("Missing Customer Account"),
-                QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
+                QObject::tr("Missing Grouped Client Account"),
+                QObject::tr("No grouped client account found for sales entry (VAT scheme: %1, Rate: %2)")
                     .arg(taxSchemeToString(vg.taxScheme)).arg(vg.vatRatePct));
             if (!shouldRetry)
                 break;
-            accounts = co_await m_saleBookAccounts->getAccounts(vc, vg.vatRatePct, callbackAddIfMissing);
-            custAcc = accounts.customerAccount;
+            accounts = co_await m_saleBookAccounts->getAccounts(vc, vg.vatRatePct, SaleType::Products, callbackAddIfMissing);
+            custAcc = accounts.groupedClientAccount;
         }
         if (custAcc.isEmpty()) {
-            ExceptionWithTitleText exception(QObject::tr("Missing Customer Account"),
-                QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
+            ExceptionWithTitleText exception(QObject::tr("Missing Grouped Client Account"),
+                QObject::tr("No grouped client account found for sales entry (VAT scheme: %1, Rate: %2)")
                 .arg(taxSchemeToString(vg.taxScheme)).arg(vg.vatRatePct));
             exception.raise();
         }
@@ -719,31 +719,22 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
             activity.getCountryCodeTo()
         );
         
-        BooksAccountsSalesTable::Accounts accounts = co_await m_saleBookAccounts->getAccounts(vc, vatRate, callbackAddIfMissing);
+        BooksAccountsSalesTable::Accounts accounts = co_await m_saleBookAccounts->getAccounts(vc, vatRate, activity.getSaleType(), callbackAddIfMissing);
         
         
-        QString custAcc;
-        if (!customerAccount.isEmpty()) {
+        // Use clientAccount from BooksAccountsSalesTable (broad client grouping account,
+        // e.g. "CCLIENTEU" / "CLIENTDOM" or a user-configured specific account).
+        // The customerAccount parameter is kept as a last-resort fallback only.
+        QString custAcc = accounts.clientAccount;
+        if (custAcc.isEmpty()) {
             custAcc = customerAccount;
-        } else {
-            custAcc = accounts.customerAccount;
-            while (custAcc.isEmpty() && callbackAddIfMissing) {
-                bool shouldRetry = co_await callbackAddIfMissing(
-                    QObject::tr("Missing Customer Account"),
-                    QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
-                        .arg(taxSchemeToString(activity.getTaxScheme())).arg(vatRate));
-                if (!shouldRetry)
-                    break;
-                accounts = co_await m_saleBookAccounts->getAccounts(vc, vatRate, callbackAddIfMissing);
-                custAcc = accounts.customerAccount;
-            }
-            if (custAcc.isEmpty()) {
-                ExceptionWithTitleText exception(
-                    QObject::tr("Missing Customer Account"),
-                    QObject::tr("No customer account found for sales entry (VAT scheme: %1, Rate: %2)")
-                        .arg(taxSchemeToString(activity.getTaxScheme())).arg(vatRate));
-                exception.raise();
-            }
+        }
+        if (custAcc.isEmpty()) {
+            ExceptionWithTitleText exception(
+                QObject::tr("Missing Client Account"),
+                QObject::tr("No client account found for sales entry (VAT scheme: %1, Rate: %2)")
+                    .arg(taxSchemeToString(activity.getTaxScheme())).arg(vatRate));
+            exception.raise();
         }
 
         revenueByAccount[accounts.saleAccount][currency] += amountUntaxed;

@@ -2371,7 +2371,13 @@ void PaneBookKeeping::_createBooksTables()
     ui->tableAmzPayments->setSelectionMode(QAbstractItemView::ExtendedSelection);
 
     // E-commerce (ungrouped) orders
-    auto ecomSalesTable = new UngroupedOrderTable(m_booksConnections, m_orderManager, workingDir, ui->tableEcomSales);
+    auto ecomSalesBooksAccounts = new BooksAccountsSalesTable(workingDir, ui->tableEcomSales);
+    auto ecomSalesTable = new UngroupedOrderTable(
+        m_booksConnections, m_orderManager, workingDir,
+        ecomSalesBooksAccounts,
+        companyInfosForTable.getCompanyCountryCode(),
+        companyInfosForTable.getCurrency(),
+        ui->tableEcomSales);
     ui->tableEcomSales->setModel(ecomSalesTable);
     ui->tableEcomSales->setSelectionBehavior(QAbstractItemView::SelectRows);
     ui->tableEcomSales->setSelectionMode(QAbstractItemView::ExtendedSelection);

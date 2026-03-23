@@ -3,6 +3,7 @@
 
 #include <QDialog>
 #include "books/TaxScheme.h"
+#include "orders/SaleType.h"
 
 namespace Ui {
 class DialogAddSaleAccount;
@@ -24,11 +25,14 @@ public:
     QString getSaleAccount() const;
     QString getVatAccount() const;
     QString getVatAccountToPay() const;
+    SaleType getSaleType() const;
+    QString getClientAccount() const;
 
 private:
     Ui::DialogAddSaleAccount *ui;
     void _setupCountries();
     void _setupTaxSchemes();
+    void _setupSaleTypes();
 };
 
 #endif // DIALOGADDSALEACCOUNT_H

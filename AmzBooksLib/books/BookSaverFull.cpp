@@ -55,26 +55,38 @@ void BookSaverFull::save(
                 return 0.0;
             };
 
-            // Debits
+            // Debits — negative amount flips to credit side
             for (const auto &line : entry->getDebits()) {
                 CsvLine csvLine;
                 csvLine.date = date;
                 csvLine.journal = journalId;
                 csvLine.account = line.account;
-                csvLine.debit = amountInTargetCurrency(line);
-                csvLine.credit = 0.0;
+                const double amount = amountInTargetCurrency(line);
+                if (amount >= 0.0) {
+                    csvLine.debit  = amount;
+                    csvLine.credit = 0.0;
+                } else {
+                    csvLine.debit  = 0.0;
+                    csvLine.credit = -amount;
+                }
                 csvLine.label = line.title;
                 organizedData[year][month][journalId].append(csvLine);
             }
 
-            // Credits
+            // Credits — negative amount flips to debit side
             for (const auto &line : entry->getCredits()) {
                 CsvLine csvLine;
                 csvLine.date = date;
                 csvLine.journal = journalId;
                 csvLine.account = line.account;
-                csvLine.debit = 0.0;
-                csvLine.credit = amountInTargetCurrency(line);
+                const double amount = amountInTargetCurrency(line);
+                if (amount >= 0.0) {
+                    csvLine.debit  = 0.0;
+                    csvLine.credit = amount;
+                } else {
+                    csvLine.debit  = -amount;
+                    csvLine.credit = 0.0;
+                }
                 csvLine.label = line.title;
                 organizedData[year][month][journalId].append(csvLine);
             }

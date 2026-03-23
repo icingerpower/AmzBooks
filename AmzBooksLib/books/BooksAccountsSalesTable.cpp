@@ -11,11 +11,13 @@ const QStringList BooksAccountsSalesTable::HEADER{
     QObject::tr("Tax Scheme")
     , QObject::tr("Country From")
     , QObject::tr("Country To")
+    , QObject::tr("Sale Type")
     , QObject::tr("VAT Rate")
     , QObject::tr("Sale Account")
     , QObject::tr("VAT Account")
     , QObject::tr("VAT Account To Pay")
-    , QObject::tr("Customer Account")
+    , QObject::tr("Grouped Client Account")
+    , QObject::tr("Client Account")
 };
 
 BooksAccountsSalesTable::BooksAccountsSalesTable(const QDir &workingDir, QObject *parent)
@@ -70,44 +72,60 @@ VatCountries BooksAccountsSalesTable::resolveVatCountries(
 QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccounts(
         const VatCountries &vatCountries
         , double vatRate
+        , SaleType saleType
         , std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing) const
 {
     // Helper to look up in cache
-    auto lookup = [&](const VatCountries &orgVc, double rate) -> std::optional<Accounts> {
+    auto lookup = [&](const VatCountries &orgVc, SaleType st, double rate) -> std::optional<Accounts> {
         auto tryMatch = [&](const VatCountries &key) -> std::optional<Accounts> {
-            if (m_vatCountries_vatRate_accountsCache.contains(key)) {
-                const auto &rateMap = m_vatCountries_vatRate_accountsCache[key];
-                QString rateStr = QString::number(rate);
-                
-                // Level 2: VAT Rate
-                // Try exact match first
-                if (rateMap.contains(rateStr)) {
-                    return rateMap[rateStr];
+            auto itVc = m_vatCountries_vatRate_accountsCache.find(key);
+            if (itVc == m_vatCountries_vatRate_accountsCache.end()) {
+                return std::nullopt;
+            }
+            const auto &typeMap = itVc.value();
+            const QString rateStr = QString::number(rate);
+
+            // Try exact SaleType first
+            auto itType = typeMap.find(st);
+            if (itType != typeMap.end() && itType.value().contains(rateStr)) {
+                return itType.value()[rateStr];
+            }
+            // Fallback to Products when the specific type has no entry
+            if (st != SaleType::Products) {
+                auto itProd = typeMap.find(SaleType::Products);
+                if (itProd != typeMap.end() && itProd.value().contains(rateStr)) {
+                    return itProd.value()[rateStr];
                 }
             }
             return std::nullopt;
         };
 
-        if (auto res = tryMatch(orgVc)) return res;
-        
+        if (auto res = tryMatch(orgVc)) {
+            return res;
+        }
+
         // Fallback: Try with empty From (Generic)
         if (!orgVc.countryCodeFrom.isEmpty()) {
             VatCountries genericFrom = orgVc;
             genericFrom.countryCodeFrom = "";
-            if (auto res = tryMatch(genericFrom)) return res;
-            
+            if (auto res = tryMatch(genericFrom)) {
+                return res;
+            }
+
             // Fallback: Try with empty From AND empty Declaring (Generic OSS)
             if (!orgVc.countryCodeDeclaring.isEmpty()) {
                 genericFrom.countryCodeDeclaring = "";
-                if (auto res = tryMatch(genericFrom)) return res;
+                if (auto res = tryMatch(genericFrom)) {
+                    return res;
+                }
             }
         }
-        
+
         return std::nullopt;
     };
 
     while (true) {
-        if (auto acc = lookup(vatCountries, vatRate)) {
+        if (auto acc = lookup(vatCountries, saleType, vatRate)) {
             co_return *acc;
         }
         
@@ -128,11 +146,10 @@ QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccou
         // Default callback usually returns false unless user implements one that adds it.
         bool retry = co_await callbackAddIfMissing(errorTitle, errorText);
         if (retry) {
-            if (auto acc = lookup(vatCountries, vatRate)) {
+            if (auto acc = lookup(vatCountries, saleType, vatRate)) {
                 co_return *acc;
             }
         }
-        break;
         break;
     }
     // Should not reach here if loop breaks only on !callback or handled inside, 
@@ -150,30 +167,46 @@ QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccou
 
 
 BooksAccountsSalesTable::Accounts BooksAccountsSalesTable::getAccountsIfPresent(
-        const VatCountries &vatCountries, double vatRate) const
+        const VatCountries &vatCountries, double vatRate, SaleType saleType) const
 {
     const QString rateStr = QString::number(vatRate);
 
     auto tryMatch = [&](const VatCountries &key) -> std::optional<Accounts> {
         auto it = m_vatCountries_vatRate_accountsCache.find(key);
-        if (it == m_vatCountries_vatRate_accountsCache.end())
+        if (it == m_vatCountries_vatRate_accountsCache.end()) {
             return std::nullopt;
-        const auto &rateMap = it.value();
-        if (rateMap.contains(rateStr))
-            return rateMap[rateStr];
+        }
+        const auto &typeMap = it.value();
+
+        auto itType = typeMap.find(saleType);
+        if (itType != typeMap.end() && itType.value().contains(rateStr)) {
+            return itType.value()[rateStr];
+        }
+        if (saleType != SaleType::Products) {
+            auto itProd = typeMap.find(SaleType::Products);
+            if (itProd != typeMap.end() && itProd.value().contains(rateStr)) {
+                return itProd.value()[rateStr];
+            }
+        }
         return std::nullopt;
     };
 
-    if (auto res = tryMatch(vatCountries)) return *res;
+    if (auto res = tryMatch(vatCountries)) {
+        return *res;
+    }
 
     if (!vatCountries.countryCodeFrom.isEmpty()) {
         VatCountries genericFrom = vatCountries;
         genericFrom.countryCodeFrom = "";
-        if (auto res = tryMatch(genericFrom)) return *res;
+        if (auto res = tryMatch(genericFrom)) {
+            return *res;
+        }
 
         if (!vatCountries.countryCodeDeclaring.isEmpty()) {
             genericFrom.countryCodeDeclaring = "";
-            if (auto res = tryMatch(genericFrom)) return *res;
+            if (auto res = tryMatch(genericFrom)) {
+                return *res;
+            }
         }
     }
 
@@ -181,33 +214,33 @@ BooksAccountsSalesTable::Accounts BooksAccountsSalesTable::getAccountsIfPresent(
 }
 
 void BooksAccountsSalesTable::addAccount(
-        const VatCountries &vatCountries, double vatRate, const BooksAccountsSalesTable::Accounts &accounts)
+        const VatCountries &vatCountries, double vatRate, const BooksAccountsSalesTable::Accounts &accounts, SaleType saleType)
 {
     QString schemeStr = taxSchemeToString(vatCountries.taxScheme);
     QString rateStr = QString::number(vatRate);
 
     // Validation: Check for duplicates using cache
-    if (m_vatCountries_vatRate_accountsCache.contains(vatCountries)) {
-        if (m_vatCountries_vatRate_accountsCache[vatCountries].contains(rateStr)) {
-             ExceptionWithTitleText exception(tr("Account Exists"), 
-                QString(tr("An account for scheme %1, from %2, to %3, rate %4 already exists."))
-                    .arg(schemeStr)
-                    .arg(vatCountries.countryCodeFrom)
-                    .arg(vatCountries.countryCodeTo)
-                    .arg(rateStr));
-             exception.raise();
-        }
+    if (m_vatCountries_vatRate_accountsCache.contains(vatCountries) &&
+        m_vatCountries_vatRate_accountsCache[vatCountries].contains(saleType) &&
+        m_vatCountries_vatRate_accountsCache[vatCountries][saleType].contains(rateStr)) {
+        ExceptionWithTitleText exception(tr("Account Exists"),
+            QString(tr("An account for scheme %1, from %2, to %3, type %4, rate %5 already exists."))
+                .arg(schemeStr, vatCountries.countryCodeFrom, vatCountries.countryCodeTo,
+                     toString(saleType), rateStr));
+        exception.raise();
     }
 
     QStringList row;
     row << taxSchemeToString(vatCountries.taxScheme)
         << vatCountries.countryCodeFrom
         << vatCountries.countryCodeTo
+        << toString(saleType)
         << QString::number(vatRate)
         << accounts.saleAccount
         << accounts.vatAccount
         << accounts.vatAccountToPay
-        << accounts.customerAccount;
+        << accounts.groupedClientAccount
+        << accounts.clientAccount;
         
     beginInsertRows(QModelIndex(), m_listOfStringList.size(), m_listOfStringList.size());
     m_listOfStringList.insert(0, row);
@@ -301,17 +334,20 @@ void BooksAccountsSalesTable::_fillIfEmpty()
             return QString::number(pct);
         };
 
-        auto createRow = [&](TaxScheme scheme, const QString &from, const QString &to, double rate,
+        auto createRow = [&](TaxScheme scheme, const QString &from, const QString &to,
+                             SaleType saleType, double rate,
                              const QString &saleAcc, const QString &vatAcc, const QString &vatPayAcc = "") {
             QStringList row;
             row << taxSchemeToString(scheme)
                 << from
                 << to
+                << toString(saleType)
                 << QString::number(rate)
                 << saleAcc
                 << vatAcc
                 << vatPayAcc
-                << QString("411%1").arg(to.isEmpty() ? from : to);
+                << QString("411%1").arg(to.isEmpty() ? from : to)
+                << (CountriesEu::all().contains(to) ? QStringLiteral("CCLIENTEU") : QStringLiteral("CLIENTDOM"));
             m_listOfStringList.append(row);
         };
 
@@ -333,7 +369,7 @@ void BooksAccountsSalesTable::_fillIfEmpty()
         }
 
         const QStringList panEu = CountriesEu::getAmazonPanEuCountryCodes();
-        createRow(TaxScheme::DomesticVat, "GB", "", 0.0,
+        createRow(TaxScheme::DomesticVat, "GB", "", SaleType::Products, 0.0,
                   QString("7070DOM%1%2").arg("GB", "0"),
                   QString("4457DOM%1%2").arg("GB", "0"),
                   QString("4457DOM%1%2_PAY").arg("GB", "0"));
@@ -349,7 +385,7 @@ void BooksAccountsSalesTable::_fillIfEmpty()
 
             // DomesticVat zero-rate entry (PanEU only, once per country)
             if (panEu.contains(c)) {
-                createRow(TaxScheme::DomesticVat, c, "", 0.0,
+                createRow(TaxScheme::DomesticVat, c, "", SaleType::Products, 0.0,
                           QString("7070DOM%1%2").arg(c, "0"),
                           QString("4457DOM%1%2").arg(c, "0"),
                           QString("4457DOM%1%2_PAY").arg(c, "0"));
@@ -361,20 +397,20 @@ void BooksAccountsSalesTable::_fillIfEmpty()
 
                 // DomesticVat (PanEU only)
                 if (panEu.contains(c)) {
-                    createRow(TaxScheme::DomesticVat, c, "", ratePct,
+                    createRow(TaxScheme::DomesticVat, c, "", SaleType::Products, ratePct,
                               QString("7070DOM%1%2").arg(c, rStr),
                               QString("4457DOM%1%2").arg(c, rStr),
                               QString("4457DOM%1%2_PAY").arg(c, rStr));
                 }
 
                 // OSS (Union)
-                createRow(TaxScheme::EuOssUnion, "", c, ratePct,
+                createRow(TaxScheme::EuOssUnion, "", c, SaleType::Products, ratePct,
                           QString("7070OSS%1%2").arg(c, rStr),
                           QString("4457OSS%1%2").arg(c, rStr),
                           QString("4457OSS%1%2_PAY").arg(c, rStr));
 
                 // IOSS
-                createRow(TaxScheme::EuIoss, "", c, ratePct,
+                createRow(TaxScheme::EuIoss, "", c, SaleType::Products, ratePct,
                           QString("7070IOSS%1%2").arg(c, rStr),
                           QString("4457IOSS%1%2").arg(c, rStr),
                           QString("4457IOSS%1%2_PAY").arg(c, rStr));
@@ -383,12 +419,16 @@ void BooksAccountsSalesTable::_fillIfEmpty()
 
         // Exempt (Export) — keyed by PanEU origin country
         for (const QString &c : panEu) {
-            createRow(TaxScheme::Exempt, c, "", 0.0,
+            createRow(TaxScheme::Exempt, c, "", SaleType::Products, 0.0,
                       QString("7073EXP%1").arg(c), "", "");
         }
 
         // OutOfScope — empty key (resolveVatCountries maps to {"", "", ""})
-        createRow(TaxScheme::OutOfScope, "", "", 0.0, "7079OUT", "", "");
+        createRow(TaxScheme::OutOfScope, "", "", SaleType::Products, 0.0, "7079OUT", "", "");
+
+        // France domestic service at standard 20% rate
+        createRow(TaxScheme::DomesticVat, "FR", "", SaleType::Service, 20.0,
+                  "706DOMFR20", "4457DOMFR20", "4457DOMFR20_PAY");
 
         _rebuildCache();
         _save();
@@ -400,7 +440,8 @@ void BooksAccountsSalesTable::_fillIfEmpty()
 
 
 const QStringList HEADER_IDS = {
-    "TaxScheme", "CountryFrom", "CountryTo", "VatRate", "SaleAccount", "VatAccount", "VatAccountToPay", "CustomerAccount"
+    "TaxScheme", "CountryFrom", "CountryTo", "SaleType", "VatRate",
+    "SaleAccount", "VatAccount", "VatAccountToPay", "GroupedClientAccount", "ClientAccount"
 };
 
 // ...
@@ -408,60 +449,52 @@ const QStringList HEADER_IDS = {
 void BooksAccountsSalesTable::_rebuildCache()
 {
     m_vatCountries_vatRate_accountsCache.clear();
-    
-    // Columns:
-    // 0: TaxScheme
-    // 1: From
-    // 2: To
-    // 3: Rate
-    // 4: SaleAccount
-    // 5: VatAccount
-    
-    // m_listOfStringList now stores data in order of HEADER_IDS (Canonical Order) after load/save normalization?
-    // OR m_listOfStringList stores raw rows and we need to normalize?
-    // Best approach: Normalize on load. m_listOfStringList ALWAYS strictly follows 0..5 index of HEADER_IDS.
-    
+
+    // Canonical column layout (10 columns):
+    // 0: TaxScheme  1: CountryFrom  2: CountryTo  3: SaleType  4: VatRate
+    // 5: SaleAccount  6: VatAccount  7: VatAccountToPay  8: GroupedClientAccount  9: ClientAccount
+
     for (const auto &row : m_listOfStringList) {
-        if (row.size() < 8) {
+        if (row.size() < 10) {
             continue;
         }
-        
+
         TaxScheme scheme = toTaxScheme(row[0]);
-        
+        SaleType saleType = toSaleType(row[3]);
+
         VatCountries vc;
         vc.taxScheme = scheme;
         vc.countryCodeFrom = row[1];
-        vc.countryCodeTo = row[2];
-        // For Domestic/Exempt, Declaring is From. For others, default to empty (generic)
         if (scheme == TaxScheme::DomesticVat || scheme == TaxScheme::Exempt) {
+            // resolveVatCountries collapses countryTo to "" for these schemes
             vc.countryCodeDeclaring = row[1];
+            vc.countryCodeTo = "";
         } else {
             vc.countryCodeDeclaring = "";
+            vc.countryCodeTo = row[2];
         }
-        
-        QString rate = row[3];
-        
+
+        const QString &rate = row[4];
+
         Accounts acc;
-        acc.saleAccount = row[4];
-        acc.vatAccount = row[5];
-        acc.vatAccountToPay = row[6];
-        acc.customerAccount = row[7];
-        
-        m_vatCountries_vatRate_accountsCache[vc][rate] = acc;
+        acc.saleAccount    = row[5];
+        acc.vatAccount     = row[6];
+        acc.vatAccountToPay = row[7];
+        acc.groupedClientAccount = row[8];
+        acc.clientAccount   = row[9];
+
+        m_vatCountries_vatRate_accountsCache[vc][saleType][rate] = acc;
     }
 }
 
 void BooksAccountsSalesTable::_sort()
 {
     std::sort(m_listOfStringList.begin(), m_listOfStringList.end(), [](const QStringList &a, const QStringList &b) {
-        // 0: TaxScheme
-        if (a[0] != b[0]) return a[0] < b[0];
-        // 1: Country From
-        if (a[1] != b[1]) return a[1] < b[1];
-        // 2: Country To
-        if (a[2] != b[2]) return a[2] < b[2];
-        // 3: Rate
-        return a[3].toDouble() < b[3].toDouble();
+        if (a[0] != b[0]) return a[0] < b[0]; // TaxScheme
+        if (a[1] != b[1]) return a[1] < b[1]; // CountryFrom
+        if (a[2] != b[2]) return a[2] < b[2]; // CountryTo
+        if (a[3] != b[3]) return a[3] < b[3]; // SaleType
+        return a[4].toDouble() < b[4].toDouble(); // VatRate
     });
 }
 
@@ -518,39 +551,57 @@ void BooksAccountsSalesTable::_load()
         columnMap["VatRate"] = 3;
         columnMap["SaleAccount"] = 4;
         columnMap["VatAccount"] = 5;
-        columnMap["CustomerAccount"] = 6;
+        columnMap["GroupedClientAccount"] = 6;
     }
-    
+
     // Canonical Indices
-    int idxScheme = columnMap.value("TaxScheme", -1);
-    int idxFrom = columnMap.value("CountryFrom", -1);
-    int idxTo = columnMap.value("CountryTo", -1);
-    int idxRate = columnMap.value("VatRate", -1);
-    int idxSale = columnMap.value("SaleAccount", -1);
-    int idxVat = columnMap.value("VatAccount", -1);
-    int idxVatPay = columnMap.value("VatAccountToPay", -1);
-    int idxCustomer = columnMap.value("CustomerAccount", -1);
+    int idxScheme   = columnMap.value("TaxScheme", -1);
+    int idxFrom     = columnMap.value("CountryFrom", -1);
+    int idxTo       = columnMap.value("CountryTo", -1);
+    int idxSaleType = columnMap.value("SaleType", -1);
+    int idxRate     = columnMap.value("VatRate", -1);
+    int idxSale     = columnMap.value("SaleAccount", -1);
+    int idxVat      = columnMap.value("VatAccount", -1);
+    int idxVatPay   = columnMap.value("VatAccountToPay", -1);
+    // Accept both old ("CustomerAccount") and new ("GroupedClientAccount") header names
+    int idxCustomer = columnMap.value("GroupedClientAccount",
+                                      columnMap.value("CustomerAccount", -1));
+    int idxClient   = columnMap.value("ClientAccount", -1);
 
     auto processLine = [&](const QString &line) {
         if (line.trimmed().isEmpty()) return;
         QStringList parts = line.split(";");
-        
+
         QStringList normalizedRow;
-        // Init with empty. Size 8 now.
-        for(int k=0; k<8; ++k) normalizedRow << "";
-        
-        if (idxScheme != -1 && idxScheme < parts.size()) normalizedRow[0] = parts[idxScheme];
-        if (idxFrom != -1 && idxFrom < parts.size()) normalizedRow[1] = parts[idxFrom];
-        if (idxTo != -1 && idxTo < parts.size()) normalizedRow[2] = parts[idxTo];
-        if (idxRate != -1 && idxRate < parts.size()) normalizedRow[3] = parts[idxRate];
-        if (idxSale != -1 && idxSale < parts.size()) normalizedRow[4] = parts[idxSale];
-        if (idxVat != -1 && idxVat < parts.size()) normalizedRow[5] = parts[idxVat];
-        if (idxVatPay != -1 && idxVatPay < parts.size()) normalizedRow[6] = parts[idxVatPay];
-        if (idxCustomer != -1 && idxCustomer < parts.size()) normalizedRow[7] = parts[idxCustomer];
-        
-        // Skip if empty scheme (invalid row)?
+        for (int k = 0; k < 10; ++k) {
+            normalizedRow << "";
+        }
+
+        if (idxScheme   != -1 && idxScheme   < parts.size()) normalizedRow[0] = parts[idxScheme];
+        if (idxFrom     != -1 && idxFrom     < parts.size()) normalizedRow[1] = parts[idxFrom];
+        if (idxTo       != -1 && idxTo       < parts.size()) normalizedRow[2] = parts[idxTo];
+        if (idxSaleType != -1 && idxSaleType < parts.size()) {
+            normalizedRow[3] = parts[idxSaleType];
+        } else {
+            normalizedRow[3] = toString(SaleType::Products); // default for old CSV rows
+        }
+        if (idxRate     != -1 && idxRate     < parts.size()) normalizedRow[4] = parts[idxRate];
+        if (idxSale     != -1 && idxSale     < parts.size()) normalizedRow[5] = parts[idxSale];
+        if (idxVat      != -1 && idxVat      < parts.size()) normalizedRow[6] = parts[idxVat];
+        if (idxVatPay   != -1 && idxVatPay   < parts.size()) normalizedRow[7] = parts[idxVatPay];
+        if (idxCustomer != -1 && idxCustomer < parts.size()) normalizedRow[8] = parts[idxCustomer];
+        if (idxClient   != -1 && idxClient   < parts.size()) {
+            normalizedRow[9] = parts[idxClient];
+        } else {
+            // Default: EU destination → CCLIENTEU, otherwise CLIENTDOM
+            const QString &to = normalizedRow[2];
+            normalizedRow[9] = CountriesEu::all().contains(to)
+                               ? QStringLiteral("CCLIENTEU")
+                               : QStringLiteral("CLIENTDOM");
+        }
+
         if (normalizedRow[0].isEmpty()) return;
-        
+
         m_listOfStringList.append(normalizedRow);
     };
 

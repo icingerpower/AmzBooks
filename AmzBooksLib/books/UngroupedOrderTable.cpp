@@ -1,6 +1,8 @@
 #include "UngroupedOrderTable.h"
 #include "books/Activity.h"
 #include "books/ServiceSalesBooksTable.h"
+#include "books/BooksAccountsSalesTable.h"
+#include "CountriesEu.h"
 #include "orders/OrderManager.h"
 #include "orders/Shipment.h"
 #include "orders/ActivitySource.h"
@@ -9,9 +11,15 @@ UngroupedOrderTable::UngroupedOrderTable(
         const BooksConnections *bookConnections,
         OrderManager *orderManager,
         const QDir &workingDir,
+        const BooksAccountsSalesTable *salesTable,
+        const QString &companyCountry,
+        const QString &companyCurrency,
         QObject *parent)
     : AbstractBooksTable(bookConnections, workingDir, parent)
     , m_orderManager(orderManager)
+    , m_salesTable(salesTable)
+    , m_companyCountry(companyCountry)
+    , m_companyCurrency(companyCurrency)
 {
     init();
 }
@@ -51,14 +59,39 @@ void UngroupedOrderTable::load(int year)
             const Activity &act = activities.first();
             const QDate orderDate = act.getDateTime().date();
 
+            // Build label: orderId | countryFrom > countryTo [| foreignCurrency] | subActivityId
+            QString label = act.getEventId()
+                          + QStringLiteral(" | ") + act.getCountryCodeFrom()
+                          + QStringLiteral(" > ") + act.getCountryCodeTo();
+            if (!m_companyCurrency.isEmpty() && act.getCurrency() != m_companyCurrency) {
+                label += QStringLiteral(" | ") + act.getCurrency();
+            }
+            label += QStringLiteral(" | ") + act.getSubActivityId();
+
+            // Resolve account2 = clientAccount from BooksAccountsSalesTable
+            QString clientAccount;
+            if (m_salesTable && !m_companyCountry.isEmpty()) {
+                const VatCountries vc = m_salesTable->resolveVatCountries(
+                    act.getTaxScheme(), m_companyCountry,
+                    act.getCountryCodeFrom(), act.getCountryCodeTo());
+                const double vatRatePct = act.getVatRate() * 100.0;
+                const auto acc = m_salesTable->getAccountsIfPresent(vc, vatRatePct, act.getSaleType());
+                clientAccount = acc.clientAccount;
+            }
+            if (clientAccount.isEmpty()) {
+                clientAccount = CountriesEu::all().contains(act.getCountryCodeTo())
+                                ? QStringLiteral("CCLIENTEU")
+                                : QStringLiteral("CLIENTDOM");
+            }
+
             add(act.getEventId(),
                 act.getEventId(),
                 orderDate,
                 act.getAmountTaxed(),
                 act.getCurrency(),
-                act.getSubActivityId(),
+                label,
                 shipment->customerAccount(),
-                QString(),
+                clientAccount,
                 act.getAmountTaxes(),
                 act.getCountryCodeTo(),
                 act.getCurrency());

@@ -44,8 +44,9 @@ void PaneSettingsSaleAccounts::addRate()
                 accounts.saleAccount = dialog.getSaleAccount();
                 accounts.vatAccount = dialog.getVatAccount();
                 accounts.vatAccountToPay = dialog.getVatAccountToPay();
+                accounts.clientAccount = dialog.getClientAccount();
 
-                model->addAccount(vc, dialog.getVatRate(), accounts);
+                model->addAccount(vc, dialog.getVatRate(), accounts, dialog.getSaleType());
             } catch (const ExceptionWithTitleText &e) {
                 QMessageBox::warning(this, tr("Invalid Data"), e.errorTitle() + "\n" + e.errorText());
             } catch (const std::exception &e) {

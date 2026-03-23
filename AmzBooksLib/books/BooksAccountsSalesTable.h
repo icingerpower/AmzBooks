@@ -7,6 +7,7 @@
 #include "VatCountries.h"
 #include "books/TaxScheme.h"
 #include "CountriesEu.h"
+#include "orders/SaleType.h"
 #include <QException>
 #include "ExceptionWithTitleText.h"
 #include <QCoroTask>
@@ -38,15 +39,19 @@ public:
         QString saleAccount;
         QString vatAccount;
         QString vatAccountToPay;
-        QString customerAccount;
+        QString groupedClientAccount; ///< Receivable account used for grouped sales (e.g. "411FR").
+        // Broad client grouping account (e.g. "CCLIENTEU" for EU buyers, "CLIENTDOM" for domestic).
+        // Used as account2 in order/service journal lines.
+        QString clientAccount;
     };
     explicit BooksAccountsSalesTable(const QDir &workingDir, QObject *parent = nullptr);
     VatCountries resolveVatCountries(TaxScheme taxScheme, const QString &companyCountryFrom, const QString &countryFrom, const QString &countryCodeTo) const;
 
-    QCoro::Task<BooksAccountsSalesTable::Accounts> getAccounts(const VatCountries &vatCountries, double vatRate, std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
+    // saleType defaults to Products for backward compatibility with callers that don't specify it.
+    QCoro::Task<BooksAccountsSalesTable::Accounts> getAccounts(const VatCountries &vatCountries, double vatRate, SaleType saleType = SaleType::Products, std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
     // Synchronous best-effort lookup; returns empty Accounts if not found (no user prompt).
-    Accounts getAccountsIfPresent(const VatCountries &vatCountries, double vatRate) const;
-    void addAccount(const VatCountries &vatCountries, double vatRate, const BooksAccountsSalesTable::Accounts &accounts);
+    Accounts getAccountsIfPresent(const VatCountries &vatCountries, double vatRate, SaleType saleType = SaleType::Products) const;
+    void addAccount(const VatCountries &vatCountries, double vatRate, const BooksAccountsSalesTable::Accounts &accounts, SaleType saleType = SaleType::Products);
     
     // Header:
     QVariant headerData(int section, Qt::Orientation orientation, int role = Qt::DisplayRole) const override;
@@ -66,7 +71,7 @@ public:
 private:
     static const QStringList HEADER;
     QList<QStringList> m_listOfStringList;
-    QHash<VatCountries, QHash<QString, Accounts>> m_vatCountries_vatRate_accountsCache;
+    QHash<VatCountries, QHash<SaleType, QHash<QString, Accounts>>> m_vatCountries_vatRate_accountsCache;
 
     void _fillIfEmpty();
     void _save();

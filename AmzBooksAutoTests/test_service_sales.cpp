@@ -795,9 +795,9 @@ void TestServiceSales::test_noInvoices_and_recordInfo()
 // test_persistence_all_columns
 // Verifies that ALL ServiceSalesBooksTable column values survive a
 // close/re-open cycle (i.e. createSale followed by load() in a new instance).
-// Known regression: Account 1 (bookkeeping account code) was not restored
+// Known regression: Account 2 (service revenue account code) was not restored
 // by load() — it was hardcoded to "".
-// Columns checked: Date, Amount (TTC), Currency, Label, Account1,
+// Columns checked: Date, Amount (TTC), Currency, Label, Account2,
 //                  VAT amount, VAT Country.
 // ===========================================================================
 void TestServiceSales::test_persistence_all_columns()
@@ -838,8 +838,8 @@ void TestServiceSales::test_persistence_all_columns()
         // Sanity: sale is in table right after creation
         QCOMPARE(table.rowCount(), 1);
 
-        // Account1 is correct immediately after createSale
-        QCOMPARE(table.getAccount1(0), account1);
+        // Account2 (service revenue) is correct immediately after createSale
+        QCOMPARE(table.getAccount2(0), account1);
     }
 
     // -----------------------------------------------------------------------
@@ -870,8 +870,8 @@ void TestServiceSales::test_persistence_all_columns()
         // In createSale the subActivityId stores clientManager->getServiceLabel(clientRow) = "Dev"
         QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_LABEL)).toString(), QString("Dev"));
 
-        // --- Account 1 (the bookkeeping account code) ---
-        QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_ACCOUNT1)).toString(), account1);
+        // --- Account 2 (service revenue account code) ---
+        QCOMPARE(table.data(table.index(0, AbstractBooksTable::IND_ACCOUNT2)).toString(), account1);
 
         // --- VAT amount: 20% of net = totalTTC * 0.20 / 1.20 ---
         const double expectedVat = totalTTC * 0.20 / 1.20;
