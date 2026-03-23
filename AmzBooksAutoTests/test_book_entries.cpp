@@ -212,6 +212,14 @@ private slots:
     void test_associate_usd_invoice_usd_bank_succeeds();
     void test_associate_eur_invoice_usd_bank_fails_without_rate();
     void test_associate_usd_invoice_usd_bank_with_api_key_blocker();
+
+    // ── Real-world Amazon payment filenames — debit/credit verification ──────
+    // All 70 filenames provided by the user.
+    // Entries are intentionally partial: debitSum − creditSum = netSales for the
+    // period (recorded separately in sales journal entries).
+    // BUG: 4 files (SE ×3, TR ×1) have negative paid which the factory ignores
+    // instead of generating a credit; see inline comments.
+    void test_factory_amz_real_payment_files();
 };
 
 void TestBookEntries::test_journal_entry_simple()
@@ -5739,6 +5747,248 @@ void TestBookEntries::test_abstract_books_table_sort_by_date()
     QCOMPARE(table.getLabel(1), QString("January"));
     QCOMPARE(table.getLabel(2), QString("June"));
     QCOMPARE(table.getLabel(3), QString("December"));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// test_factory_amz_real_payment_files
+//
+// Decodes every filename supplied by the user, calls createEntry(), and
+// verifies that the resulting journal entry is balanced (debitSum == creditSum).
+//
+// All non-EUR currencies use fake rate = 1.0.
+// A credit account ("AMZCA") is configured so the factory adds the balancing
+// credit line (net Amazon sales collected) to close every entry.
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_factory_amz_real_payment_files()
+{
+    struct Case {
+        const char   *fname;
+        QStringList   extraCurrencies; // non-EUR currencies needing rate = 1.0
+    };
+
+    const QList<Case> cases = {
+
+        // ── BE marketplace (EUR, no conversion) ──────────────────────────────
+        { "payment_be_2025_12_06__to__2026_01_03__expenses-304.15EUR__refunded-expenses-7.44EUR__194.17EUR.pdf",
+          {} },
+        { "payment_be_2026_01_03__to__2026_01_17__expenses-159.70EUR__243.02EUR.pdf",
+          {} },
+        { "payment_be_2026_01_17__to__2026_01_31__expenses-227.50EUR__refunded-expenses-14.09EUR__270.79EUR.pdf",
+          {} },
+        { "payment_be_2026_01_31__to__2026_02_14__expenses-302.44EUR__170.62EUR.pdf",
+          {} },
+        { "payment_be_2026_02_14__to__2026_02_28__expenses-163.48EUR__refunded-expenses-13.39EUR__168.49EUR.pdf",
+          {} },
+        { "payment_be_2026_02_28__to__2026_03_14__expenses-407.09EUR__refunded-expenses-22.72EUR__93.29EUR.pdf",
+          {} },
+
+        // ── CA marketplace (CAD rate=1.0; some paid in EUR) ───────────────────
+        { "payment_ca_2025_12_25__to__2026_01_08__balance-begin-509.95CAD__balance-end-822.85CAD__expenses-1632.36CAD__refunded-expenses-92.60CAD__0CAD.pdf",
+          {"CAD"} },
+        { "payment_ca_2026_01_08__to__2026_01_22__balance-begin-822.85CAD__balance-end-730.89CAD__expenses-1935.67CAD__refunded-expenses-964.32CAD__133.62EUR.pdf",
+          {"CAD"} },
+        { "payment_ca_2026_01_22__to__2026_02_05__balance-begin-730.89CAD__balance-end-641.44CAD__expenses-1597.31CAD__refunded-expenses-133.54CAD__0CAD.pdf",
+          {"CAD"} },
+        { "payment_ca_2026_02_05__to__2026_02_19__balance-begin-641.44CAD__balance-end-861.91CAD__expenses-1608.91CAD__refunded-expenses-94.32CAD__222.32EUR.pdf",
+          {"CAD"} },
+        { "payment_ca_2026_02_19__to__2026_03_05__balance-begin-861.91CAD__balance-end-554.69CAD__expenses-1560.97CAD__refunded-expenses-170.40CAD__0CAD.pdf",
+          {"CAD"} },
+
+        // ── COM marketplace (USD rate=1.0) ────────────────────────────────────
+        { "payment_com_2025_01_20__to__2026_02_17__expenses-12.04USD__refunded-expenses-4.38USD__0USD.pdf",
+          {"USD"} },
+        { "payment_com_2025_12_23__to__2026_01_20__expenses-48.64USD__75.32USD.pdf",
+          {"USD"} },
+        { "payment_com_2025_12_24__to__2026_01_07__balance-begin-1336.28USD__balance-end-1311.19USD__expenses-1667.73USD__refunded-expenses-56.98USD__524.50USD.pdf",
+          {"USD"} },
+        { "payment_com_2026_01_08__to__2026_01_22__balance-begin-1311.19USD__balance-end-1135.55USD__expenses-2627.38USD__refunded-expenses-153.17USD__177.90USD.pdf",
+          {"USD"} },
+        { "payment_com_2026_01_21__to__2026_02_04__balance-begin-1135.55USD__balance-end-1607.21USD__expenses-2516.58USD__refunded-expenses-150.79USD__0USD.pdf",
+          {"USD"} },
+        { "payment_com_2026_02_04__to__2026_02_18__balance-begin-1607.21USD__balance-end-2514.80USD__expenses-3229.53USD__refunded-expenses-211.22USD__728.85USD.pdf",
+          {"USD"} },
+        { "payment_com_2026_02_18__to__2026_03_04__balance-begin-2514.80USD__balance-end-2826.10USD__expenses-3554.01USD__refunded-expenses-224.77USD__1895.84USD.pdf",
+          {"USD"} },
+
+        // ── co.uk marketplace (GBP rate=1.0) ─────────────────────────────────
+        { "payment_co.uk_2025_12_25__to__2026_01_08__balance-begin-24.92GBP__balance-end-24.92GBP__expenses-147.24GBP__refunded-expenses-12.26GBP__16.86GBP.pdf",
+          {"GBP"} },
+        { "payment_co.uk_2026_01_08__to__2026_01_22__balance-begin-24.92GBP__balance-end-24.92GBP__expenses-90.94GBP__refunded-expenses-9.48GBP__12.58GBP.pdf",
+          {"GBP"} },
+        { "payment_co.uk_2026_01_22__to__2026_02_05__balance-begin-27.92GBP__balance-end-0GBP__expenses-123.77GBP__refunded-expenses-16.80GBP__39.15GBP.pdf",
+          {"GBP"} },
+        { "payment_co.uk_2026_02_05__to__2026_02_19__balance-begin-39.15GBP__balance-end-24.92GBP__expenses-98.74GBP__84.57GBP.pdf",
+          {"GBP"} },
+        { "payment_co.uk_2026_02_19__to__2026_03_05__balance-begin-24.92GBP__balance-end-24.92GBP__expenses-188.61GBP__refunded-expenses-16.55GBP__30.41GBP.pdf",
+          {"GBP"} },
+
+        // ── DE marketplace (EUR, no conversion) ───────────────────────────────
+        { "payment_de_2025_12_25__to__2026_01_08__expenses-1889.05EUR__refunded-expenses-130.42EUR__736.85EUR.pdf",
+          {} },
+        { "payment_de_2026_01_08__to__2026_01_22__expenses-1415.78EUR__refunded-expenses-149.66EUR__1054.33EUR.pdf",
+          {} },
+        { "payment_de_2026_01_22__to__2026_02_05__expenses-2037.25EUR__refunded-expenses-178.48EUR__1127.78EUR.pdf",
+          {} },
+        { "payment_de_2026_02_05__to__2026_02_19__expenses-1092.93EUR__refunded-expenses-153.77EUR__1036.20EUR.pdf",
+          {} },
+        { "payment_de_2026_02_19__to__2026_03_05__expenses-2000.94EUR__refunded-expenses-163.65EUR__563.60EUR.pdf",
+          {} },
+
+        // ── ES marketplace (EUR) ──────────────────────────────────────────────
+        { "payment_es_2025_12_25__to__2026_01_08__expenses-345.89EUR__265.63EUR.pdf",
+          {} },
+        { "payment_es_2026_01_08__to__2026_01_22__expenses-249.87EUR__refunded-expenses-10.20EUR__294.73EUR.pdf",
+          {} },
+        { "payment_es_2026_01_22__to__2026_02_05__expenses-239.07EUR__refunded-expenses-19.33EUR__190.76EUR.pdf",
+          {} },
+        { "payment_es_2026_02_05__to__2026_02_19__expenses-394.88EUR__refunded-expenses-22.06EUR__306.28EUR.pdf",
+          {} },
+        { "payment_es_2026_02_19__to__2026_03_05__expenses-252.28EUR__refunded-expenses-29.16EUR__149.32EUR.pdf",
+          {} },
+
+        // ── FR marketplace (EUR) ──────────────────────────────────────────────
+        { "payment_fr_2025_12_25__to__2026_01_08__expenses-3150.99EUR__refunded-expenses-35.97EUR__2062.85EUR.pdf",
+          {} },
+        { "payment_fr_2026_01_08__to__2026_01_22__expenses-1504.05EUR__refunded-expenses-44.40EUR__1169.28EUR.pdf",
+          {} },
+        { "payment_fr_2026_01_22__to__2026_02_05__expenses-2330.96EUR__refunded-expenses-67.24EUR__883.72EUR.pdf",
+          {} },
+        { "payment_fr_2026_02_05__to__2026_02_19__balance-begin-42.68EUR__balance-end-42.68EUR__expenses-2281.72EUR__refunded-expenses-53.20EUR__1490.92EUR.pdf",
+          {} },
+        { "payment_fr_2026_02_19__to__2026_03_05__balance-begin-42.68EUR__balance-end-42.68EUR__expenses-3226.96EUR__refunded-expenses-76.86EUR__1659.90EUR.pdf",
+          {} },
+
+        // ── IT marketplace (EUR) ──────────────────────────────────────────────
+        { "payment_it_2025_12_25__to__2026_01_08__expenses-482.48EUR__refunded-expenses-28.18EUR__283.86EUR.pdf",
+          {} },
+        { "payment_it_2026_01_08__to__2026_01_22__expenses-165.71EUR__refunded-expenses-9.55EUR__126.01EUR.pdf",
+          {} },
+        { "payment_it_2026_01_22__to__2026_02_05__expenses-515.69EUR__refunded-expenses-15.19EUR__411.16EUR.pdf",
+          {} },
+        { "payment_it_2026_02_05__to__2026_02_19__expenses-493.64EUR__refunded-expenses-31.97EUR__365.78EUR.pdf",
+          {} },
+        { "payment_it_2026_02_19__to__2026_03_05__expenses-872.24EUR__refunded-expenses-21.33EUR__471.88EUR.pdf",
+          {} },
+
+        // ── JP marketplace (JPY rate=1.0) ─────────────────────────────────────
+        { "payment_jp_2025_12_19__to__2026_02_12__expenses-6942JPY__1062JPY.pdf",
+          {"JPY"} },
+        { "payment_jp_2026_02_12__to__2026_02_26__expenses-12185JPY__2733JPY.pdf",
+          {"JPY"} },
+        { "payment_jp_2026_02_26__to__2026_03_12__expenses-10847JPY__1395JPY.pdf",
+          {"JPY"} },
+
+        // ── MX marketplace (MXN rate=1.0) ─────────────────────────────────────
+        { "payment_mx_2025_12_25__to__2026_01_08__balance-begin-31.38MXN__balance-end-336.27MXN__expenses-416.01MXN__31.38MXN.pdf",
+          {"MXN"} },
+        { "payment_mx_2026_01_08__to__2026_01_22__expenses-176.26MXN__refunded-expenses-178.06MXN__278.45MXN.pdf",
+          {"MXN"} },
+        { "payment_mx_2026_01_22__to__2026_02_05__expenses-302.17MXN__0MXN.pdf",
+          {"MXN"} },
+        { "payment_mx_2026_02_05__to__2026_02_19__balance-begin-313.01MXN__balance-end-15.65MXN__expenses-0MXN__297.36MXN.pdf",
+          {"MXN"} },
+        { "payment_mx_2026_02_19__to__2026_03_05__balance-begin-15.65MXN__balance-end-59.68MXN__expenses-842.54MXN__refunded-expenses-255.64MXN__0MXN.pdf",
+          {"MXN"} },
+
+        // ── NL marketplace (EUR) ──────────────────────────────────────────────
+        { "payment_nl_2025_12_18__to__2026_01_01__expenses-137.01EUR__refunded-expenses-10.21EUR__132.25EUR.pdf",
+          {} },
+        { "payment_nl_2026_01_01__to__2026_01_15__expenses-59.97EUR__22.95EUR.pdf",
+          {} },
+        { "payment_nl_2026_01_15__to__2026_01_29__expenses-69.75EUR__refunded-expenses-11.68EUR__56.53EUR.pdf",
+          {} },
+        { "payment_nl_2026_01_29__to__2026_02_12__expenses-177.22EUR__refunded-expenses-25.52EUR__34.23EUR.pdf",
+          {} },
+        { "payment_nl_2026_02_12__to__2026_02_26__expenses-103.06EUR__162.02EUR.pdf",
+          {} },
+        { "payment_nl_2026_02_26__to__2026_03_12__expenses-253.08EUR__refunded-expenses-16.70EUR__133.94EUR.pdf",
+          {} },
+
+        // ── PL marketplace (PLN rate=1.0; some paid in EUR) ───────────────────
+        { "payment_pl_2025_12_22__to__2026_01_05__expenses-7.99PLN__27.70PLN.pdf",
+          {"PLN"} },
+        { "payment_pl_2026_01_05__to__2026_01_19__expenses-15.22PLN__17.21EUR.pdf",
+          {"PLN"} },
+        { "payment_pl_2026_01_19__to__2026_02_02__expenses-175.49PLN__refunded-expenses-73.46PLN__23.19EUR.pdf",
+          {"PLN"} },
+        { "payment_pl_2026_02_02__to__2026_02_16__expenses-17.02PLN__refunded-expenses-8.58PLN__0PLN.pdf",
+          {"PLN"} },
+        { "payment_pl_2026_02_16__to__2026_03_02__balance-begin-8.44PLN__balance-end-0PLN__expenses-22.87PLN__68.59PLN.pdf",
+          {"PLN"} },
+        { "payment_pl_2026_03_02__to__2026_03_16__expenses-31.87PLN__6.15EUR.pdf",
+          {"PLN"} },
+
+        // ── SE marketplace (SEK rate=1.0; negative paid → credit |paid|) ──────
+        { "payment_se_2025_12_31__to__2026_01_14__expenses-487.84SEK__-487.84SEK.pdf",
+          {"SEK"} },
+        { "payment_se_2026_01_14__to__2026_01_28__expenses-610.33SEK__-301.14SEK.pdf",
+          {"SEK"} },
+        { "payment_se_2026_01_28__to__2026_02_11__expenses-542.11SEK__65.93SEK.pdf",
+          {"SEK"} },
+        { "payment_se_2026_02_11__to__2026_02_25__expenses-1587.49SEK__-332.19SEK.pdf",
+          {"SEK"} },
+        { "payment_se_2026_02_25__to__2026_03_11__expenses-1589.63SEK__refunded-expenses-99.80SEK__1335.65SEK.pdf",
+          {"SEK"} },
+
+        // ── TR marketplace (TRY rate=1.0; negative paid → credit |paid|) ──────
+        { "payment_tr_2025_12_24__to__2026_01_07__expenses-187.02TRY__-187.02TRY.pdf",
+          {"TRY"} },
+        { "payment_tr_2026_01_07__to__2026_02_04__expenses-35.47TRY__35.47TRY.pdf",
+          {"TRY"} },
+    };
+
+    QTemporaryDir tempDir; QVERIFY(tempDir.isValid());
+    QDir dir(tempDir.path());
+    setupCompanyInfoFr(dir);
+    setupAmzSettings(dir, "467150", "FAMZMK");
+
+    // Pre-populate the balance-accounts CSV so that Accounts::account = "467008"
+    // for every DEFAULT_AMAZON_SITE.  This triggers the balancing credit line in
+    // the factory and makes every entry a proper balanced écriture comptable.
+    {
+        QFile f(dir.filePath("amazon_balance_accounts.csv"));
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&f);
+        out << "Amazon;Balance;Account\n";
+        for (const QString &site : CountriesEu::DEFAULT_AMAZON_SITES) {
+            out << site << ";467145;467008\n";
+        }
+    }
+
+    CompanyInfosTable        ci(dir);
+    CurrencyRateManager      crm(dir, "");
+    BooksAccountsSalesTable  sa(dir);
+    BookAccountPurchaseTable pa(dir, "FR");
+    JournalTable             jt(dir);
+    AmzPaymentSettings       amzSet(dir);
+    BookAccountAmzBalanceTable balanceTable(dir);
+
+    for (const Case &tc : std::as_const(cases)) {
+        AmzPaymentInfo info;
+        try {
+            info = PurchaseAmzPaymentsManager::decode(tc.fname);
+        } catch (const ExceptionWithTitleText &e) {
+            QFAIL(qPrintable(QString("decode failed for '%1': %2")
+                                 .arg(tc.fname, QString::fromUtf8(e.what()))));
+        }
+
+        const QString dateStr = info.dateTo.toString("yyyy-MM-dd");
+        for (const QString &cur : std::as_const(tc.extraCurrencies)) {
+            crm.importRate(dateStr, cur, "EUR", 1.0);
+        }
+
+        JournalEntryFactory factory(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+        auto entry = syncWait(factory.createEntry(info));
+
+        QVERIFY2(!entry.isNull(),
+                 qPrintable(QString("entry is null for '%1'").arg(tc.fname)));
+        QVERIFY2(qAbs(entry->getDebitSum() - entry->getCreditSum()) < 0.01,
+                 qPrintable(QString("unbalanced entry for '%1': debit=%2 credit=%3")
+                                .arg(tc.fname)
+                                .arg(entry->getDebitSum(),  0, 'f', 2)
+                                .arg(entry->getCreditSum(), 0, 'f', 2)));
+    }
 }
 
 QTEST_MAIN(TestBookEntries)

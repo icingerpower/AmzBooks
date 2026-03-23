@@ -367,7 +367,6 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
     auto entry = QSharedPointer<JournalEntry>::create(date, companyCurrency);
 
     QString debitAccount  = m_amzPaymentSettings->getAccountDebit();
-    QString amazonAccount = m_amzPaymentSettings->getAmazonAccount();
 
     // Label: "Paiement amazon.{countryCode} {paid} {paidCurrency}"
     // When paidCurrency != companyCurrency, JournalEntry auto-appends the
@@ -402,11 +401,12 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
 
     const QString amazonSite = CountriesEu::amazonSiteFromMarketplaceCode(paymentInfo.countryCode);
 
-    // Balance lines (both must be present together) — use the dedicated balance
-    // account from BookAccountAmzBalanceTable, keyed by the full Amazon site name.
-    if (paymentInfo.hasBalanceStart && paymentInfo.hasBalanceEnd) {
+    // Always fetch the balance-table accounts for this site: needed both for the
+    // balance begin/end lines and for the balancing écriture at the end.
+    auto balanceAccounts = co_await m_amzBalanceTable->getAccount(amazonSite, callbackAddIfMissing);
 
-        auto balanceAccounts = co_await m_amzBalanceTable->getAccount(amazonSite, callbackAddIfMissing);
+    // Balance lines (both must be present together)
+    if (paymentInfo.hasBalanceStart && paymentInfo.hasBalanceEnd) {
         makeDebit (balanceAccounts.balanceAccount, paymentInfo.balanceStartCurrency, paymentInfo.balanceStart);
         makeCredit(balanceAccounts.balanceAccount, paymentInfo.balanceEndCurrency,   paymentInfo.balanceEnd);
     }
@@ -419,9 +419,36 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
     if (paymentInfo.hasRefundedExpenses && paymentInfo.refundedExpenses > 0.0)
         makeCredit(debitAccount, paymentInfo.refundedExpensesCurrency, paymentInfo.refundedExpenses);
 
-    // Actual payment received from Amazon → debit Amazon account
-    if (paymentInfo.paid > 0.0)
-        makeDebit(amazonAccount, paymentInfo.paidCurrency, paymentInfo.paid);
+    // Balance the entry in two lines so the payout and the net fees are
+    // visible separately, making bank reconciliation easier:
+    //   Line 1: the actual payout received (paymentInfo.paid)
+    //   Line 2: the net fees retained by Amazon (expenses − refunded expenses)
+    // Skipped when the account is not configured.
+    const QString &salesAccount = balanceAccounts.account;
+    if (!salesAccount.isEmpty()) {
+        // Line 1 — payout
+        if (paymentInfo.paid > 0.0) {
+            makeCredit(salesAccount, paymentInfo.paidCurrency, paymentInfo.paid);
+        } else if (paymentInfo.paid < 0.0) {
+            makeDebit(salesAccount, paymentInfo.paidCurrency, -paymentInfo.paid);
+        }
+
+        // Line 2 — net fees (remaining imbalance after the payout line)
+        double imbalance = entry->getDebitSum() - entry->getCreditSum();
+        if (imbalance > 0.005) {
+            JournalEntry::EntryLine line;
+            line.title   = commonTitle;
+            line.account = salesAccount;
+            line.currency_amount[companyCurrency] = imbalance;
+            entry->addCreditRight(line, companyCurrency);
+        } else if (imbalance < -0.005) {
+            JournalEntry::EntryLine line;
+            line.title   = commonTitle;
+            line.account = salesAccount;
+            line.currency_amount[companyCurrency] = -imbalance;
+            entry->addDebitLeft(line, companyCurrency);
+        }
+    }
 
     co_return entry;
 }

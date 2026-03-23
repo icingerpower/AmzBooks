@@ -54,6 +54,18 @@ QCoro::Task<BookAccountAmzBalanceTable::Accounts> BookAccountAmzBalanceTable::ge
     exception.raise();
 }
 
+BookAccountAmzBalanceTable::Accounts BookAccountAmzBalanceTable::getAccountSync(const QString &amazonSite) const
+{
+    int rowIdx = _findRow(amazonSite);
+    if (rowIdx == -1) {
+        return {};
+    }
+    Accounts accs;
+    accs.balanceAccount = m_listOfStringList[rowIdx][1];
+    accs.account        = m_listOfStringList[rowIdx][2];
+    return accs;
+}
+
 void BookAccountAmzBalanceTable::addAmazon(const QString &amazonSite)
 {
     if (_findRow(amazonSite) != -1) {

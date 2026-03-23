@@ -1,5 +1,7 @@
 #include "PurchaseAmzPaymentsTable.h"
+#include "BookAccountAmzBalanceTable.h"
 #include "CompanyInfosTable.h"
+#include "CountriesEu.h"
 #include "CurrencyRateManager.h"
 #include <QFileInfo>
 
@@ -10,8 +12,9 @@ PurchaseAmzPaymentsTable::PurchaseAmzPaymentsTable(
     : AbstractBooksTable(bookConnections, workingDir, parent)
     , m_workingDir(workingDir)
 {
-    m_manager  = new PurchaseAmzPaymentsManager(workingDir, this);
-    m_settings = new AmzPaymentSettings(workingDir, this);
+    m_manager         = new PurchaseAmzPaymentsManager(workingDir, this);
+    m_settings        = new AmzPaymentSettings(workingDir, this);
+    m_amzBalanceTable = new BookAccountAmzBalanceTable(workingDir, this);
 
     CompanyInfosTable companyInfos{workingDir};
     m_companyCurrency = companyInfos.getCurrency();
@@ -49,13 +52,16 @@ void PurchaseAmzPaymentsTable::load(int year)
         // Use the file's base name as the row ID (same pattern as PurchaseInvoiceTable)
         QString rowId = QFileInfo(info.filePath).fileName();
 
+        const QString amazonSite   = CountriesEu::amazonSiteFromMarketplaceCode(info.countryCode);
+        const QString famzmkAcct   = m_amzBalanceTable->getAccountSync(amazonSite).account;
+
         AbstractBooksTable::add(rowId, "",
             info.dateTo,
             info.paid,
             info.paidCurrency,
             QString("Amazon payment – %1").arg(info.countryCode),
             m_settings->getAccountDebit(),
-            m_settings->getAccountCredit(),
+            famzmkAcct,
             0.0,  // no VAT on disbursements
             "",
             info.paidCurrency);
@@ -84,13 +90,16 @@ void PurchaseAmzPaymentsTable::add(const QString &sourceFilePath, const AmzPayme
                     + (ext.isEmpty() ? QString() : "." + ext);
 
     // Insert a single row using beginInsertRows / endInsertRows (via AbstractBooksTable::add)
+    const QString amazonSite   = CountriesEu::amazonSiteFromMarketplaceCode(info.countryCode);
+    const QString famzmkAcct   = m_amzBalanceTable->getAccountSync(amazonSite).account;
+
     AbstractBooksTable::add(rowId, "",
         info.dateTo,
         info.paid,
         info.paidCurrency,
         QString("Amazon payment \u2013 %1").arg(info.countryCode),
         m_settings->getAccountDebit(),
-        m_settings->getAccountCredit(),
+        famzmkAcct,
         0.0,
         "",
         info.paidCurrency);

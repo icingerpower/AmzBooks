@@ -8,6 +8,7 @@
 #include <QHash>
 
 class CurrencyRateManager;
+class BookAccountAmzBalanceTable;
 
 class PurchaseAmzPaymentsTable : public AbstractBooksTable
 {
@@ -40,6 +41,7 @@ private:
     QDir m_workingDir;
     QString m_companyCurrency;
     CurrencyRateManager *m_currencyRateManager;
+    BookAccountAmzBalanceTable *m_amzBalanceTable;
     QHash<QString, double> m_convertedAmounts;
 };
 

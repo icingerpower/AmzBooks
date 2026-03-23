@@ -20,6 +20,7 @@ public:
     explicit BookAccountAmzBalanceTable(const QDir &workingDir, QObject *parent = nullptr);
 
     QCoro::Task<Accounts> getAccount(const QString &amazonSite, std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
+    Accounts getAccountSync(const QString &amazonSite) const; // Returns empty Accounts if not found
 
     void addAmazon(const QString &amazonSite);
     bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
