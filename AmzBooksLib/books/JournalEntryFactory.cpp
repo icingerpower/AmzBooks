@@ -683,22 +683,55 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
         }
         const QString groupTitle = baseTitle + " | " + vatParts.join(", ");
 
-        auto addLine = [&](const QString &account, double amount, bool isCredit) {
+        const double cr = (g.currency != companyCurrency)
+                         ? m_currencyRateManager->rate(g.currency, companyCurrency, entryDate)
+                         : 1.0;
+
+        auto addCreditLine = [&](const QString &account, double amount) {
             if (qAbs(amount) <= 0.01) return;
-            double cr = 1.0;
-            if (g.currency != companyCurrency)
-                cr = m_currencyRateManager->rate(g.currency, companyCurrency, entryDate);
             JournalEntry::EntryLine line;
             line.title   = groupTitle;
             line.account = account;
             line.currency_amount[g.currency] = amount;
-            if (isCredit) entry->addCreditRight(line, g.currency, cr);
-            else          entry->addDebitLeft  (line, g.currency, cr);
+            entry->addCreditRight(line, g.currency, cr);
         };
 
-        addLine(g.saleAccount, g.revenue,         true);  // Credit Revenue
-        addLine(g.vatAccount,  g.vat,              true);  // Credit VAT
-        addLine(g.custAccount, g.revenue + g.vat, false);  // Debit Customer
+        addCreditLine(g.saleAccount, g.revenue);  // Credit Revenue
+        addCreditLine(g.vatAccount,  g.vat);       // Credit VAT
+
+        // Debit Customer: use the exact credit sum (in company currency) rather than
+        // re-converting the total, so the entry balances even when independent
+        // per-line rounding produces a 1-cent gap.
+        // Guard: if the discrepancy vs. naive conversion exceeds 2 cents it is a
+        // calculation bug, not rounding — raise instead of silently absorbing it.
+        const double creditSum = entry->getCreditSum();
+        if (creditSum >= 0.01) {
+            const double naiveDebit = (g.currency != companyCurrency)
+                ? std::round((g.revenue + g.vat) * cr * 100.0) / 100.0
+                : (g.revenue + g.vat);
+            if (qAbs(creditSum - naiveDebit) > 0.02) {
+                ExceptionWithTitleText ex(
+                    QObject::tr("Journal Entry Imbalance"),
+                    QObject::tr("Credit sum (%1 %2) differs from expected debit (%3) by more than rounding "
+                                "tolerance for entry: %4")
+                    .arg(QString::number(creditSum, 'f', 2),
+                         companyCurrency,
+                         QString::number(naiveDebit, 'f', 2),
+                         groupTitle));
+                ex.raise();
+            }
+            JournalEntry::EntryLine custLine;
+            custLine.account = g.custAccount;
+            custLine.currency_amount[companyCurrency] = creditSum;
+            if (g.currency != companyCurrency) {
+                custLine.currency_amount[g.currency] = g.revenue + g.vat;
+                custLine.title = groupTitle + QString(" (Conv: %1 %2 @ %3)")
+                                 .arg(g.revenue + g.vat).arg(g.currency).arg(cr);
+            } else {
+                custLine.title = groupTitle;
+            }
+            entry->addDebitLeft(custLine, companyCurrency, 1.0);
+        }
 
         result.append(entry);
     }
