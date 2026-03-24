@@ -355,6 +355,22 @@ QString BooksConnections::getAccount2(AbstractBooksTableBank *tableBank, int row
     return "TODOACT2";
 }
 
+QDate BooksConnections::getLinkedDate(AbstractBooksTableBank *tableBank, int row) const
+{
+    const auto &tableId = tableBank->getId();
+    const auto &indexRow = tableBank->index(row, 0);
+    const auto &rowId = tableBank->getRowId(indexRow);
+    const auto &id = _getId(tableId, rowId);
+    const auto &otherId = m_id_id[id];
+    if (m_cacheId_table.contains(otherId)) {
+        auto [otherTable, otherRow] = m_cacheId_table[otherId];
+        if (!qobject_cast<const AbstractBooksTableBank *>(otherTable)) {
+            return otherTable->getDate(otherRow);
+        }
+    }
+    return {};
+}
+
 QString BooksConnections::_getId(const QString &booksTableId, const QString &rowId) const
 {
     return booksTableId + "_" + rowId;

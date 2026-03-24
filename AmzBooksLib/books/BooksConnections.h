@@ -1,6 +1,7 @@
 #ifndef BOOKSCONNECTIONS_H
 #define BOOKSCONNECTIONS_H
 
+#include <QDate>
 #include <QDir>
 #include <QString>
 #include <QModelIndex>
@@ -31,6 +32,10 @@ public:
     bool containsSelf(const QString &booksTableId, const QString &rowId) const;
     void associateTablesToIds(QList<AbstractBooksTable *> bookTables, const EntrySelfTable *selfEntryTable, const CompanyInfosTable *companyInfosTable = nullptr);
     QString getAccount2(AbstractBooksTableBank *tableBank, int row) const;
+    // Returns the date of the linked non-bank entry, or an invalid QDate if linked to
+    // another bank table or a self-entry. Used to pick the correct currency rate date
+    // when a bank transaction settles one day after its paired book entry.
+    QDate getLinkedDate(AbstractBooksTableBank *tableBank, int row) const;
 
 private:
     QString m_filePathCsv;

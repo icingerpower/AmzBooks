@@ -847,7 +847,8 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
 QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
         const AbstractBooksTableBank *bankTable
         , const QString &nonBankAccount
-    , int row) const
+        , int row
+        , const QDate &currencyRateDate) const
 {
     if (!bankTable || row < 0) {
         return nullptr;
@@ -871,10 +872,13 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
     QString bankAccount = bankStatement ? bankStatement->defaultAccount() : "512000";
     QString journalCode = bankStatement ? bankStatement->defaultJournal() : "BQ";
     
-    // Get currency conversion rate if needed
+    // Get currency conversion rate if needed.
+    // If a currencyRateDate is provided (e.g., date of the linked book entry), use it so
+    // that both sides of a cross-date connection share the same rate.
     double currencyRate = 1.0;
     if (currency != companyCurrency) {
-        currencyRate = m_currencyRateManager->rate(currency, companyCurrency, date);
+        const QDate &rateDate = currencyRateDate.isValid() ? currencyRateDate : date;
+        currencyRate = m_currencyRateManager->rate(currency, companyCurrency, rateDate);
     }
     
     double amountAbs = qAbs(amount);

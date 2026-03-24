@@ -109,7 +109,11 @@ public:
     QSharedPointer<JournalEntry> createEntry(// Create entry for one sale only with one shipment
             const AbstractBooksTableBank *bankTable,
             const QString &nonBankAccount,
-            int row) const;
+            int row,
+            // If valid and differs from the bank entry date, this date is used for the
+            // currency rate lookup instead of the bank entry date — ensures both sides of
+            // a cross-date connection use the same rate (the earlier book-entry rate).
+            const QDate &currencyRateDate = {}) const;
 
     QSharedPointer<JournalEntry> createEntry(
         const InventoryMoveTree *inventoryMoveTree, const QString &countryCodeCompany) const;

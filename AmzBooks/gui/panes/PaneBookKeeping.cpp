@@ -403,7 +403,8 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
                 }
                 progress.setValue(currentStep++);
 
-                QString account2 = m_booksConnections->getAccount2(const_cast<AbstractBooksTableBank*>(bankTable), i);
+                AbstractBooksTableBank *bankTableNonConst = const_cast<AbstractBooksTableBank*>(bankTable);
+                QString account2 = m_booksConnections->getAccount2(bankTableNonConst, i);
                 if (account2.isEmpty())
                 {
                     account2 = "TODO"; //TODOCEDRIC
@@ -419,7 +420,10 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
                     co_return;
                 }
 
-                QSharedPointer<JournalEntry> entry = factory.createEntry(bankTable, account2, i);
+                // Use the linked book-entry date for the currency rate so that both sides
+                // of a cross-date connection always share the same conversion rate.
+                const QDate linkedDate = m_booksConnections->getLinkedDate(bankTableNonConst, i);
+                QSharedPointer<JournalEntry> entry = factory.createEntry(bankTable, account2, i, linkedDate);
                 addEntry(entry, journal);
             }
         }
