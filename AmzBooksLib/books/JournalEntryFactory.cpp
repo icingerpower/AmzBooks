@@ -890,7 +890,7 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
         currencyInfo = QString(" (%1 %2)")
                        .arg(QString::number(amount, 'f', 2), currency);
     }
-    QString commonTitle = QString("%1 - %2%3").arg(journalCode, label, currencyInfo);
+    QString commonTitle = QString("%1%2").arg(label, currencyInfo);
     
     // Bank account line
     JournalEntry::EntryLine bankLine;
