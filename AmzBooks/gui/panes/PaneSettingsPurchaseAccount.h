@@ -18,6 +18,8 @@ public:
 public slots:
     void addRate();
     void removeRate();
+    void addControlEntry();
+    void removeControlEntry();
 
 private:
     Ui::PaneSettingsPurchaseAccount *ui;

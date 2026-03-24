@@ -8,7 +8,9 @@
 #include "books/BooksConnections.h"
 #include "banks/AbstractBankStatement.h"
 #include "books/PurchaseInvoiceTable.h"
+#include "books/PurchaseInvoiceManager.h"
 #include "books/PurchaseAmzPaymentsTable.h"
+#include "books/PurchaseControlTable.h"
 #include "books/JournalTable.h"
 #include "books/JournalEntryFactory.h"
 #include "books/ReportGenerator.h"
@@ -146,6 +148,83 @@ void PaneBookKeeping::generateBookKeeping()
     });
 }
 
+void PaneBookKeeping::displayPurchaseMissingWarning()
+{
+    const QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
+
+    const PurchaseControlTable controlTable{workingDir};
+    if (controlTable.rowCount() == 0) {
+        return;
+    }
+
+    // Last complete month: first day of previous month → last day of previous month.
+    const QDate today = QDate::currentDate();
+    const QDate lastMonthFirst = QDate(today.year(), today.month(), 1).addMonths(-1);
+    const QDate lastMonthLast  = lastMonthFirst.addMonths(1).addDays(-1);
+
+    // Stable month codes in calendar order (index 0 = January).
+    static const QStringList MONTH_CODES = {
+        PurchaseControlTable::FREQ_JAN, PurchaseControlTable::FREQ_FEB,
+        PurchaseControlTable::FREQ_MAR, PurchaseControlTable::FREQ_APR,
+        PurchaseControlTable::FREQ_MAY, PurchaseControlTable::FREQ_JUN,
+        PurchaseControlTable::FREQ_JUL, PurchaseControlTable::FREQ_AUG,
+        PurchaseControlTable::FREQ_SEP, PurchaseControlTable::FREQ_OCT,
+        PurchaseControlTable::FREQ_NOV, PurchaseControlTable::FREQ_DEC
+    };
+    const QString lastMonthCode = MONTH_CODES.value(lastMonthFirst.month() - 1);
+
+    const CompanyInfosTable companyInfos{workingDir};
+    PurchaseInvoiceManager invoiceManager{workingDir, companyInfos.getCompanyCountryCode()};
+    const QList<PurchaseInformation> invoices = invoiceManager.getInvoices(lastMonthFirst, lastMonthLast);
+
+    QStringList missingLines;
+
+    for (int row = 0; row < controlTable.rowCount(); ++row) {
+        const QString supplierAccount = controlTable.data(controlTable.index(row, 0), Qt::EditRole).toString();
+        const QString labelFilter     = controlTable.data(controlTable.index(row, 1), Qt::EditRole).toString();
+        const QString frequencyCode   = controlTable.data(controlTable.index(row, 2), Qt::EditRole).toString();
+
+        // Skip entries that do not apply to the last complete month.
+        if (frequencyCode != PurchaseControlTable::FREQ_ALL && frequencyCode != lastMonthCode) {
+            continue;
+        }
+
+        const bool found = std::any_of(invoices.cbegin(), invoices.cend(),
+            [&](const PurchaseInformation &inv) {
+                if (inv.accountSupplier != supplierAccount) {
+                    return false;
+                }
+                if (!labelFilter.isEmpty()
+                        && !inv.label.contains(labelFilter, Qt::CaseInsensitive)) {
+                    return false;
+                }
+                return true;
+            });
+
+        if (!found) {
+            QString line = supplierAccount;
+            if (!labelFilter.isEmpty()) {
+                line += QStringLiteral(" (") + labelFilter + QStringLiteral(")");
+            }
+            missingLines.append(line);
+        }
+    }
+
+    if (missingLines.isEmpty()) {
+        return;
+    }
+
+    const QString monthLabel = QLocale().monthName(lastMonthFirst.month())
+                               + QStringLiteral(" ")
+                               + QString::number(lastMonthFirst.year());
+
+    QMessageBox::warning(
+        this,
+        tr("Missing Purchase Invoices"),
+        tr("The following supplier invoices are expected for %1 but were not found:\n\n%2")
+            .arg(monthLabel, missingLines.join('\n')));
+}
+
 QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
 {
     qDebug() << "[PaneBookKeeping] generateBookKeepingAsync() entered";
@@ -166,6 +245,8 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
 
     QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
     CompanyInfosTable companyInfo{workingDir};
+
+    displayPurchaseMissingWarning();
 
     qDebug() << "[PaneBookKeeping] Associating tables...";
     // 2. Associate tables

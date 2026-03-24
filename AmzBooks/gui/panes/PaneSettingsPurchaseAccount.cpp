@@ -4,10 +4,12 @@
 
 #include "books/BookAccountPurchaseTable.h"
 #include "books/CompanyInfosTable.h"
+#include "books/PurchaseControlTable.h"
 #include "ExceptionWithTitleText.h"
 #include "PaneSettingsPurchaseAccount.h"
 #include "ui_PaneSettingsPurchaseAccount.h"
 #include "gui/dialogs/DialogAddPurchaseAccount.h"
+#include "gui/delegates/FrequencyDelegate.h"
 
 PaneSettingsPurchaseAccount::PaneSettingsPurchaseAccount(QWidget *parent) :
     QWidget(parent),
@@ -23,6 +25,10 @@ PaneSettingsPurchaseAccount::PaneSettingsPurchaseAccount(QWidget *parent) :
         = new BookAccountPurchaseTable{
             workingDir, companyInfosTable.getCompanyCountryCode(), ui->tableAccounts};
     ui->tableAccounts->setModel(purchaseAccountTable);
+
+    auto *controlTable = new PurchaseControlTable{workingDir, ui->tableControl};
+    ui->tableControl->setModel(controlTable);
+    ui->tableControl->setItemDelegateForColumn(2, new FrequencyDelegate{ui->tableControl});
 
     _connectSlots();
 }
@@ -85,6 +91,53 @@ void PaneSettingsPurchaseAccount::removeRate()
     }
 }
 
+void PaneSettingsPurchaseAccount::addControlEntry()
+{
+    auto *model = qobject_cast<PurchaseControlTable *>(ui->tableControl->model());
+    if (!model) {
+        return;
+    }
+    model->addEntry(QString{}, QString{}, PurchaseControlTable::FREQ_ALL);
+    // Start editing the supplier account cell of the new row immediately.
+    const QModelIndex idx = model->index(model->rowCount() - 1, 0);
+    ui->tableControl->setCurrentIndex(idx);
+    ui->tableControl->edit(idx);
+}
+
+void PaneSettingsPurchaseAccount::removeControlEntry()
+{
+    const auto &selIndexes = ui->tableControl->selectionModel()->selectedIndexes();
+    if (selIndexes.isEmpty()) {
+        QMessageBox::warning(this,
+                             tr("Selection Required"),
+                             tr("Please select an entry to remove."));
+        return;
+    }
+
+    if (QMessageBox::question(
+                this,
+                tr("Confirm Removal"),
+                tr("Are you sure you want to remove the selected entry?"),
+                QMessageBox::Yes | QMessageBox::No) != QMessageBox::Yes) {
+        return;
+    }
+
+    QSet<int> rows;
+    for (const QModelIndex &index : selIndexes) {
+        rows.insert(index.row());
+    }
+
+    QList<int> sortedRows = rows.values();
+    std::sort(sortedRows.begin(), sortedRows.end(), std::greater<int>());
+
+    auto *model = qobject_cast<PurchaseControlTable *>(ui->tableControl->model());
+    if (model) {
+        for (int row : sortedRows) {
+            model->removeRow(row);
+        }
+    }
+}
+
 void PaneSettingsPurchaseAccount::_connectSlots()
 {
     connect(ui->buttonAdd,
@@ -95,4 +148,12 @@ void PaneSettingsPurchaseAccount::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneSettingsPurchaseAccount::removeRate);
+    connect(ui->buttonAddControl,
+            &QPushButton::clicked,
+            this,
+            &PaneSettingsPurchaseAccount::addControlEntry);
+    connect(ui->buttonRemoveControl,
+            &QPushButton::clicked,
+            this,
+            &PaneSettingsPurchaseAccount::removeControlEntry);
 }

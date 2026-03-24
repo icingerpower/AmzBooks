@@ -80,6 +80,7 @@ public slots:
 
 private:
     void generateInvoicesWithSelection(std::optional<QSet<QString>> selectedShipmentIds);
+    void displayPurchaseMissingWarning();
     BooksConnections *m_booksConnections;
     class OrderManager *m_orderManager;
     bool m_splitterInitialized = false;
