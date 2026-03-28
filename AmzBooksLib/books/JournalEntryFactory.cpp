@@ -419,21 +419,18 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
     if (paymentInfo.hasRefundedExpenses && paymentInfo.refundedExpenses > 0.0)
         makeCredit(debitAccount, paymentInfo.refundedExpensesCurrency, paymentInfo.refundedExpenses);
 
-    // Balance the entry in two lines so the payout and the net fees are
-    // visible separately, making bank reconciliation easier:
-    //   Line 1: the actual payout received (paymentInfo.paid)
-    //   Line 2: the net fees retained by Amazon (expenses − refunded expenses)
-    // Skipped when the account is not configured.
+    // Payout line: debit the Amazon account (from settings) with the amount received.
+    // Always posted unconditionally so it appears even when salesAccount is not yet configured.
+    const QString amazonAccount = m_amzPaymentSettings->getAmazonAccount();
+    if (paymentInfo.paid > 0.0) {
+        makeDebit(amazonAccount, paymentInfo.paidCurrency, paymentInfo.paid);
+    } else if (paymentInfo.paid < 0.0) {
+        makeCredit(amazonAccount, paymentInfo.paidCurrency, -paymentInfo.paid);
+    }
+
+    // Net fees balancing line — only when salesAccount (from BookAccountAmzBalanceTable) is configured.
     const QString &salesAccount = balanceAccounts.account;
     if (!salesAccount.isEmpty()) {
-        // Line 1 — payout
-        if (paymentInfo.paid > 0.0) {
-            makeCredit(salesAccount, paymentInfo.paidCurrency, paymentInfo.paid);
-        } else if (paymentInfo.paid < 0.0) {
-            makeDebit(salesAccount, paymentInfo.paidCurrency, -paymentInfo.paid);
-        }
-
-        // Line 2 — net fees (remaining imbalance after the payout line)
         double imbalance = entry->getDebitSum() - entry->getCreditSum();
         if (imbalance > 0.005) {
             JournalEntry::EntryLine line;
