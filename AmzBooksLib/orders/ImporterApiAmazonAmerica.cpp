@@ -3,6 +3,7 @@
 #include <QJsonObject>
 #include <QJsonArray>
 #include <QUrlQuery>
+#include <QDebug>
 
 DECLARE_IMPORTER_API(ImporterApiAmazonAmerica)
 
@@ -37,35 +38,50 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonAmerica::_fetch
 {
     ReturnOrderInfos result;
     result.orderInfos = QSharedPointer<OrderInfos>::create();
-    
-    QString path = "/orders/v0/orders";
-    
+
+    const QString path = "/orders/v0/orders";
+
     QUrlQuery query;
     query.addQueryItem("MarketplaceIds", getMarketplaceId());
     query.addQueryItem("CreatedAfter", dateFrom.toUTC().toString(Qt::ISODate));
-    
+
     try {
-        QByteArray response = co_await sendSignedRequest("GET", path, query);
-        QJsonDocument doc = QJsonDocument::fromJson(response);
-        QJsonObject root = doc.object();
-        
-        if (root.contains("payload")) {
-            QJsonObject payload = root["payload"].toObject();
-            QJsonArray orders = payload["Orders"].toArray();
-            
-            for (const auto& val : orders) {
-                QJsonObject order = val.toObject();
-                // Placeholder for conversion logic
+        bool hasMore = true;
+        while (hasMore) {
+            QByteArray response = co_await sendSignedRequest("GET", path, query);
+            const QJsonObject root = QJsonDocument::fromJson(response).object();
+
+            if (!root.contains("payload")) {
+                result.errorReturned = "Invalid response format: missing payload";
+                break;
             }
-             // Pagination logic would mirror EU logic
-        } else {
-             result.errorReturned = "Invalid response format: missing payload";
+
+            const QJsonObject payload = root["payload"].toObject();
+            const QJsonArray orders = payload["Orders"].toArray();
+
+            for (const QJsonValue &val : std::as_const(orders)) {
+                const QJsonObject order = val.toObject();
+                const QString orderId = order["AmazonOrderId"].toString();
+                if (orderId.isEmpty()) {
+                    continue;
+                }
+                result.orderInfos->orderId_infos[orderId] =
+                    OrderManager::OrderInfo{getMarketplaceId(), isGroupedOrders(), ""};
+            }
+
+            // Per SP-API spec, when paging with NextToken only pass NextToken
+            const QString nextToken = payload["NextToken"].toString();
+            if (nextToken.isEmpty() || orders.isEmpty()) {
+                hasMore = false;
+            } else {
+                query.clear();
+                query.addQueryItem("NextToken", nextToken);
+            }
         }
-        
     } catch (const std::exception& e) {
         result.errorReturned = QString::fromStdString(e.what());
     }
-    
+
     co_return result;
 }
 
@@ -73,18 +89,61 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonAmerica::_fetch
 {
     ReturnOrderInfos result;
     result.orderInfos = QSharedPointer<OrderInfos>::create();
-    
-    QString path = "/finances/v0/financialEvents";
+
+    const QString path = "/finances/v0/financialEvents";
     QUrlQuery query;
     query.addQueryItem("PostedAfter", dateFrom.toUTC().toString(Qt::ISODate));
-    
+
     try {
         QByteArray response = co_await sendSignedRequest("GET", path, query);
-        // Parse finances...
+        const QJsonObject root = QJsonDocument::fromJson(response).object();
+
+        if (root.contains("payload")) {
+            const QJsonObject payload = root["payload"].toObject();
+            const QJsonObject events = payload["FinancialEvents"].toObject();
+            const QJsonArray refundEvents = events["RefundEventList"].toArray();
+
+            for (const QJsonValue &val : std::as_const(refundEvents)) {
+                const QJsonObject ev = val.toObject();
+                const QString orderId = ev["AmazonOrderId"].toString();
+                if (orderId.isEmpty()) {
+                    continue;
+                }
+
+                const QDate date = QDate::fromString(
+                    ev["PostedDate"].toString().left(10), "yyyy-MM-dd");
+
+                // For NA (US/CA/MX), Amazon acts as marketplace facilitator for taxes.
+                // Only the Principal (net product charge) is the seller's responsibility;
+                // any Tax charge must NOT be included.
+                double principal = 0.0;
+                QString currency;
+                const QJsonArray items = ev["ShipmentItemAdjustmentList"].toArray();
+                for (const QJsonValue &itemVal : std::as_const(items)) {
+                    const QJsonArray charges =
+                        itemVal.toObject()["ItemChargeAdjustmentList"].toArray();
+                    for (const QJsonValue &chargeVal : std::as_const(charges)) {
+                        const QJsonObject charge = chargeVal.toObject();
+                        if (charge["ChargeType"].toString() == "Principal") {
+                            const QJsonObject amt = charge["ChargeAmount"].toObject();
+                            principal += amt["Amount"].toString().toDouble();
+                            if (currency.isEmpty()) {
+                                currency = amt["CurrencyCode"].toString();
+                            }
+                        }
+                    }
+                }
+
+                if (!qFuzzyIsNull(principal)) {
+                    result.orderInfos->orderId_refundClue[orderId] =
+                        {qAbs(principal), currency, date};
+                }
+            }
+        }
     } catch (const std::exception& e) {
         result.errorReturned = QString::fromStdString(e.what());
     }
-    
+
     co_return result;
 }
 

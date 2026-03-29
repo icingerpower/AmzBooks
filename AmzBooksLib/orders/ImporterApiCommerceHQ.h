@@ -21,6 +21,9 @@ public:
     QString getId() const override;
     QMap<QString, ParamInfo> getRequiredParams() const override;
     bool isGroupedOrders() const override;
+    bool recomputeTaxes() const override;
+    bool isWrongIfConflict() const override;
+    bool fixRefundDate() const override;
 
 protected:
     QString getEndpoint() const;

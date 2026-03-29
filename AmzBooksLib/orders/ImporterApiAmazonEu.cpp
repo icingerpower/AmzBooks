@@ -142,42 +142,45 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonEu::_fetchShipm
     ReturnOrderInfos result;
     result.orderInfos = QSharedPointer<OrderInfos>::create();
 
-    // API: https://developer-docs.amazon.com/sp-api/docs/orders-api-v0-reference#getorders
-    QString path = "/orders/v0/orders";
+    const QString path = "/orders/v0/orders";
 
     QUrlQuery query;
     query.addQueryItem("MarketplaceIds", getMarketplaceId());
     query.addQueryItem("CreatedAfter", dateFrom.toUTC().toString(Qt::ISODate));
-    // query.addQueryItem("OrderStatuses", "Shipped"); // Optional, maybe we want all?
 
     try {
-        QByteArray response = co_await sendSignedRequest("GET", path, query);
-        QJsonDocument doc = QJsonDocument::fromJson(response);
-        QJsonObject root = doc.object();
+        bool hasMore = true;
+        while (hasMore) {
+            QByteArray response = co_await sendSignedRequest("GET", path, query);
+            const QJsonObject root = QJsonDocument::fromJson(response).object();
 
-        if (root.contains("payload")) {
-            QJsonObject payload = root["payload"].toObject();
-            QJsonArray orders = payload["Orders"].toArray();
-
-            for (const auto& val : orders) {
-                QJsonObject order = val.toObject();
-                // TODO Convert SP-API Order JSON to internal Shipment/Order structure
-                // This requires mapping Amazon fields to Activity/Shipment fields.
-                // For this task, we will create a placeholder implementation
-                // assuming the conversion logic is complex and might need separate attention.
-                // Or we do a basic best-effort mapping.
-
-                // For now, we just ensure the call works and we iterate.
-                // If NextToken is present, we should loop.
-                // Implementing pagination loop:
+            if (!root.contains("payload")) {
+                result.errorReturned = "Invalid response format: missing payload";
+                break;
             }
 
-            // Pagination logic would go here (using NextToken).
-            // Since this is a "finish without TODO" request, I should implement pagination.
-        } else {
-             result.errorReturned = "Invalid response format: missing payload";
-        }
+            const QJsonObject payload = root["payload"].toObject();
+            const QJsonArray orders = payload["Orders"].toArray();
 
+            for (const QJsonValue &val : std::as_const(orders)) {
+                const QJsonObject order = val.toObject();
+                const QString orderId = order["AmazonOrderId"].toString();
+                if (orderId.isEmpty()) {
+                    continue;
+                }
+                result.orderInfos->orderId_infos[orderId] =
+                    OrderManager::OrderInfo{getMarketplaceId(), isGroupedOrders(), ""};
+            }
+
+            // Per SP-API spec, when paging with NextToken only pass NextToken
+            const QString nextToken = payload["NextToken"].toString();
+            if (nextToken.isEmpty() || orders.isEmpty()) {
+                hasMore = false;
+            } else {
+                query.clear();
+                query.addQueryItem("NextToken", nextToken);
+            }
+        }
     } catch (const std::exception& e) {
         result.errorReturned = QString::fromStdString(e.what());
     }
@@ -194,24 +197,63 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonEu::_fetchShipm
 
 QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonEu::_fetchRefunds(const QDateTime &dateFrom)
 {
-    // Refunds are typically found in Financial Events API or by checking Order status?
-    // Finances API is best for accounting: listFinancialEvents
-    // https://developer-docs.amazon.com/sp-api/docs/finances-api-v0-reference
-    
     ReturnOrderInfos result;
     result.orderInfos = QSharedPointer<OrderInfos>::create();
-    
-    QString path = "/finances/v0/financialEvents";
+
+    const QString path = "/finances/v0/financialEvents";
     QUrlQuery query;
     query.addQueryItem("PostedAfter", dateFrom.toUTC().toString(Qt::ISODate));
-    
+
     try {
         QByteArray response = co_await sendSignedRequest("GET", path, query);
-        // Parse finances...
+        const QJsonObject root = QJsonDocument::fromJson(response).object();
+
+        if (root.contains("payload")) {
+            const QJsonObject payload = root["payload"].toObject();
+            const QJsonObject events = payload["FinancialEvents"].toObject();
+            const QJsonArray refundEvents = events["RefundEventList"].toArray();
+
+            for (const QJsonValue &val : std::as_const(refundEvents)) {
+                const QJsonObject ev = val.toObject();
+                const QString orderId = ev["AmazonOrderId"].toString();
+                if (orderId.isEmpty()) {
+                    continue;
+                }
+
+                const QDate date = QDate::fromString(
+                    ev["PostedDate"].toString().left(10), "yyyy-MM-dd");
+
+                // Sum Principal charges across all shipment item adjustments.
+                // Tax is not included: for EU, Amazon reports net principal separately;
+                // for NA, Amazon is the marketplace facilitator and tax is not the seller's.
+                double principal = 0.0;
+                QString currency;
+                const QJsonArray items = ev["ShipmentItemAdjustmentList"].toArray();
+                for (const QJsonValue &itemVal : std::as_const(items)) {
+                    const QJsonArray charges =
+                        itemVal.toObject()["ItemChargeAdjustmentList"].toArray();
+                    for (const QJsonValue &chargeVal : std::as_const(charges)) {
+                        const QJsonObject charge = chargeVal.toObject();
+                        if (charge["ChargeType"].toString() == "Principal") {
+                            const QJsonObject amt = charge["ChargeAmount"].toObject();
+                            principal += amt["Amount"].toString().toDouble();
+                            if (currency.isEmpty()) {
+                                currency = amt["CurrencyCode"].toString();
+                            }
+                        }
+                    }
+                }
+
+                if (!qFuzzyIsNull(principal)) {
+                    result.orderInfos->orderId_refundClue[orderId] =
+                        {qAbs(principal), currency, date};
+                }
+            }
+        }
     } catch (const std::exception& e) {
         result.errorReturned = QString::fromStdString(e.what());
     }
-    
+
     co_return result;
 }
 

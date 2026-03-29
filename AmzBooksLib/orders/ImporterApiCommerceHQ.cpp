@@ -35,6 +35,21 @@ bool ImporterApiCommerceHQ::isGroupedOrders() const
     return false;
 }
 
+bool ImporterApiCommerceHQ::recomputeTaxes() const
+{
+    return true;
+}
+
+bool ImporterApiCommerceHQ::isWrongIfConflict() const
+{
+    return true;
+}
+
+bool ImporterApiCommerceHQ::fixRefundDate() const
+{
+    return true;
+}
+
 QMap<QString, AbstractImporter::ParamInfo> ImporterApiCommerceHQ::getRequiredParams() const
 {
     QMap<QString, ParamInfo> params;
@@ -193,57 +208,69 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiCommerceHQ::_fetchInv
 
 QCoro::Task<void> ImporterApiCommerceHQ::fetchStoreOrders(const StoreConfig& store, const QDateTime& dateFrom, QSharedPointer<OrderInfos> targetInfos)
 {
-    // URL for Orders API
-    QUrl url(getEndpoint() + "/orders");
-    QUrlQuery query;
-    query.addQueryItem("store_id", store.storeId);
-    
-    // Date filtering often uses specific params like 'created_at_min' or similar. 
-    // CommerceHQ docs say "load-orders" usually takes an ID or list. Filter params might be needed.
-    // Based on generic knowledge of such APIs, usually 'created_after' or similar.
-    // Docs showed "URL parameters" section. Assuming standard date filtering for now or fetching recent page.
-    // "Loading page number" suggests pagination.
-    // Use generic "created_after" if detailed docs missing, or fetch page 1.
-    // For now, implementing basic GET.
-    
-    url.setQuery(query);
-    QNetworkRequest request(url);
-    
-    // Basic Auth
-    QString concatenated = store.apiKey + ":" + store.apiPassword;
-    QByteArray data = concatenated.toLocal8Bit().toBase64();
-    QString headerData = "Basic " + data;
-    request.setRawHeader("Authorization", headerData.toLocal8Bit());
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+    const QString baseUrl = getEndpoint();
+    const QString apiPath = "/orders";
+    const int perPage = 50;
+    int page = 1;
+    bool hasMore = true;
 
-    QNetworkReply *reply = nam()->get(request);
-    co_await reply;
+    // Basic Auth — credentials must be UTF-8 encoded before base64 (RFC 7617)
+    const QString credentials = store.apiKey + ":" + store.apiPassword;
+    const QByteArray authHeader = "Basic " + credentials.toUtf8().toBase64();
 
-    if (reply->error() != QNetworkReply::NoError) {
-        ExceptionWithTitleText exception("API Request Failed", "API Request failed: " + reply->errorString());
-        exception.raise();
-    }
+    while (hasMore) {
+        QUrl url(baseUrl + apiPath);
+        QUrlQuery query;
+        query.addQueryItem("store_id", store.storeId);
+        query.addQueryItem("created_at_min", dateFrom.toUTC().toString(Qt::ISODate));
+        query.addQueryItem("page", QString::number(page));
+        query.addQueryItem("per_page", QString::number(perPage));
+        url.setQuery(query);
 
-    QByteArray responseData = reply->readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(responseData);
-    
-    if (doc.isArray()) {
-        QJsonArray orders = doc.array();
-        for (const auto& val : orders) {
-             QJsonObject order = val.toObject();
-             // TODO: Convert CHQ Order JSON to internal Shipment/Activity structure
-             // This requires mapping fields like 'total', 'items', 'billing_address', etc.
-             // For this task, we ensure the fetch & auth works.
-             // Converting content is a massive separate mapping task per platform.
-             (void)order; 
+        QNetworkRequest request(url);
+        request.setRawHeader("Authorization", authHeader);
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+        QNetworkReply *reply = nam()->get(request);
+        co_await reply;
+
+        const QNetworkReply::NetworkError netErr = reply->error();
+        const QString errStr = reply->errorString();
+        const QByteArray responseData = reply->readAll();
+        reply->deleteLater();
+
+        if (netErr != QNetworkReply::NoError) {
+            ExceptionWithTitleText exception("API Request Failed", "API Request failed: " + errStr);
+            exception.raise();
         }
-    } else if (doc.isObject()) {
-        // Single order or wrapper? 
-        QJsonObject root = doc.object();
-        if (root.contains("items")) { // Assuming generic list wrapper if not array
-             QJsonArray orders = root["items"].toArray();
-             // Iterate...
+
+        const QJsonDocument doc = QJsonDocument::fromJson(responseData);
+
+        QJsonArray orders;
+        if (doc.isArray()) {
+            orders = doc.array();
+        } else if (doc.isObject()) {
+            orders = doc.object()["items"].toArray();
         }
+
+        for (const QJsonValue &val : std::as_const(orders)) {
+            const QJsonObject order = val.toObject();
+            // Prefer the human-facing "number" field; fall back to integer "id"
+            QString orderId = order["number"].toString().trimmed();
+            if (orderId.isEmpty()) {
+                const int idInt = order["id"].toInt(0);
+                if (idInt > 0) {
+                    orderId = QString::number(idInt);
+                }
+            }
+            if (!orderId.isEmpty()) {
+                targetInfos->orderId_infos[orderId] =
+                    OrderManager::OrderInfo{"CommerceHQ", isGroupedOrders(), ""};
+            }
+        }
+
+        hasMore = orders.size() >= perPage;
+        ++page;
     }
 }
 
