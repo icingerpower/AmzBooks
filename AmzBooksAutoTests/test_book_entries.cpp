@@ -13,6 +13,7 @@
 #include "books/JournalEntryFactory.h"
 #include "books/CompanyInfosTable.h"
 #include "books/BooksAccountsSalesTable.h"
+#include "books/BookAccountsGroupedSalesTable.h"
 #include "books/BookAccountPurchaseTable.h"
 #include "books/BookAccountSelfVatTable.h"
 #include "books/JournalTable.h"
@@ -736,12 +737,13 @@ void TestBookEntries::test_invoice_negative_amount_refund()
     CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
     BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts,
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts,
                                 &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
@@ -947,17 +949,19 @@ void TestBookEntries::test_factory_purchase_no_conversion()
     CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
     BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
-    
+
     // Add purchase account for FR
     // Account FR 0.2 is created by default
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts,
+                                &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
-    
+
     // Create purchase information (no conversion needed - EUR to EUR)
     PurchaseInformation purchase;
     purchase.date = QDate(2024, 3, 15);
@@ -1022,20 +1026,22 @@ void TestBookEntries::test_factory_purchase_with_conversion()
     companyFile.close();
     
     CompanyInfosTable companyInfos(dir);
-    
+
     // Setup currency rates
     CurrencyRateManager currencyManager(dir, "");
     currencyManager.importRate("2024-03-15", "USD", "EUR", 0.85);
     BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
-    
+
     // Account FR 0.2 is created by default
-    
+
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts,
+                                &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     // Create purchase in USD
@@ -1100,15 +1106,17 @@ void TestBookEntries::test_factory_purchase_refund()
     CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
     BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
-    
+
     // Account FR 0.2 is created by default
-    
+
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts,
+                                &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     // Create refund (negative amount)
@@ -1182,15 +1190,17 @@ void TestBookEntries::test_factory_purchase_with_extra()
     CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
     BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
-    
+
     // Account FR 0.2 is created by default
-    
+
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts,
+                                &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     // Case: Purchase 200 Total. 180 Main + 20 Extra.
@@ -1277,13 +1287,16 @@ void TestBookEntries::test_factory_shipment_no_conversion()
     CompanyInfosTable companyInfos(dir);
     CurrencyRateManager currencyManager(dir, "");
     BooksAccountsSalesTable saleAccounts(dir);
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
+    groupedSaleAccounts.setData(groupedSaleAccounts.index(0, 1), QStringLiteral("411AMZTEST"), Qt::EditRole);
     BookAccountPurchaseTable purchaseAccounts(dir, "FR");
     JournalTable journalTable(dir);
-    
+
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts,
+                                &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     // Create activity source
@@ -1378,7 +1391,9 @@ void TestBookEntries::test_factory_shipment_with_conversion()
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
+    groupedSaleAccounts.setData(groupedSaleAccounts.index(0, 1), QStringLiteral("411AMZTEST"), Qt::EditRole);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts, &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     ActivitySource source;
@@ -1457,7 +1472,9 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
+    groupedSaleAccounts.setData(groupedSaleAccounts.index(0, 1), QStringLiteral("411AMZTEST"), Qt::EditRole);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts, &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     ActivitySource source;
@@ -1660,7 +1677,8 @@ void TestBookEntries::test_factory_single_shipment()
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts, &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     // 1. Test null shipment returns nullptr
@@ -1744,7 +1762,8 @@ void TestBookEntries::test_factory_bank_entry()
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts, &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     // Create BooksConnections for bank table
@@ -2075,7 +2094,8 @@ void TestBookEntries::test_factory_purchase_multi_vat_rates()
     BookAccountSelfVatTable selfVatAccounts(dir, "FR");
     AmzPaymentSettings amzPaymentSettings(dir);
     BookAccountAmzBalanceTable amzBalanceTable(dir);
-    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &purchaseAccounts, &journalTable,
+    BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
+    JournalEntryFactory factory(&currencyManager, &companyInfos, &saleAccounts, &groupedSaleAccounts, &purchaseAccounts, &journalTable,
                                 &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
     PurchaseInformation info = PurchaseInvoiceManager::decode(
@@ -2148,7 +2168,8 @@ void TestBookEntries::test_factory_selfvat_intracom_eu()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 6, 1);
@@ -2231,7 +2252,8 @@ void TestBookEntries::test_factory_selfvat_extracom_noneu()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 7, 1);
@@ -2286,7 +2308,8 @@ void TestBookEntries::test_factory_selfvat_domestic_no_autoliquidation()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 8, 1);
@@ -2333,7 +2356,8 @@ void TestBookEntries::test_factory_selfvat_thirdparty_no_autoliquidation()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 9, 1);
@@ -2378,7 +2402,8 @@ void TestBookEntries::test_factory_selfvat_no_amount_no_lines()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 10, 1);
@@ -2419,7 +2444,8 @@ void TestBookEntries::test_factory_selfvat_has_normal_vat_no_autoliquidation()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 11, 1);
@@ -2472,7 +2498,8 @@ void TestBookEntries::test_factory_selfvat_custom_accounts()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2025, 12, 1);
@@ -2519,7 +2546,8 @@ void TestBookEntries::test_factory_selfvat_refund()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     PurchaseInformation p;
     p.date            = QDate(2026, 1, 1);
@@ -2599,7 +2627,8 @@ void TestBookEntries::test_factory_selfvat_invoice_us_fr_label_route()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -2674,7 +2703,8 @@ void TestBookEntries::test_invoice_eu_fr_label_route()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -2764,7 +2794,8 @@ void TestBookEntries::test_invoice_gb_fr_label_route_noneu()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -2927,7 +2958,8 @@ void TestBookEntries::test_invoice_mixed_currency_vat_eur_total_sek()
     BookAccountSelfVatTable sva(dir, "FR");
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -3024,7 +3056,8 @@ void TestBookEntries::test_invoice_same_currency_sek_rate_computed()
     BookAccountSelfVatTable sva(dir, "FR");
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -3097,7 +3130,8 @@ void TestBookEntries::test_invoice_four_currency_variants_same_eur_amounts()
     BookAccountSelfVatTable sva(dir, "FR");
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     const QString vatAccount = pa.getAccountsDebit6("FR", 0.2);
 
@@ -3222,7 +3256,8 @@ void TestBookEntries::test_invoice_gbp_negative_vat_and_total_with_conversion()
     BookAccountSelfVatTable sva(dir, "FR");
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     const auto entry = f.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -3853,7 +3888,8 @@ void TestBookEntries::test_factory_amz_entry_eur_all_fields()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -3881,7 +3917,8 @@ void TestBookEntries::test_factory_amz_entry_eur_no_balance()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -3912,7 +3949,8 @@ void TestBookEntries::test_factory_amz_entry_eur_expenses_refund()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -3939,7 +3977,8 @@ void TestBookEntries::test_factory_amz_entry_eur_expenses_only()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -3965,7 +4004,8 @@ void TestBookEntries::test_factory_amz_entry_eur_minimal()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -3998,7 +4038,8 @@ void TestBookEntries::test_factory_amz_entry_usd_all_fields()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4028,7 +4069,8 @@ void TestBookEntries::test_factory_amz_entry_usd_no_balance()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4063,7 +4105,8 @@ void TestBookEntries::test_factory_amz_entry_usd_balance_only()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4096,7 +4139,8 @@ void TestBookEntries::test_factory_amz_entry_usd_paid_eur()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4133,7 +4177,8 @@ void TestBookEntries::test_factory_amz_entry_usd_conversion_in_title()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4165,7 +4210,8 @@ void TestBookEntries::test_factory_amz_entry_gbp_all_fields()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4194,7 +4240,8 @@ void TestBookEntries::test_factory_amz_entry_cad_payment()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4222,7 +4269,8 @@ void TestBookEntries::test_factory_amz_entry_jpy_payment()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4251,7 +4299,8 @@ void TestBookEntries::test_factory_amz_entry_aud_payment()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4279,7 +4328,8 @@ void TestBookEntries::test_factory_amz_entry_sek_payment()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4315,7 +4365,8 @@ void TestBookEntries::test_factory_amz_entry_debit_account_in_balance()
             break;
         }
     }
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4358,7 +4409,8 @@ void TestBookEntries::test_factory_amz_entry_amazon_account_for_paid()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4395,7 +4447,8 @@ void TestBookEntries::test_factory_amz_entry_custom_accounts()
             break;
         }
     }
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4434,7 +4487,8 @@ void TestBookEntries::test_factory_amz_entry_no_settings_null()
     // No AmzPaymentSettings passed → nullptr
     BookAccountSelfVatTable sva(dir, "FR");
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, nullptr, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, nullptr, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(entry.isNull());
@@ -4467,7 +4521,8 @@ void TestBookEntries::test_factory_amz_entry_default_amazon_account()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4499,7 +4554,8 @@ void TestBookEntries::test_factory_amz_entry_line_count_all_fields()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4523,7 +4579,8 @@ void TestBookEntries::test_factory_amz_entry_line_count_no_optionals()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4549,7 +4606,8 @@ void TestBookEntries::test_factory_amz_entry_line_count_no_balance()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4577,7 +4635,8 @@ void TestBookEntries::test_factory_amz_entry_debit_sum_all_fields()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4605,7 +4664,8 @@ void TestBookEntries::test_factory_amz_entry_credit_sum_all_fields()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4631,7 +4691,8 @@ void TestBookEntries::test_factory_amz_entry_title_paiement_amazon()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4656,7 +4717,8 @@ void TestBookEntries::test_factory_amz_entry_title_contains_paid_amount()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4681,7 +4743,8 @@ void TestBookEntries::test_factory_amz_entry_title_contains_currency()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4709,7 +4772,8 @@ void TestBookEntries::test_factory_amz_entry_title_all_lines_same()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4740,7 +4804,8 @@ void TestBookEntries::test_factory_amz_entry_date_uses_date_to()
     BooksAccountsSalesTable sa(dir); BookAccountPurchaseTable pa(dir, "FR");
     JournalTable jt(dir); AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     auto entry = syncWait(f.createEntry(info));
     QVERIFY(!entry.isNull());
@@ -4813,7 +4878,8 @@ void TestBookEntries::test_factory_inventory_null_tree_returns_null()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     // (1) null tree pointer → nullptr
     QVERIFY(!f.createEntry(static_cast<const InventoryMoveTree *>(nullptr), "FR"));
@@ -4841,7 +4907,8 @@ void TestBookEntries::test_factory_inventory_null_selfvat_returns_null()
     // factory built WITHOUT selfVatBookAccounts → nullptr
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
 
     // (2) no selfVat table → nullptr
     QVERIFY(!f.createEntry(tree, "FR"));
@@ -4878,7 +4945,8 @@ void TestBookEntries::test_factory_inventory_eu_to_france_line_count()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -4920,7 +4988,8 @@ void TestBookEntries::test_factory_inventory_eu_to_france_balanced()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -4960,7 +5029,8 @@ void TestBookEntries::test_factory_inventory_eu_to_france_accounts()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -5012,7 +5082,8 @@ void TestBookEntries::test_factory_inventory_eu_to_france_amounts()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -5085,7 +5156,8 @@ void TestBookEntries::test_factory_inventory_eu_to_france_titles()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -5149,7 +5221,8 @@ void TestBookEntries::test_factory_inventory_export_skipped()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -5185,7 +5258,8 @@ void TestBookEntries::test_factory_inventory_missing_accounts_returns_null()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     // (27) All three new accounts are empty by default → throws ExceptionWithTitleText
     bool caught = false;
@@ -5230,7 +5304,8 @@ void TestBookEntries::test_factory_inventory_zero_price_skipped()
     JournalTable jt(dir);
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     auto entry = f.createEntry(tree, "FR");
     delete tree;
@@ -5581,7 +5656,8 @@ void TestBookEntries::test_factory_purchase_dual_amount_uses_invoice_rate()
     BookAccountSelfVatTable selfVatJt(dir, "FR");
     AmzPaymentSettings amzSettingsJt(dir);
     BookAccountAmzBalanceTable balanceJt(dir);
-    JournalEntryFactory factory(&crm, &ci, &sa, &pa, &jt, &selfVatJt, &amzSettingsJt, &balanceJt);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory factory(&crm, &ci, &sa, &gsa, &pa, &jt, &selfVatJt, &amzSettingsJt, &balanceJt);
 
     const auto entry = factory.createEntry(info);
     QVERIFY(!entry.isNull());
@@ -5665,7 +5741,8 @@ void TestBookEntries::test_factory_purchase_amz_account_uses_debit_account()
     BookAccountSelfVatTable sva(dir, "FR");
     AmzPaymentSettings amzSet(dir);
     BookAccountAmzBalanceTable balanceTable(dir);
-    JournalEntryFactory f(&crm, &ci, &sa, &pa, &jt, &sva, &amzSet, &balanceTable);
+    BookAccountsGroupedSalesTable gsa(dir);
+    JournalEntryFactory f(&crm, &ci, &sa, &gsa, &pa, &jt, &sva, &amzSet, &balanceTable);
 
     // ── Case 1: supplier is the Amazon account → must be replaced by debit account ──
     PurchaseInformation amzPurchase;
@@ -5978,7 +6055,8 @@ void TestBookEntries::test_factory_amz_real_payment_files()
             crm.importRate(dateStr, cur, "EUR", 1.0);
         }
 
-        JournalEntryFactory factory(&crm, &ci, &sa, &pa, &jt, nullptr, &amzSet, &balanceTable);
+        BookAccountsGroupedSalesTable gsa(dir);
+        JournalEntryFactory factory(&crm, &ci, &sa, &gsa, &pa, &jt, nullptr, &amzSet, &balanceTable);
         auto entry = syncWait(factory.createEntry(info));
 
         QVERIFY2(!entry.isNull(),

@@ -18,6 +18,7 @@
 class CurrencyRateManager;
 class CompanyInfosTable;
 class BooksAccountsSalesTable;
+class BookAccountsGroupedSalesTable;
 class BookAccountPurchaseTable;
 class BookAccountSelfVatTable;
 class BookAccountAmzBalanceTable;
@@ -79,6 +80,7 @@ public:
     JournalEntryFactory(const CurrencyRateManager *currencyRateManager,
                         const CompanyInfosTable *companyInfos,
                         const BooksAccountsSalesTable *saleBookAccounts,
+                        const BookAccountsGroupedSalesTable *groupedSaleAccounts,
                         const BookAccountPurchaseTable *purchaseBookAccounts,
                         const JournalTable *journalTable,
                         const BookAccountSelfVatTable *selfVatBookAccounts,
@@ -122,6 +124,7 @@ private:
     const CurrencyRateManager *m_currencyRateManager;
     const CompanyInfosTable *m_companyInfos;
     const BooksAccountsSalesTable *m_saleBookAccounts;
+    const BookAccountsGroupedSalesTable *m_groupedSaleAccounts;
     const BookAccountPurchaseTable *m_purchaseBookAccounts;
     const JournalTable *m_journalTable;
     const BookAccountSelfVatTable *m_selfVatBookAccounts;

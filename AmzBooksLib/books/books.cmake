@@ -16,6 +16,8 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/VatTerritoryResolver.cpp
     ${CMAKE_CURRENT_LIST_DIR}/BooksAccountsSalesTable.h
     ${CMAKE_CURRENT_LIST_DIR}/BooksAccountsSalesTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountsGroupedSalesTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/BookAccountsGroupedSalesTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.h
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/CompanyAddressTable.h
@@ -38,10 +40,6 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountBankTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountAmzBalanceTable.h
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountAmzBalanceTable.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/BooksAccountsSalesTable.h
-    ${CMAKE_CURRENT_LIST_DIR}/BooksAccountsSalesTable.cpp
-    ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.h
-    ${CMAKE_CURRENT_LIST_DIR}/BookAccountPurchaseTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountSelfVatTable.h
     ${CMAKE_CURRENT_LIST_DIR}/BookAccountSelfVatTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/BooksConnections.h

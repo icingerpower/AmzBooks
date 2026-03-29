@@ -11,6 +11,9 @@ SET(PANES_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsSaleAccounts.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsSaleAccounts.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsSaleAccounts.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsGroupedSaleAccounts.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsGroupedSaleAccounts.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsGroupedSaleAccounts.ui
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsPurchaseAccount.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsPurchaseAccount.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneSettingsPurchaseAccount.ui

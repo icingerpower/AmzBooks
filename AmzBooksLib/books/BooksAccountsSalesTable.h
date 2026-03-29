@@ -39,7 +39,6 @@ public:
         QString saleAccount;
         QString vatAccount;
         QString vatAccountToPay;
-        QString groupedClientAccount; ///< Receivable account used for grouped sales (e.g. "411FR").
         // Broad client grouping account (e.g. "CCLIENTEU" for EU buyers, "CLIENTDOM" for domestic).
         // Used as account2 in order/service journal lines.
         QString clientAccount;

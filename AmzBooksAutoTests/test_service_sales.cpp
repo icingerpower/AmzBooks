@@ -18,6 +18,7 @@
 #include "books/InvoiceGenerator.h"
 #include "books/VatNumbersTable.h"
 #include "books/BooksAccountsSalesTable.h"
+#include "books/BookAccountsGroupedSalesTable.h"
 #include "books/BookAccountPurchaseTable.h"
 #include "books/BookAccountSelfVatTable.h"
 #include "books/AmzPaymentSettings.h"
@@ -520,9 +521,13 @@ void TestServiceSales::test_createSale_withBookKeeping()
     BookAccountAmzBalanceTable amzBalanceTable(workingDir);
     CurrencyRateManager currencyRateManager(workingDir, "");
 
+    BookAccountsGroupedSalesTable groupedSaleAccountsTable(workingDir);
+    // Service channel is row 3 in the default _fillIfEmpty order (Amazon, Temu, CommerceHQ, Service)
+    groupedSaleAccountsTable.setData(groupedSaleAccountsTable.index(3, 1), QStringLiteral("411SERVICETEST"), Qt::EditRole);
+
     JournalEntryFactory factory(
         &currencyRateManager, &companyInfos,
-        &salesAccountTable, &purchaseAccountTable,
+        &salesAccountTable, &groupedSaleAccountsTable, &purchaseAccountTable,
         &journalTable, &selfVatAccountTable, &amzPaymentSettings, &amzBalanceTable
     );
 

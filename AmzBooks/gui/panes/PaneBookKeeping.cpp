@@ -16,6 +16,7 @@
 #include "books/ReportGenerator.h"
 #include "books/BookSaverFull.h"
 #include "books/BooksAccountsSalesTable.h"
+#include "books/BookAccountsGroupedSalesTable.h"
 #include "books/BookAccountPurchaseTable.h"
 #include "books/BookAccountSelfVatTable.h"
 #include "books/AmzPaymentSettings.h"
@@ -254,7 +255,8 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
 
     qDebug() << "[PaneBookKeeping] Preparing factory and dependencies...";
     BooksAccountsSalesTable salesAccountTable(workingDir); // Load sales accounts config
-    
+    BookAccountsGroupedSalesTable groupedSaleAccounts(workingDir); // Grouped client accounts per channel
+
     // Purchase Account Table needs company country code
     BookAccountPurchaseTable purchaseAccountTable(workingDir, companyInfo.getCompanyCountryCode());
     BookAccountSelfVatTable selfVatAccountTable(workingDir, companyInfo.getCompanyCountryCode());
@@ -281,7 +283,7 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         co_return dialog.exec() == QDialog::Accepted;
     };
 
-    JournalEntryFactory factory(&currencyRateManager, &companyInfo, &salesAccountTable, &purchaseAccountTable, &journalTable, &selfVatAccountTable, &amzPaymentSettings, &amzBalanceTable);
+    JournalEntryFactory factory(&currencyRateManager, &companyInfo, &salesAccountTable, &groupedSaleAccounts, &purchaseAccountTable, &journalTable, &selfVatAccountTable, &amzPaymentSettings, &amzBalanceTable);
 
     QHash<QString, QMultiMap<QDate, QSharedPointer<JournalEntry>>> journal_date_entries;
 

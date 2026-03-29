@@ -4,6 +4,7 @@
 #include "CurrencyRateManager.h"
 #include "CompanyInfosTable.h"
 #include "BooksAccountsSalesTable.h"
+#include "BookAccountsGroupedSalesTable.h"
 #include "BookAccountPurchaseTable.h"
 #include "BookAccountSelfVatTable.h"
 #include "JournalTable.h"
@@ -21,6 +22,7 @@ JournalEntryFactory::JournalEntryFactory(
     const CurrencyRateManager *currencyRateManager,
     const CompanyInfosTable *companyInfos,
     const BooksAccountsSalesTable *saleBookAccounts,
+    const BookAccountsGroupedSalesTable *groupedSaleAccounts,
     const BookAccountPurchaseTable *purchaseBookAccounts,
     const JournalTable *journalTable,
     const BookAccountSelfVatTable *selfVatBookAccounts,
@@ -29,6 +31,7 @@ JournalEntryFactory::JournalEntryFactory(
     : m_currencyRateManager(currencyRateManager)
     , m_companyInfos(companyInfos)
     , m_saleBookAccounts(saleBookAccounts)
+    , m_groupedSaleAccounts(groupedSaleAccounts)
     , m_purchaseBookAccounts(purchaseBookAccounts)
     , m_journalTable(journalTable)
     , m_selfVatBookAccounts(selfVatBookAccounts)
@@ -625,22 +628,25 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
             newEx.raise();
         }
 
-        // Grouped client account (receivable account used when multiple orders are aggregated)
-        QString custAcc = accounts.groupedClientAccount;
+        // Grouped client account — looked up by sale channel in BookAccountsGroupedSalesTable
+        QString custAcc = m_groupedSaleAccounts->getGroupedClientAccount(source->channel);
         while (custAcc.isEmpty() && callbackAddIfMissing) {
             bool shouldRetry = co_await callbackAddIfMissing(
                 QObject::tr("Missing Grouped Client Account"),
-                QObject::tr("No grouped client account found for sales entry (VAT scheme: %1, Rate: %2)")
-                    .arg(taxSchemeToString(vg.taxScheme)).arg(vg.vatRatePct));
-            if (!shouldRetry)
+                QObject::tr("No grouped client account is configured for channel \"%1\". "
+                            "Please set it in Settings → Grouped sale accounts.")
+                    .arg(source->channel));
+            if (!shouldRetry) {
                 break;
-            accounts = co_await m_saleBookAccounts->getAccounts(vc, vg.vatRatePct, SaleType::Products, callbackAddIfMissing);
-            custAcc = accounts.groupedClientAccount;
+            }
+            custAcc = m_groupedSaleAccounts->getGroupedClientAccount(source->channel);
         }
         if (custAcc.isEmpty()) {
-            ExceptionWithTitleText exception(QObject::tr("Missing Grouped Client Account"),
-                QObject::tr("No grouped client account found for sales entry (VAT scheme: %1, Rate: %2)")
-                .arg(taxSchemeToString(vg.taxScheme)).arg(vg.vatRatePct));
+            ExceptionWithTitleText exception(
+                QObject::tr("Missing Grouped Client Account"),
+                QObject::tr("No grouped client account is configured for channel \"%1\". "
+                            "Please set it in Settings → Grouped sale accounts.")
+                    .arg(source->channel));
             exception.raise();
         }
 

@@ -40,6 +40,11 @@
       </item>
       <item>
        <property name="text">
+        <string>Grouped sale accounts</string>
+       </property>
+      </item>
+      <item>
+       <property name="text">
         <string>Purchase accounts</string>
        </property>
       </item>
@@ -73,6 +78,7 @@
       <widget class="PaneSettingsCompany" name="pageCompanyInfos"/>
       <widget class="PaneSettingsVatRates" name="pageVatRates"/>
       <widget class="PaneSettingsSaleAccounts" name="pageSaleAccounts"/>
+      <widget class="PaneSettingsGroupedSaleAccounts" name="pageGroupedSaleAccounts"/>
       <widget class="PaneSettingsPurchaseAccount" name="pagePurchaseAccounts"/>
       <widget class="PaneSettingsSelfVatAccounts" name="pageSelfVatAccounts"/>
       <widget class="PaneSettingsBankAccounts" name="pageBankAccounts"/>
@@ -101,6 +107,12 @@
    <class>PaneSettingsSaleAccounts</class>
    <extends>QWidget</extends>
    <header>gui/panes/PaneSettingsSaleAccounts.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneSettingsGroupedSaleAccounts</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneSettingsGroupedSaleAccounts.h</header>
    <container>1</container>
   </customwidget>
   <customwidget>

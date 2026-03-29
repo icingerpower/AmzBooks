@@ -4,6 +4,7 @@
 #include <QDirIterator>
 
 #include "books/BooksAccountsSalesTable.h"
+#include "books/BookAccountsGroupedSalesTable.h"
 #include "books/TaxScheme.h"
 #include "books/BookAccountPurchaseTable.h"
 #include "ExceptionWithTitleText.h"
@@ -1086,8 +1087,12 @@ private slots:
         AmzPaymentSettings       amzPaymentSettings(dir);
         BookAccountAmzBalanceTable amzBalanceTable(dir);
 
+        BookAccountsGroupedSalesTable groupedSaleAccounts(dir);
+        // Amazon channel is row 0 in the default _fillIfEmpty order
+        groupedSaleAccounts.setData(groupedSaleAccounts.index(0, 1), QStringLiteral("411AMZTEST"), Qt::EditRole);
+
         JournalEntryFactory factory(&currencyManager, &companyInfos,
-                                    &saleAccounts, &purchaseAccounts, &journalTable,
+                                    &saleAccounts, &groupedSaleAccounts, &purchaseAccounts, &journalTable,
                                     &selfVatAccounts, &amzPaymentSettings, &amzBalanceTable);
 
         // Resolvers (in-memory, use hardcoded defaults – same as _fillIfEmpty)

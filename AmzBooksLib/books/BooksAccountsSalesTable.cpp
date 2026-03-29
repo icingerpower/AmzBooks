@@ -16,7 +16,6 @@ const QStringList BooksAccountsSalesTable::HEADER{
     , QObject::tr("Sale Account")
     , QObject::tr("VAT Account")
     , QObject::tr("VAT Account To Pay")
-    , QObject::tr("Grouped Client Account")
     , QObject::tr("Client Account")
 };
 
@@ -239,7 +238,6 @@ void BooksAccountsSalesTable::addAccount(
         << accounts.saleAccount
         << accounts.vatAccount
         << accounts.vatAccountToPay
-        << accounts.groupedClientAccount
         << accounts.clientAccount;
         
     beginInsertRows(QModelIndex(), m_listOfStringList.size(), m_listOfStringList.size());
@@ -346,7 +344,6 @@ void BooksAccountsSalesTable::_fillIfEmpty()
                 << saleAcc
                 << vatAcc
                 << vatPayAcc
-                << QString("411%1").arg(to.isEmpty() ? from : to)
                 << (CountriesEu::all().contains(to) ? QStringLiteral("CCLIENTEU") : QStringLiteral("CLIENTDOM"));
             m_listOfStringList.append(row);
         };
@@ -441,7 +438,7 @@ void BooksAccountsSalesTable::_fillIfEmpty()
 
 const QStringList HEADER_IDS = {
     "TaxScheme", "CountryFrom", "CountryTo", "SaleType", "VatRate",
-    "SaleAccount", "VatAccount", "VatAccountToPay", "GroupedClientAccount", "ClientAccount"
+    "SaleAccount", "VatAccount", "VatAccountToPay", "ClientAccount"
 };
 
 // ...
@@ -450,12 +447,12 @@ void BooksAccountsSalesTable::_rebuildCache()
 {
     m_vatCountries_vatRate_accountsCache.clear();
 
-    // Canonical column layout (10 columns):
+    // Canonical column layout (9 columns):
     // 0: TaxScheme  1: CountryFrom  2: CountryTo  3: SaleType  4: VatRate
-    // 5: SaleAccount  6: VatAccount  7: VatAccountToPay  8: GroupedClientAccount  9: ClientAccount
+    // 5: SaleAccount  6: VatAccount  7: VatAccountToPay  8: ClientAccount
 
     for (const auto &row : m_listOfStringList) {
-        if (row.size() < 10) {
+        if (row.size() < 9) {
             continue;
         }
 
@@ -477,11 +474,10 @@ void BooksAccountsSalesTable::_rebuildCache()
         const QString &rate = row[4];
 
         Accounts acc;
-        acc.saleAccount    = row[5];
-        acc.vatAccount     = row[6];
+        acc.saleAccount     = row[5];
+        acc.vatAccount      = row[6];
         acc.vatAccountToPay = row[7];
-        acc.groupedClientAccount = row[8];
-        acc.clientAccount   = row[9];
+        acc.clientAccount   = row[8];
 
         m_vatCountries_vatRate_accountsCache[vc][saleType][rate] = acc;
     }
@@ -544,17 +540,16 @@ void BooksAccountsSalesTable::_load()
             columnMap[headers[i].trimmed()] = i;
         }
     } else {
-        // Legacy Map: Fixed Order
+        // Legacy Map: Fixed Order (GroupedClientAccount at index 6 is intentionally skipped)
         columnMap["TaxScheme"] = 0;
         columnMap["CountryFrom"] = 1;
         columnMap["CountryTo"] = 2;
         columnMap["VatRate"] = 3;
         columnMap["SaleAccount"] = 4;
         columnMap["VatAccount"] = 5;
-        columnMap["GroupedClientAccount"] = 6;
     }
 
-    // Canonical Indices
+    // Canonical Indices (9-column format; GroupedClientAccount column dropped)
     int idxScheme   = columnMap.value("TaxScheme", -1);
     int idxFrom     = columnMap.value("CountryFrom", -1);
     int idxTo       = columnMap.value("CountryTo", -1);
@@ -563,9 +558,7 @@ void BooksAccountsSalesTable::_load()
     int idxSale     = columnMap.value("SaleAccount", -1);
     int idxVat      = columnMap.value("VatAccount", -1);
     int idxVatPay   = columnMap.value("VatAccountToPay", -1);
-    // Accept both old ("CustomerAccount") and new ("GroupedClientAccount") header names
-    int idxCustomer = columnMap.value("GroupedClientAccount",
-                                      columnMap.value("CustomerAccount", -1));
+    // GroupedClientAccount is intentionally ignored (migrated to groupedSaleAccounts.csv)
     int idxClient   = columnMap.value("ClientAccount", -1);
 
     auto processLine = [&](const QString &line) {
@@ -573,7 +566,7 @@ void BooksAccountsSalesTable::_load()
         QStringList parts = line.split(";");
 
         QStringList normalizedRow;
-        for (int k = 0; k < 10; ++k) {
+        for (int k = 0; k < 9; ++k) {
             normalizedRow << "";
         }
 
@@ -589,13 +582,12 @@ void BooksAccountsSalesTable::_load()
         if (idxSale     != -1 && idxSale     < parts.size()) normalizedRow[5] = parts[idxSale];
         if (idxVat      != -1 && idxVat      < parts.size()) normalizedRow[6] = parts[idxVat];
         if (idxVatPay   != -1 && idxVatPay   < parts.size()) normalizedRow[7] = parts[idxVatPay];
-        if (idxCustomer != -1 && idxCustomer < parts.size()) normalizedRow[8] = parts[idxCustomer];
         if (idxClient   != -1 && idxClient   < parts.size()) {
-            normalizedRow[9] = parts[idxClient];
+            normalizedRow[8] = parts[idxClient];
         } else {
             // Default: EU destination → CCLIENTEU, otherwise CLIENTDOM
             const QString &to = normalizedRow[2];
-            normalizedRow[9] = CountriesEu::all().contains(to)
+            normalizedRow[8] = CountriesEu::all().contains(to)
                                ? QStringLiteral("CCLIENTEU")
                                : QStringLiteral("CLIENTDOM");
         }
