@@ -651,22 +651,22 @@ void TestFileImportAmazonFbaInvoicing::test_vatEu_invoicingInfo()
 
     // Header
     // Required columns for ImporterFileAmazonVatEu + optional invoice columns
-    out << "\"TRANSACTION_TYPE\",\"PRICE_OF_ITEMS_VAT_RATE_PERCENT\",\"TRANSACTION_COMPLETE_DATE\",\"TAX_CALCULATION_DATE\",\"VAT_CALCULATION_IMPUTATION_COUNTRY\",\"PRODUCT_TAX_CODE\",\"TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL\",\"PRICE_OF_ITEMS_AMT_VAT_EXCL\",\"TOTAL_ACTIVITY_VALUE_VAT_AMT\",\"VAT_INV_NUMBER\",\"TRANSACTION_CURRENCY_CODE\",\"MARKETPLACE\",\"INVOICE_URL\",\"TRANSACTION_EVENT_ID\",\"ACTIVITY_TRANSACTION_ID\",\"TAX_COLLECTION_RESPONSIBILITY\",\"TAX_REPORTING_SCHEME\",\"SALE_DEPART_COUNTRY\",\"SALE_ARRIVAL_COUNTRY\"\n";
+    out << "\"TRANSACTION_TYPE\",\"PRICE_OF_ITEMS_VAT_RATE_PERCENT\",\"TRANSACTION_COMPLETE_DATE\",\"TAX_CALCULATION_DATE\",\"VAT_CALCULATION_IMPUTATION_COUNTRY\",\"PRODUCT_TAX_CODE\",\"TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL\",\"PRICE_OF_ITEMS_AMT_VAT_EXCL\",\"TOTAL_ACTIVITY_VALUE_VAT_AMT\",\"VAT_INV_NUMBER\",\"TRANSACTION_CURRENCY_CODE\",\"MARKETPLACE\",\"INVOICE_URL\",\"TRANSACTION_EVENT_ID\",\"ACTIVITY_TRANSACTION_ID\",\"TAX_COLLECTION_RESPONSIBILITY\",\"TAX_REPORTING_SCHEME\",\"SALE_DEPART_COUNTRY\",\"SALE_ARRIVAL_COUNTRY\",\"SELLER_SKU\",\"QTY\"\n";
 
     // 1. Sale with Invoice Number and URL
-    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-001\",\"EUR\",\"amazon.fr\",\"http://invoice/1\",\"ORDER-001\",\"ACT-001\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-001\",\"EUR\",\"amazon.fr\",\"http://invoice/1\",\"ORDER-001\",\"ACT-001\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\",\"SKU-001\",\"1\"\n";
 
     // 2. Sale with Invoice Number, no URL
-    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-002\",\"EUR\",\"amazon.fr\",\"\",\"ORDER-002\",\"ACT-002\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-002\",\"EUR\",\"amazon.fr\",\"\",\"ORDER-002\",\"ACT-002\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\",\"SKU-002\",\"1\"\n";
 
     // 3. Refund with Invoice Number and URL
-    out << "\"REFUND\",\"20.0\",\"17-01-2025\",\"18-01-2025\",\"FR\",\"PTC1\",\"-10.00\",\"-2.00\",\"-10.00\",\"-2.00\",\"INV-003\",\"EUR\",\"amazon.fr\",\"http://invoice/3\",\"ORDER-003\",\"ACT-003\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+    out << "\"REFUND\",\"20.0\",\"17-01-2025\",\"18-01-2025\",\"FR\",\"PTC1\",\"-10.00\",\"-2.00\",\"-10.00\",\"-2.00\",\"INV-003\",\"EUR\",\"amazon.fr\",\"http://invoice/3\",\"ORDER-003\",\"ACT-003\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\",\"SKU-003\",\"1\"\n";
 
     // 4. Sale without Invoice Number (Marketplace?)
-    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"\",\"EUR\",\"amazon.fr\",\"\",\"ORDER-004\",\"ACT-004\",\"MARKETPLACE\",\"UNION-OSS\",\"FR\",\"FR\"\n";
+    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"\",\"EUR\",\"amazon.fr\",\"\",\"ORDER-004\",\"ACT-004\",\"MARKETPLACE\",\"UNION-OSS\",\"FR\",\"FR\",\"SKU-004\",\"1\"\n";
 
     // 5. Valid Sale (to reach 80% - 4/5)
-    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-005\",\"EUR\",\"amazon.fr\",\"http://invoice/5\",\"ORDER-005\",\"ACT-005\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+    out << "\"SALE\",\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-005\",\"EUR\",\"amazon.fr\",\"http://invoice/5\",\"ORDER-005\",\"ACT-005\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\",\"SKU-005\",\"1\"\n";
 
     f.close();
 
@@ -820,8 +820,8 @@ void TestFileImportAmazonFbaInvoicing::test_vatEu_missingColumn()
     QTextStream out(&f);
 
     // Missing TRANSACTION_TYPE
-    out << "\"PRICE_OF_ITEMS_VAT_RATE_PERCENT\",\"TRANSACTION_COMPLETE_DATE\",\"TAX_CALCULATION_DATE\",\"VAT_CALCULATION_IMPUTATION_COUNTRY\",\"PRODUCT_TAX_CODE\",\"TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL\",\"PRICE_OF_ITEMS_AMT_VAT_EXCL\",\"TOTAL_ACTIVITY_VALUE_VAT_AMT\",\"VAT_INV_NUMBER\",\"TRANSACTION_CURRENCY_CODE\",\"MARKETPLACE\",\"INVOICE_URL\",\"TRANSACTION_EVENT_ID\",\"ACTIVITY_TRANSACTION_ID\",\"TAX_COLLECTION_RESPONSIBILITY\",\"TAX_REPORTING_SCHEME\",\"SALE_DEPART_COUNTRY\",\"SALE_ARRIVAL_COUNTRY\"\n";
-    out << "\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-001\",\"EUR\",\"amazon.fr\",\"http://invoice/1\",\"ORDER-001\",\"ACT-001\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+    out << "\"PRICE_OF_ITEMS_VAT_RATE_PERCENT\",\"TRANSACTION_COMPLETE_DATE\",\"TAX_CALCULATION_DATE\",\"VAT_CALCULATION_IMPUTATION_COUNTRY\",\"PRODUCT_TAX_CODE\",\"TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL\",\"PRICE_OF_ITEMS_AMT_VAT_EXCL\",\"TOTAL_ACTIVITY_VALUE_VAT_AMT\",\"VAT_INV_NUMBER\",\"TRANSACTION_CURRENCY_CODE\",\"MARKETPLACE\",\"INVOICE_URL\",\"TRANSACTION_EVENT_ID\",\"ACTIVITY_TRANSACTION_ID\",\"TAX_COLLECTION_RESPONSIBILITY\",\"TAX_REPORTING_SCHEME\",\"SALE_DEPART_COUNTRY\",\"SALE_ARRIVAL_COUNTRY\",\"SELLER_SKU\",\"QTY\"\n";
+    out << "\"20.0\",\"15-01-2025\",\"16-01-2025\",\"FR\",\"PTC1\",\"10.00\",\"2.00\",\"10.00\",\"2.00\",\"INV-001\",\"EUR\",\"amazon.fr\",\"http://invoice/1\",\"ORDER-001\",\"ACT-001\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\",\"SKU-001\",\"1\"\n";
     f.close();
 
     ImporterFileAmazonVatEu importer(tempDir.path());
@@ -862,19 +862,19 @@ void TestFileImportAmazonFbaInvoicing::test_vatEu_invoicingInfoIds()
     QTextStream out(&f);
 
     // Header
-    out << "\"TRANSACTION_TYPE\",\"PRICE_OF_ITEMS_VAT_RATE_PERCENT\",\"TRANSACTION_COMPLETE_DATE\",\"TAX_CALCULATION_DATE\",\"VAT_CALCULATION_IMPUTATION_COUNTRY\",\"PRODUCT_TAX_CODE\",\"TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL\",\"PRICE_OF_ITEMS_AMT_VAT_EXCL\",\"TOTAL_ACTIVITY_VALUE_VAT_AMT\",\"VAT_INV_NUMBER\",\"TRANSACTION_CURRENCY_CODE\",\"MARKETPLACE\",\"INVOICE_URL\",\"TRANSACTION_EVENT_ID\",\"ACTIVITY_TRANSACTION_ID\",\"TAX_COLLECTION_RESPONSIBILITY\",\"TAX_REPORTING_SCHEME\",\"SALE_DEPART_COUNTRY\",\"SALE_ARRIVAL_COUNTRY\"\n";
+    out << "\"TRANSACTION_TYPE\",\"PRICE_OF_ITEMS_VAT_RATE_PERCENT\",\"TRANSACTION_COMPLETE_DATE\",\"TAX_CALCULATION_DATE\",\"VAT_CALCULATION_IMPUTATION_COUNTRY\",\"PRODUCT_TAX_CODE\",\"TOTAL_ACTIVITY_VALUE_AMT_VAT_EXCL\",\"PRICE_OF_ITEMS_AMT_VAT_EXCL\",\"TOTAL_ACTIVITY_VALUE_VAT_AMT\",\"VAT_INV_NUMBER\",\"TRANSACTION_CURRENCY_CODE\",\"MARKETPLACE\",\"INVOICE_URL\",\"TRANSACTION_EVENT_ID\",\"ACTIVITY_TRANSACTION_ID\",\"TAX_COLLECTION_RESPONSIBILITY\",\"TAX_REPORTING_SCHEME\",\"SALE_DEPART_COUNTRY\",\"SALE_ARRIVAL_COUNTRY\",\"SELLER_SKU\",\"QTY\"\n";
 
     // Sale 1: order=ORD-100, shipment=SHIP-A01
-    out << "\"SALE\",\"20.0\",\"10-01-2025\",\"10-01-2025\",\"FR\",\"PTC1\",\"50.00\",\"10.00\",\"10.00\",\"INV-A01\",\"EUR\",\"amazon.fr\",\"http://inv/a01\",\"ORD-100\",\"SHIP-A01\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+    out << "\"SALE\",\"20.0\",\"10-01-2025\",\"10-01-2025\",\"FR\",\"PTC1\",\"50.00\",\"10.00\",\"10.00\",\"INV-A01\",\"EUR\",\"amazon.fr\",\"http://inv/a01\",\"ORD-100\",\"SHIP-A01\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\",\"SKU-A\",\"1\"\n";
 
     // Sale 2: order=ORD-200, shipment=SHIP-B02
-    out << "\"SALE\",\"20.0\",\"11-01-2025\",\"11-01-2025\",\"DE\",\"PTC1\",\"30.00\",\"6.00\",\"6.00\",\"INV-B02\",\"EUR\",\"amazon.de\",\"http://inv/b02\",\"ORD-200\",\"SHIP-B02\",\"SELLER\",\"REGULAR\",\"DE\",\"DE\"\n";
+    out << "\"SALE\",\"20.0\",\"11-01-2025\",\"11-01-2025\",\"DE\",\"PTC1\",\"30.00\",\"6.00\",\"6.00\",\"INV-B02\",\"EUR\",\"amazon.de\",\"http://inv/b02\",\"ORD-200\",\"SHIP-B02\",\"SELLER\",\"REGULAR\",\"DE\",\"DE\",\"SKU-B\",\"2\"\n";
 
     // Refund 1: order=ORD-300, refund=REF-C03
-    out << "\"REFUND\",\"20.0\",\"12-01-2025\",\"12-01-2025\",\"FR\",\"PTC1\",\"-25.00\",\"-5.00\",\"-5.00\",\"INV-C03\",\"EUR\",\"amazon.fr\",\"http://inv/c03\",\"ORD-300\",\"REF-C03\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+    out << "\"REFUND\",\"20.0\",\"12-01-2025\",\"12-01-2025\",\"FR\",\"PTC1\",\"-25.00\",\"-5.00\",\"-5.00\",\"INV-C03\",\"EUR\",\"amazon.fr\",\"http://inv/c03\",\"ORD-300\",\"REF-C03\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\",\"SKU-C\",\"1\"\n";
 
     // Sale 3: same order as Sale 1 but different shipment: order=ORD-100, shipment=SHIP-D04
-    out << "\"SALE\",\"20.0\",\"13-01-2025\",\"13-01-2025\",\"FR\",\"PTC1\",\"15.00\",\"3.00\",\"3.00\",\"INV-D04\",\"EUR\",\"amazon.fr\",\"http://inv/d04\",\"ORD-100\",\"SHIP-D04\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\"\n";
+    out << "\"SALE\",\"20.0\",\"13-01-2025\",\"13-01-2025\",\"FR\",\"PTC1\",\"15.00\",\"3.00\",\"3.00\",\"INV-D04\",\"EUR\",\"amazon.fr\",\"http://inv/d04\",\"ORD-100\",\"SHIP-D04\",\"SELLER\",\"REGULAR\",\"FR\",\"FR\",\"SKU-D\",\"1\"\n";
 
     f.close();
 

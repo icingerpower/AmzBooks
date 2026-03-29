@@ -81,7 +81,8 @@ const QSet<QString>& CountriesEu::getCurrenciesWorld()
         "NOK", "SEK", "DKK",
         "BGN", "CZK", "HUF", "PLN", "RON",
         "JPY", "CNY", "HKD", "SGD",
-        "TRY", "MXN", "BRL"
+        "TRY", "MXN", "BRL",
+        "AED", "SAR", "INR"
     };
     return currencies;
 }
