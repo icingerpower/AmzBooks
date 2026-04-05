@@ -75,6 +75,10 @@ public:
     // If the input is already a 2-letter code it is returned uppercased.
     // Returns the trimmed input unchanged (with a warning) when the name is unknown.
     static QString toCode(const QString &nameOrCode);
+
+    // Converts an ISO 3166-1 alpha-2 code to its canonical French name (e.g. "DE" → "Allemagne").
+    // Returns the uppercased code unchanged (with a warning) when the code is unknown.
+    static QString toFrenchName(const QString &code);
 };
 
 #endif // COUNTRIESEU_H

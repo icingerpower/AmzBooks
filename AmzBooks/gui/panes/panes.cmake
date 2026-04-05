@@ -53,4 +53,7 @@ SET(PANES_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PaneInventory.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneInventory.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneInventory.ui
+    ${CMAKE_CURRENT_LIST_DIR}/PaneFixVat.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/PaneFixVat.h
+    ${CMAKE_CURRENT_LIST_DIR}/PaneFixVat.ui
 )

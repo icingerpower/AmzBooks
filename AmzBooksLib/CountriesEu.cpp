@@ -231,3 +231,54 @@ QString CountriesEu::toCode(const QString &nameOrCode)
     qWarning() << "CountriesEu::toCode: unknown country name:" << nameOrCode;
     return trimmed;
 }
+
+QString CountriesEu::toFrenchName(const QString &code)
+{
+    static const QMap<QString, QString> nameMap = {
+        {"AT", "Autriche"},
+        {"BE", "Belgique"},
+        {"BG", "Bulgarie"},
+        {"CA", "Canada"},
+        {"CH", "Suisse"},
+        {"CN", "Chine"},
+        {"CY", "Chypre"},
+        {"CZ", "République tchèque"},
+        {"DE", "Allemagne"},
+        {"DK", "Danemark"},
+        {"EE", "Estonie"},
+        {"ES", "Espagne"},
+        {"FI", "Finlande"},
+        {"FR", "France"},
+        {"GB", "Royaume-uni"},
+        {"GR", "Grèce"},
+        {"HR", "Croatie"},
+        {"HU", "Hongrie"},
+        {"IE", "Irlande"},
+        {"IT", "Italie"},
+        {"JP", "Japon"},
+        {"LT", "Lituanie"},
+        {"LU", "Luxembourg"},
+        {"LV", "Lettonie"},
+        {"MC", "Monaco"},
+        {"MT", "Malte"},
+        {"NL", "Pays-bas"},
+        {"NO", "Norvège"},
+        {"PL", "Pologne"},
+        {"PT", "Portugal"},
+        {"RO", "Roumanie"},
+        {"SE", "Suède"},
+        {"SI", "Slovénie"},
+        {"SK", "Slovaquie"},
+        {"TR", "Turquie"},
+        {"US", "États-Unis"},
+        {"XI", "Irlande du Nord"},
+    };
+
+    const QString upper = code.trimmed().toUpper();
+    const auto it = nameMap.find(upper);
+    if (it != nameMap.end()) {
+        return it.value();
+    }
+    qWarning() << "CountriesEu::toFrenchName: unknown country code:" << code;
+    return upper;
+}

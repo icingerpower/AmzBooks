@@ -65,5 +65,10 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogMapSkuRegraded.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogMapSkuRegraded.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogMapSkuRegraded.ui
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogValidOrders.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogValidOrders.h
+    ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogValidOrders.ui
+    ${CMAKE_CURRENT_LIST_DIR}/vatfixer/VatFixerTaxually.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/vatfixer/VatFixerTaxually.h
     ${PANES_FILES}
 )

@@ -1,0 +1,163 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>PaneFixVat</class>
+ <widget class="QWidget" name="PaneFixVat">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>1355</width>
+    <height>962</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>Fix VAT</string>
+  </property>
+  <layout class="QVBoxLayout" name="verticalLayoutOuter">
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutInventoryFix">
+     <item>
+      <spacer name="horizontalSpacerInventoryFix">
+       <property name="orientation">
+        <enum>Qt::Orientation::Horizontal</enum>
+       </property>
+       <property name="sizeHint" stdset="0">
+        <size>
+         <width>40</width>
+         <height>20</height>
+        </size>
+       </property>
+      </spacer>
+     </item>
+     <item>
+      <widget class="QPushButton" name="buttonFixInventoryCost">
+       <property name="text">
+        <string>Fix Taxually inventory cost</string>
+       </property>
+      </widget>
+     </item>
+    </layout>
+   </item>
+   <item>
+    <layout class="QHBoxLayout" name="horizontalLayoutMain">
+     <item>
+      <layout class="QVBoxLayout" name="verticalLayoutLeft">
+       <item>
+        <widget class="QLabel" name="labelFixers">
+         <property name="text">
+          <string>VAT Fixer</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QListWidget" name="listFixers">
+         <property name="maximumWidth">
+          <number>170</number>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+     <item>
+      <layout class="QVBoxLayout" name="verticalLayoutRight">
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayoutSummary">
+         <item>
+          <widget class="QLabel" name="labelSummary">
+           <property name="text">
+            <string>Summary files (ReturnAnalytics):</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacerSummary">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="buttonBrowseSummary">
+           <property name="text">
+            <string>Browse...</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QListWidget" name="listSummaryFiles"/>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayoutUpdate">
+         <item>
+          <widget class="QLabel" name="labelUpdate">
+           <property name="text">
+            <string>Files to update:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacerUpdate">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="buttonBrowseUpdate">
+           <property name="text">
+            <string>Browse...</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QListWidget" name="listUpdateFiles"/>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayoutActions">
+         <item>
+          <spacer name="horizontalSpacerActions">
+           <property name="orientation">
+            <enum>Qt::Orientation::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="buttonFixVat">
+           <property name="text">
+            <string>Fix VAT</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>

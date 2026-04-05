@@ -9,6 +9,7 @@
 #include "utils/CsvHeader.h"
 #include "ExceptionWithTitleText.h"
 #include <QFileDialog>
+#include <QFileInfo>
 #include <QMessageBox>
 #include <QLocale>
 #include <QSettings>
@@ -126,6 +127,7 @@ void PaneInventory::computeInventory()
     }
     setCursor(Qt::ArrowCursor);
 }
+
 
 void PaneInventory::exportInventory()
 {

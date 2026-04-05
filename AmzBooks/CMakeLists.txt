@@ -14,6 +14,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Widgets Charts)
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets Charts)
 
+# QXlsx — system install at /usr/local is missing xlsxreadsax.h;
+# use the local source tree headers (which are the originals the library was built from)
+# while still linking against the installed static library.
+find_package(QXlsxQt6 REQUIRED)
+set_target_properties(QXlsx::QXlsx PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "/home/cedric/code/QXlsx/QXlsx/header")
+
 include(../../common/workingdirectory/workingdirectory.cmake)
 
 include(gui/gui.cmake)
@@ -61,6 +68,7 @@ endif()
 target_link_libraries(AmzBooks PRIVATE
     Qt${QT_VERSION_MAJOR}::Widgets
     Qt${QT_VERSION_MAJOR}::Charts
+    QXlsx::QXlsx
     -Wl,--whole-archive AmzBooksLib -Wl,--no-whole-archive)
 
 set_target_properties(AmzBooks PROPERTIES

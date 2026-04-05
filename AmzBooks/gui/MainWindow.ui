@@ -35,9 +35,9 @@
         <string>Orders</string>
        </attribute>
       </widget>
-      <widget class="QWidget" name="tabVAT">
+      <widget class="PaneFixVat" name="tabVAT">
        <attribute name="title">
-        <string>VAT</string>
+        <string>Fix EU VAT</string>
        </attribute>
       </widget>
       <widget class="PaneBookKeeping" name="tabBookkeeping">
@@ -117,6 +117,12 @@
    <class>PaneInventory</class>
    <extends>QWidget</extends>
    <header>gui/panes/PaneInventory.h</header>
+   <container>1</container>
+  </customwidget>
+  <customwidget>
+   <class>PaneFixVat</class>
+   <extends>QWidget</extends>
+   <header>gui/panes/PaneFixVat.h</header>
    <container>1</container>
   </customwidget>
  </customwidgets>

@@ -847,6 +847,175 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
     co_return entry;
 }
 
+QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntryOssIoss(
+    const QList<GroupedShipmentData> &groups,
+    const QDate &entryDate,
+    const QDate &declarationPeriod,
+    std::function<QCoro::Task<bool>(const QString &, const QString &)> callbackAddIfMissing) const
+{
+    if (groups.isEmpty()) {
+        co_return {};
+    }
+
+    const QString companyCurrency = m_companyInfos->getCurrency();
+    const QString companyCountry  = m_companyInfos->getCompanyCountryCode();
+    const QString periodStr       = declarationPeriod.toString("MM/yyyy");
+
+    struct ResolvedGroup {
+        GroupedShipmentData data;
+        QString vatAccount;
+        QString vatAccountToPay;
+    };
+
+    // Separate OSS (group by countryTo) and IOSS (flat list)
+    QMap<QString, QList<ResolvedGroup>> ossByCountryTo;
+    QList<ResolvedGroup> iossGroups;
+
+    for (const GroupedShipmentData &vg : groups) {
+        if (vg.taxScheme != TaxScheme::EuOssUnion && vg.taxScheme != TaxScheme::EuIoss) {
+            continue;
+        }
+        if (qAbs(vg.totalVat) <= 0.001) {
+            continue;
+        }
+
+        const VatCountries vc = m_saleBookAccounts->resolveVatCountries(
+            vg.taxScheme, companyCountry, vg.countryFrom, vg.countryTo);
+
+        BooksAccountsSalesTable::Accounts accounts;
+        try {
+            accounts = co_await m_saleBookAccounts->getAccounts(
+                vc, vg.vatRatePct, SaleType::Products, callbackAddIfMissing);
+        } catch (const ExceptionWithTitleText &e) {
+            const QString newText = e.errorText()
+                + QString("\n(Sample order ID for this VAT config: %1)").arg(vg.sampleEventId);
+            ExceptionWithTitleText newEx(e.errorTitle(), newText);
+            newEx.raise();
+        }
+
+        if (accounts.vatAccount.isEmpty() || accounts.vatAccountToPay.isEmpty()) {
+            ExceptionWithTitleText ex(
+                QObject::tr("Missing OSS/IOSS Account"),
+                QObject::tr("VAT account or VAT-to-pay account is not configured for "
+                            "scheme %1, country %2, rate %3%")
+                    .arg(taxSchemeToString(vg.taxScheme), vg.countryTo,
+                         QString::number(vg.vatRatePct, 'f', 2)));
+            ex.raise();
+        }
+
+        ResolvedGroup rg{vg, accounts.vatAccount, accounts.vatAccountToPay};
+        if (vg.taxScheme == TaxScheme::EuOssUnion) {
+            ossByCountryTo[vg.countryTo].append(rg);
+        } else {
+            iossGroups.append(rg);
+        }
+    }
+
+    QList<QSharedPointer<JournalEntry>> result;
+
+    // --- OSS: one JournalEntry per destination country ---
+    for (auto it = ossByCountryTo.cbegin(); it != ossByCountryTo.cend(); ++it) {
+        const QString &countryTo = it.key();
+        const QList<ResolvedGroup> &countryGroups = it.value();
+
+        auto entry = QSharedPointer<JournalEntry>::create(entryDate, companyCurrency);
+        const QString countryToFR = CountriesEu::toFrenchName(countryTo);
+
+        // Track accumulated company-currency VAT per payment account
+        QMap<QString, double> payAccountAmounts;
+
+        for (const ResolvedGroup &rg : countryGroups) {
+            const double cr = (rg.data.currency != companyCurrency)
+                ? m_currencyRateManager->rate(rg.data.currency, companyCurrency, entryDate)
+                : 1.0;
+
+            const QString countryFromFR = CountriesEu::toFrenchName(rg.data.countryFrom);
+            const QString debitLabel = QString("TVA OSS %1 %2 %3 => %4 %5 %6 %7%")
+                .arg(periodStr, periodStr, countryFromFR, countryToFR,
+                     QString::number(rg.data.totalRevenue, 'f', 2),
+                     rg.data.currency,
+                     QString::number(rg.data.vatRatePct, 'f', 2));
+
+            JournalEntry::EntryLine debitLine;
+            debitLine.title   = debitLabel;
+            debitLine.account = rg.vatAccount;
+            debitLine.currency_amount[rg.data.currency] = rg.data.totalVat;
+            entry->addDebitLeft(debitLine, rg.data.currency, cr);
+
+            // Mirror amount in company currency for credit tracking
+            const double vatCcy = (rg.data.currency != companyCurrency)
+                ? std::round(rg.data.totalVat * cr * 100.0) / 100.0
+                : rg.data.totalVat;
+            payAccountAmounts[rg.vatAccountToPay] += vatCcy;
+        }
+
+        // Credit lines: one per unique vatAccountToPay.
+        // When there is only one payment account, use getDebitSum() directly so
+        // any per-line rounding differences don't leave the entry unbalanced.
+        const QString creditLabel = QString("TVA OSS %1 %2").arg(periodStr, countryToFR);
+        if (payAccountAmounts.size() == 1) {
+            const double totalDebit = entry->getDebitSum();
+            if (totalDebit > 0.001) {
+                JournalEntry::EntryLine creditLine;
+                creditLine.title   = creditLabel;
+                creditLine.account = payAccountAmounts.firstKey();
+                creditLine.currency_amount[companyCurrency] = totalDebit;
+                entry->addCreditRight(creditLine, companyCurrency);
+            }
+        } else {
+            for (auto cit = payAccountAmounts.cbegin(); cit != payAccountAmounts.cend(); ++cit) {
+                if (qAbs(cit.value()) <= 0.001) {
+                    continue;
+                }
+                JournalEntry::EntryLine creditLine;
+                creditLine.title   = creditLabel;
+                creditLine.account = cit.key();
+                creditLine.currency_amount[companyCurrency] = cit.value();
+                entry->addCreditRight(creditLine, companyCurrency);
+            }
+        }
+
+        if (entry->getDebitSum() > 0.001) {
+            result.append(entry);
+        }
+    }
+
+    // --- IOSS: one JournalEntry per group ---
+    for (const ResolvedGroup &rg : std::as_const(iossGroups)) {
+        const double cr = (rg.data.currency != companyCurrency)
+            ? m_currencyRateManager->rate(rg.data.currency, companyCurrency, entryDate)
+            : 1.0;
+
+        auto entry = QSharedPointer<JournalEntry>::create(entryDate, companyCurrency);
+
+        const QString countryFromFR = CountriesEu::toFrenchName(rg.data.countryFrom);
+        const QString countryToFR   = CountriesEu::toFrenchName(rg.data.countryTo);
+        const QString debitLabel = QString("TVA IOSS %1 %2 %3 => %4 %5 %6 %7%")
+            .arg(periodStr, periodStr, countryFromFR, countryToFR,
+                 QString::number(rg.data.totalRevenue, 'f', 2),
+                 rg.data.currency,
+                 QString::number(rg.data.vatRatePct, 'f', 2));
+
+        JournalEntry::EntryLine debitLine;
+        debitLine.title   = debitLabel;
+        debitLine.account = rg.vatAccount;
+        debitLine.currency_amount[rg.data.currency] = rg.data.totalVat;
+        entry->addDebitLeft(debitLine, rg.data.currency, cr);
+
+        // Credit with exact debit sum to guarantee balance
+        const QString creditLabel = QString("TVA IOSS %1").arg(periodStr);
+        JournalEntry::EntryLine creditLine;
+        creditLine.title   = creditLabel;
+        creditLine.account = rg.vatAccountToPay;
+        creditLine.currency_amount[companyCurrency] = entry->getDebitSum();
+        entry->addCreditRight(creditLine, companyCurrency);
+
+        result.append(entry);
+    }
+
+    co_return result;
+}
+
 QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
         const AbstractBooksTableBank *bankTable
         , const QString &nonBankAccount

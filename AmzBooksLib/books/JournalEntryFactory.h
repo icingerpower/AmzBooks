@@ -103,6 +103,19 @@ public:
             const QMultiMap<QDateTime, QSharedPointer<Shipment>> &shipmentAndRefunds,
             std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
 
+    // Create OSS/IOSS VAT declaration journal entries from pre-computed VAT groups.
+    // Only groups with taxScheme EuOssUnion or EuIoss are processed; others are skipped.
+    // OSS: one JournalEntry per destination country — N debit lines (one per group) and one
+    //      credit line per unique vatAccountToPay, all labelled in French.
+    // IOSS: one JournalEntry per group (paired debit + credit).
+    // entryDate:         journal date (typically last day of the declaration month).
+    // declarationPeriod: any date in the declaration month; its MM/yyyy drives entry labels.
+    QCoro::Task<QList<QSharedPointer<JournalEntry>>> createEntryOssIoss(
+            const QList<GroupedShipmentData> &groups,
+            const QDate &entryDate,
+            const QDate &declarationPeriod,
+            std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
+
     QCoro::Task<QSharedPointer<JournalEntry>> createEntry(// Create entry for one sale only with one shipment
         QSharedPointer<Shipment> shipmentOrRefund
         , const QString &customerAccount,

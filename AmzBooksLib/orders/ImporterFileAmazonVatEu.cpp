@@ -187,9 +187,6 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         // Validation of eventId ? No, keep strict reading.
         
         QString marketplace = line.value(indMarketplace);
-        if (!marketplace.isEmpty()) {
-             result.orderInfos->orderId_infos[eventId] = OrderManager::OrderInfo{marketplace, isGroupedOrders(), ""};
-        }
 
         QString dateStr = line.value(indDate);
         QDate date = parseDateFormats(dateStr, {"dd-MM-yyyy", "dd/MM/yyyy", "yyyy-MM-dd"});
@@ -254,6 +251,10 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
                 && transType == "SALE") {
                 continue; // VINE order not charged
             }
+        }
+
+        if (!marketplace.isEmpty()) {
+            result.orderInfos->orderId_infos[eventId] = OrderManager::OrderInfo{marketplace, isGroupedOrders(), ""};
         }
 
         /*

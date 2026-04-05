@@ -277,3 +277,39 @@ add_custom_command(TARGET TestInventoryMove POST_BUILD
     ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
     $<TARGET_FILE_DIR:TestInventoryMove>/data/amazon-vat-reports
 )
+
+# QXlsx — same workaround as in AmzBooks/CMakeLists.txt
+find_package(QXlsxQt6 REQUIRED)
+set_target_properties(QXlsx::QXlsx PROPERTIES
+    INTERFACE_INCLUDE_DIRECTORIES "/home/cedric/code/QXlsx/QXlsx/header")
+
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
+
+add_executable(TestFixVatTaxually
+    test_fix_vat_taxually.cpp
+    ../AmzBooks/gui/vatfixer/VatFixerTaxually.cpp
+    ../AmzBooks/gui/vatfixer/VatFixerTaxually.h
+    ../AmzBooks/gui/dialogs/DialogValidOrders.cpp
+    ../AmzBooks/gui/dialogs/DialogValidOrders.h
+    ../AmzBooks/gui/dialogs/DialogValidOrders.ui
+    ../AmzBooks/gui/delegates/ComboBoxDelegate.cpp
+    ../AmzBooks/gui/delegates/ComboBoxDelegate.h
+)
+add_test(NAME TestFixVatTaxually COMMAND TestFixVatTaxually)
+target_link_libraries(TestFixVatTaxually PRIVATE
+    Qt${QT_VERSION_MAJOR}::Test
+    Qt${QT_VERSION_MAJOR}::Widgets
+    QXlsx::QXlsx
+    AmzBooksLib
+    QCoro::Core
+)
+target_include_directories(TestFixVatTaxually PRIVATE
+    ../AmzBooksLib
+    ../AmzBooks
+    ../../common
+)
+add_custom_command(TARGET TestFixVatTaxually POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/fixtaxually
+    $<TARGET_FILE_DIR:TestFixVatTaxually>/data/fixtaxually
+)

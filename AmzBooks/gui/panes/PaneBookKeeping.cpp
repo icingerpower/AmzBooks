@@ -440,7 +440,50 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
             }
         }
 
-        qDebug() << "[PaneBookKeeping] Sales completed. Starting purchases...";
+        qDebug() << "[PaneBookKeeping] Sales completed. Generating OSS/IOSS VAT declaration entries...";
+        // 5.1c OSS/IOSS VAT declaration entries — one set per complete month,
+        //      all sources (grouped + ungrouped) combined so the declaration
+        //      matches the full month's cross-border sales.
+        {
+            // Collect every shipment from all sources, bucketed by calendar month
+            QMap<QPair<int,int>, QMultiMap<QDateTime, QSharedPointer<Shipment>>> monthlyAllShipments;
+            auto collectIntoMonthly = [&](const auto &sourceMap) {
+                for (auto it = sourceMap.cbegin(); it != sourceMap.cend(); ++it) {
+                    for (auto jt = it.value().cbegin(); jt != it.value().cend(); ++jt) {
+                        const QDate d = jt.key().date();
+                        monthlyAllShipments[{d.year(), d.month()}].insert(jt.key(), jt.value());
+                    }
+                }
+            };
+            collectIntoMonthly(sourceMapGrouped);
+            collectIntoMonthly(sourceMapUngrouped);
+
+            for (auto it = monthlyAllShipments.cbegin(); it != monthlyAllShipments.cend(); ++it) {
+                const int mYear  = it.key().first;
+                const int mMonth = it.key().second;
+
+                // Skip current or future months
+                if (mYear > currentDate.year()
+                        || (mYear == currentDate.year() && mMonth >= currentDate.month())) {
+                    continue;
+                }
+
+                const QDate entryDate(mYear, mMonth, QDate(mYear, mMonth, 1).daysInMonth());
+                const QDate declarationPeriod(mYear, mMonth, 1);
+
+                const QList<JournalEntryFactory::GroupedShipmentData> allGroups =
+                    JournalEntryFactory::computeGrouping(nullptr, it.value(), entryDate);
+
+                const QList<QSharedPointer<JournalEntry>> ossIossEntries =
+                    co_await factory.createEntryOssIoss(
+                        allGroups, entryDate, declarationPeriod, callbackAddIfMissing);
+
+                for (const auto &entry : ossIossEntries) {
+                    addEntry(entry, journalTable.getJournalVariousOperations().code);
+                }
+            }
+        }
+        qDebug() << "[PaneBookKeeping] OSS/IOSS entries completed. Starting purchases...";
         // 5.2 Purchases
         for (const auto &info : std::as_const(invoices)) {
             if (progress.wasCanceled()) {

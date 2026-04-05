@@ -206,6 +206,18 @@ private slots:
     void test_factory_inventory_missing_accounts_returns_null();
     void test_factory_inventory_zero_price_skipped();
 
+    // ── createEntryOssIoss ────────────────────────────────────────────────────
+    void test_oss_ioss_empty_groups_returns_empty();
+    void test_oss_ioss_skips_non_oss_schemes();
+    void test_oss_ioss_skips_zero_vat_groups();
+    void test_oss_ioss_oss_single_destination_balance_and_structure();
+    void test_oss_ioss_oss_two_destinations_two_entries();
+    void test_oss_ioss_oss_label_format();
+    void test_oss_ioss_ioss_single_group();
+    void test_oss_ioss_ioss_two_groups();
+    void test_oss_ioss_ioss_label_format();
+    void test_oss_ioss_mixed_oss_and_ioss();
+
     // ── Invoice generation with refunds that have no Amazon invoice number ───
     void test_invoice_generation_refunds_synthetic();
 
@@ -704,7 +716,8 @@ void TestBookEntries::test_invoice_negative_amount_refund()
     QVERIFY(info.country_vatRate_vat.contains("FR"));
     const auto &frVat = info.country_vatRate_vat["FR"];
     QCOMPARE(frVat.size(), 1);
-    QCOMPARE(frVat[frVat.keys().first()], 20.0);
+    const auto frVatKeys = frVat.keys();
+    QCOMPARE(frVat[frVatKeys.first()], 20.0);
 
     // rawVatAmount must also be set (positive)
     QCOMPARE(info.rawVatAmount, QString("20"));
@@ -1643,7 +1656,8 @@ void TestBookEntries::test_factory_shipment_mixed_rates()
         const QStringList vatParts = title.mid(sep + 3).split(", ");
         QSet<QString> schemesInEntry;
         for (const QString &part : vatParts) {
-            const QString scheme = part.split(' ').first();
+            const QStringList splitPart = part.split(' ');
+            const QString scheme = splitPart.first();
             QVERIFY2(!schemesInEntry.contains(scheme),
                 qPrintable(QString("Duplicate VAT scheme '%1' found in entry title: %2")
                     .arg(scheme, title)));
@@ -1875,8 +1889,8 @@ void TestBookEntries::test_invoice_save_load_full_fields()
     manager.add(sourcePath, orig);
     QCOMPARE(manager.rowCount(), 1);
 
-    const PurchaseInformation saved =
-        manager.getInvoices(QDate(2025, 1, 1), QDate(2025, 12, 31)).first();
+    const auto savedInvoices = manager.getInvoices(QDate(2025, 1, 1), QDate(2025, 12, 31));
+    const PurchaseInformation saved = savedInvoices.first();
 
     // Basic fields
     QCOMPARE(saved.date,             orig.date);
@@ -1947,8 +1961,8 @@ void TestBookEntries::test_invoice_save_load_full_fields()
     manager.add(src2Path, plain);
     QCOMPARE(manager.rowCount(), 2);
 
-    const PurchaseInformation savedPlain =
-        manager.getInvoices(QDate(2025, 8, 1), QDate(2025, 8, 31)).first();
+    const auto plainInvoices = manager.getInvoices(QDate(2025, 8, 1), QDate(2025, 8, 31));
+    const PurchaseInformation savedPlain = plainInvoices.first();
 
     QCOMPARE(savedPlain.date,            plain.date);
     QCOMPARE(savedPlain.account,         plain.account);
@@ -3218,7 +3232,8 @@ void TestBookEntries::test_invoice_gbp_negative_vat_and_total_with_conversion()
     QVERIFY(info.country_vatRate_vat.contains("FR"));
     const auto &frRates = info.country_vatRate_vat["FR"];
     QCOMPARE(frRates.size(), 1);
-    QCOMPARE(frRates.values().first(), 0.17);
+    const auto frRatesValues = frRates.values();
+    QCOMPARE(frRatesValues.first(), 0.17);
 
     // ── Encode round-trip ─────────────────────────────────────────────────────
     QCOMPARE(PurchaseInvoiceManager::encode(info), fileName);
@@ -5333,11 +5348,12 @@ static void checkRefundsHaveInvoicingInfo(
                 const OrderManager::ShipmentRefundsWithUpdates &entry = ctxIt.value();
                 for (const auto &shipment : entry.shipmentsRefundsSameActivity) {
                     if (!shipment || shipment->getActivities().isEmpty()) continue;
-                    if (shipment->getActivities().first().getEventId() != targetOrderId) continue;
+                    const auto activities = shipment->getActivities();
+                    if (activities.first().getEventId() != targetOrderId) continue;
 
                     ++refundCount;
 
-                    const QString &actId = shipment->getActivities().first().getActivityId();
+                    const QString &actId = activities.first().getActivityId();
                     QSharedPointer<InvoicingInfo> info = manager.getInvoicingInfo(actId);
                     if (!info) info = entry.invoicingInfo;
                     if (!info || info->getItems().isEmpty())
@@ -6067,6 +6083,382 @@ void TestBookEntries::test_factory_amz_real_payment_files()
                                 .arg(entry->getDebitSum(),  0, 'f', 2)
                                 .arg(entry->getCreditSum(), 0, 'f', 2)));
     }
+}
+
+// ── createEntryOssIoss helpers ────────────────────────────────────────────────
+
+// Build a minimal GroupedShipmentData for OSS/IOSS tests.
+static JournalEntryFactory::GroupedShipmentData makeGroup(
+    TaxScheme scheme,
+    const QString &countryFrom,
+    const QString &countryTo,
+    double vatRatePct,
+    double totalRevenue,
+    double totalVat,
+    const QString &currency = "EUR",
+    const QString &sampleId  = "TEST-001")
+{
+    JournalEntryFactory::GroupedShipmentData g;
+    g.taxScheme    = scheme;
+    g.countryFrom  = countryFrom;
+    g.countryTo    = countryTo;
+    g.vatRatePct   = vatRatePct;
+    g.currency     = currency;
+    g.totalRevenue = totalRevenue;
+    g.totalVat     = totalVat;
+    g.sampleEventId = sampleId;
+    return g;
+}
+
+// Build a JournalEntryFactory backed by a temporary directory.
+// saleAccounts is auto-filled with defaults (covers all EU OSS/IOSS rates).
+struct OssTestFixture {
+    QTemporaryDir        tempDir;
+    CompanyInfosTable    companyInfos;
+    CurrencyRateManager  crm;
+    BooksAccountsSalesTable saleAccounts;
+    BookAccountsGroupedSalesTable groupedSaleAccounts;
+    BookAccountPurchaseTable purchaseAccounts;
+    JournalTable         journalTable;
+    BookAccountSelfVatTable selfVatAccounts;
+    AmzPaymentSettings   amzPaymentSettings;
+    BookAccountAmzBalanceTable amzBalanceTable;
+    JournalEntryFactory  factory;
+
+    explicit OssTestFixture(const QString &companyCurrency = "EUR",
+                            const QString &companyCountry  = "FR")
+        : companyInfos([&]() -> QDir {
+              // Write company.csv before constructing the table
+              QDir d(tempDir.path());
+              QFile f(d.filePath("company.csv"));
+              f.open(QIODevice::WriteOnly | QIODevice::Text);
+              QTextStream s(&f);
+              s << "Id;Parameter;Value\n";
+              s << "Currency;Currency;" << companyCurrency << "\n";
+              s << "Country;Country Code;" << companyCountry << "\n";
+              return d;
+          }())
+        , crm(QDir(tempDir.path()), "")
+        , saleAccounts(QDir(tempDir.path()))
+        , groupedSaleAccounts(QDir(tempDir.path()))
+        , purchaseAccounts(QDir(tempDir.path()), companyCountry)
+        , journalTable(QDir(tempDir.path()))
+        , selfVatAccounts(QDir(tempDir.path()), companyCountry)
+        , amzPaymentSettings(QDir(tempDir.path()))
+        , amzBalanceTable(QDir(tempDir.path()))
+        , factory(&crm, &companyInfos, &saleAccounts, &groupedSaleAccounts,
+                  &purchaseAccounts, &journalTable, &selfVatAccounts,
+                  &amzPaymentSettings, &amzBalanceTable)
+    {}
+};
+
+// ── Tests ──────────────────────────────────────────────────────────────────────
+
+void TestBookEntries::test_oss_ioss_empty_groups_returns_empty()
+{
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    const QList<JournalEntryFactory::GroupedShipmentData> noGroups;
+    const auto entries = syncWait(
+        fx.factory.createEntryOssIoss(noGroups, QDate(2025, 3, 31), QDate(2025, 3, 1)));
+    QVERIFY(entries.isEmpty());
+}
+
+void TestBookEntries::test_oss_ioss_skips_non_oss_schemes()
+{
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    // Domestic + OutOfScope groups — neither should produce an entry
+    QList<JournalEntryFactory::GroupedShipmentData> groups;
+    groups.append(makeGroup(TaxScheme::DomesticVat,  "FR", "FR", 20.0, 100.0, 20.0));
+    groups.append(makeGroup(TaxScheme::OutOfScope,   "US", "US",  0.0, 100.0,  0.0));
+    groups.append(makeGroup(TaxScheme::Exempt,       "FR", "CH",  0.0, 100.0,  0.0));
+
+    const auto entries = syncWait(
+        fx.factory.createEntryOssIoss(groups, QDate(2025, 3, 31), QDate(2025, 3, 1)));
+    QVERIFY(entries.isEmpty());
+}
+
+void TestBookEntries::test_oss_ioss_skips_zero_vat_groups()
+{
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    // OSS group with totalVat == 0 must be silently skipped
+    QList<JournalEntryFactory::GroupedShipmentData> groups;
+    groups.append(makeGroup(TaxScheme::EuOssUnion, "FR", "SE", 25.0, 100.0, 0.0));
+
+    const auto entries = syncWait(
+        fx.factory.createEntryOssIoss(groups, QDate(2025, 3, 31), QDate(2025, 3, 1)));
+    QVERIFY(entries.isEmpty());
+}
+
+void TestBookEntries::test_oss_ioss_oss_single_destination_balance_and_structure()
+{
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    // Two OSS groups from different origins, both going to Sweden (SE) at 25 %.
+    // Expected: 1 entry, 2 debit lines, 1 credit line, balanced.
+    QList<JournalEntryFactory::GroupedShipmentData> groups;
+    groups.append(makeGroup(TaxScheme::EuOssUnion, "FR", "SE", 25.0,  8.0, 2.0, "EUR", "ID-FR-SE"));
+    groups.append(makeGroup(TaxScheme::EuOssUnion, "IT", "SE", 25.0, 12.0, 3.0, "EUR", "ID-IT-SE"));
+
+    const QDate entryDate(2025, 3, 31);
+    const QDate period(2025, 3, 1);
+
+    const auto entries = syncWait(fx.factory.createEntryOssIoss(groups, entryDate, period));
+
+    QCOMPARE(entries.size(), 1);
+    const auto &e = entries.first();
+    QVERIFY(!e.isNull());
+
+    QCOMPARE(e->getDebits().size(), 2);
+    QCOMPARE(e->getCredits().size(), 1);
+
+    // All debit lines use the OSS-SE vatAccount
+    for (const auto &line : e->getDebits()) {
+        QVERIFY2(line.account.contains("4457OSS") && line.account.contains("SE"),
+                 qPrintable("Unexpected debit account: " + line.account));
+    }
+
+    // Credit line uses the OSS-SE vatAccountToPay
+    const auto credits = e->getCredits();
+    const auto &creditLine = credits.first();
+    QVERIFY2(creditLine.account.contains("4457OSS") && creditLine.account.contains("SE")
+             && creditLine.account.contains("_PAY"),
+             qPrintable("Unexpected credit account: " + creditLine.account));
+
+    // Entry must balance
+    QCOMPARE(e->getDebitSum(), e->getCreditSum());
+    QCOMPARE(e->getDebitSum(), 5.0);
+
+    // Entry date forwarded correctly
+    QCOMPARE(e->getDate(), entryDate);
+}
+
+void TestBookEntries::test_oss_ioss_oss_two_destinations_two_entries()
+{
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    // One group to SE, one group to SI — must produce two separate entries.
+    QList<JournalEntryFactory::GroupedShipmentData> groups;
+    groups.append(makeGroup(TaxScheme::EuOssUnion, "IT", "SE", 25.0, 8.0, 2.0));
+    groups.append(makeGroup(TaxScheme::EuOssUnion, "DE", "SI", 22.0, 9.0, 2.0));
+
+    const auto entries = syncWait(
+        fx.factory.createEntryOssIoss(groups, QDate(2025, 3, 31), QDate(2025, 3, 1)));
+
+    QCOMPARE(entries.size(), 2);
+    for (const auto &e : entries) {
+        QVERIFY(!e.isNull());
+        // Each entry must be balanced
+        QCOMPARE(e->getDebitSum(), e->getCreditSum());
+        // Each entry has exactly 1 debit and 1 credit line (one origin per country)
+        QCOMPARE(e->getDebits().size(), 1);
+        QCOMPARE(e->getCredits().size(), 1);
+    }
+
+    // Collect debit account names to check both SE and SI are covered
+    QStringList debitAccounts;
+    for (const auto &e : entries) {
+        const auto debits = e->getDebits();
+        debitAccounts.append(debits.first().account);
+    }
+    const bool hasSweden   = std::any_of(debitAccounts.cbegin(), debitAccounts.cend(),
+                                         [](const QString &a){ return a.contains("SE"); });
+    const bool hasSlovenia = std::any_of(debitAccounts.cbegin(), debitAccounts.cend(),
+                                         [](const QString &a){ return a.contains("SI"); });
+    QVERIFY(hasSweden);
+    QVERIFY(hasSlovenia);
+}
+
+void TestBookEntries::test_oss_ioss_oss_label_format()
+{
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    // Single OSS group DE → SE so we can verify the exact label content.
+    QList<JournalEntryFactory::GroupedShipmentData> groups;
+    groups.append(makeGroup(TaxScheme::EuOssUnion, "DE", "SE", 25.0, 10.33, 2.58, "EUR", "LBL-001"));
+
+    const auto entries = syncWait(
+        fx.factory.createEntryOssIoss(groups, QDate(2025, 3, 31), QDate(2025, 3, 1)));
+
+    QCOMPARE(entries.size(), 1);
+    const auto &e = entries.first();
+
+    // Debit label: "TVA OSS 03/2025 03/2025 Allemagne => Suède 10.33 EUR 25.00%"
+    const auto ossDebits = e->getDebits();
+    const QString &debitTitle = ossDebits.first().title;
+    QVERIFY2(debitTitle.startsWith("TVA OSS "),
+             qPrintable("Bad prefix: " + debitTitle));
+    QVERIFY2(debitTitle.contains("03/2025 03/2025"),
+             qPrintable("Period missing: " + debitTitle));
+    QVERIFY2(debitTitle.contains("Allemagne"),
+             qPrintable("countryFrom missing: " + debitTitle));
+    QVERIFY2(debitTitle.contains("Suède"),
+             qPrintable("countryTo missing: " + debitTitle));
+    QVERIFY2(debitTitle.contains("10.33"),
+             qPrintable("revenue missing: " + debitTitle));
+    QVERIFY2(debitTitle.contains("EUR"),
+             qPrintable("currency missing: " + debitTitle));
+    QVERIFY2(debitTitle.contains("25.00%"),
+             qPrintable("rate missing: " + debitTitle));
+
+    // Credit label: "TVA OSS 03/2025 Suède"
+    const auto ossCredits = e->getCredits();
+    const QString &creditTitle = ossCredits.first().title;
+    QVERIFY2(creditTitle == QString("TVA OSS 03/2025 Suède"),
+             qPrintable("Bad credit label: " + creditTitle));
+}
+
+void TestBookEntries::test_oss_ioss_ioss_single_group()
+{
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    // One IOSS group: CN → FR at 20 %.
+    // Expected: 1 entry with 1 debit + 1 credit, balanced.
+    QList<JournalEntryFactory::GroupedShipmentData> groups;
+    groups.append(makeGroup(TaxScheme::EuIoss, "CN", "FR", 20.0, 15.27, 3.05, "EUR", "IOSS-001"));
+
+    const auto entries = syncWait(
+        fx.factory.createEntryOssIoss(groups, QDate(2024, 3, 31), QDate(2024, 3, 1)));
+
+    QCOMPARE(entries.size(), 1);
+    const auto &e = entries.first();
+    QVERIFY(!e.isNull());
+
+    QCOMPARE(e->getDebits().size(), 1);
+    QCOMPARE(e->getCredits().size(), 1);
+    QCOMPARE(e->getDebitSum(), e->getCreditSum());
+    QCOMPARE(e->getDebitSum(), 3.05);
+
+    // Debit uses the IOSS-FR vatAccount
+    const auto iossDebits = e->getDebits();
+    const auto &debitLine = iossDebits.first();
+    QVERIFY2(debitLine.account.contains("4457IOSS") && debitLine.account.contains("FR"),
+             qPrintable("Unexpected debit account: " + debitLine.account));
+
+    // Credit uses the IOSS-FR vatAccountToPay
+    const auto iossCredits = e->getCredits();
+    const auto &creditLine = iossCredits.first();
+    QVERIFY2(creditLine.account.contains("4457IOSS") && creditLine.account.contains("FR")
+             && creditLine.account.contains("_PAY"),
+             qPrintable("Unexpected credit account: " + creditLine.account));
+}
+
+void TestBookEntries::test_oss_ioss_ioss_two_groups()
+{
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    // Two IOSS groups (CN→FR 20 % and CN→NL 21 %) → two independent entries.
+    QList<JournalEntryFactory::GroupedShipmentData> groups;
+    groups.append(makeGroup(TaxScheme::EuIoss, "CN", "FR", 20.0, 15.27, 3.05, "EUR", "IOSS-FR"));
+    groups.append(makeGroup(TaxScheme::EuIoss, "CN", "NL", 21.0, 30.37, 6.38, "EUR", "IOSS-NL"));
+
+    const auto entries = syncWait(
+        fx.factory.createEntryOssIoss(groups, QDate(2024, 3, 31), QDate(2024, 3, 1)));
+
+    QCOMPARE(entries.size(), 2);
+
+    double sumDebits  = 0.0;
+    double sumCredits = 0.0;
+    for (const auto &e : entries) {
+        QVERIFY(!e.isNull());
+        // Each entry has exactly 1 debit + 1 credit and is balanced
+        QCOMPARE(e->getDebits().size(),  1);
+        QCOMPARE(e->getCredits().size(), 1);
+        QCOMPARE(e->getDebitSum(), e->getCreditSum());
+        sumDebits  += e->getDebitSum();
+        sumCredits += e->getCreditSum();
+    }
+
+    // Total VAT: 3.05 + 6.38 = 9.43
+    QCOMPARE(sumDebits,  9.43);
+    QCOMPARE(sumCredits, 9.43);
+}
+
+void TestBookEntries::test_oss_ioss_ioss_label_format()
+{
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    QList<JournalEntryFactory::GroupedShipmentData> groups;
+    groups.append(makeGroup(TaxScheme::EuIoss, "CN", "FR", 20.0, 15.27, 3.05, "EUR", "LBL-IOSS"));
+
+    const auto entries = syncWait(
+        fx.factory.createEntryOssIoss(groups, QDate(2024, 3, 31), QDate(2024, 3, 1)));
+
+    QCOMPARE(entries.size(), 1);
+    const auto &e = entries.first();
+
+    // Debit label: "TVA IOSS 03/2024 03/2024 Chine => France 15.27 EUR 20.00%"
+    const auto iossLblDebits = e->getDebits();
+    const QString &debitTitle = iossLblDebits.first().title;
+    QVERIFY2(debitTitle.startsWith("TVA IOSS "),
+             qPrintable("Bad prefix: " + debitTitle));
+    QVERIFY2(debitTitle.contains("03/2024 03/2024"),
+             qPrintable("Period missing: " + debitTitle));
+    QVERIFY2(debitTitle.contains("Chine"),
+             qPrintable("countryFrom missing: " + debitTitle));
+    QVERIFY2(debitTitle.contains("France"),
+             qPrintable("countryTo missing: " + debitTitle));
+    QVERIFY2(debitTitle.contains("15.27"),
+             qPrintable("revenue missing: " + debitTitle));
+    QVERIFY2(debitTitle.contains("EUR"),
+             qPrintable("currency missing: " + debitTitle));
+    QVERIFY2(debitTitle.contains("20.00%"),
+             qPrintable("rate missing: " + debitTitle));
+
+    // Credit label: "TVA IOSS 03/2024" (no country name)
+    const auto iossLblCredits = e->getCredits();
+    const QString &creditTitle = iossLblCredits.first().title;
+    QVERIFY2(creditTitle == QString("TVA IOSS 03/2024"),
+             qPrintable("Bad IOSS credit label: " + creditTitle));
+}
+
+void TestBookEntries::test_oss_ioss_mixed_oss_and_ioss()
+{
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    // Mix: 1 OSS group (IT→SE) + 1 IOSS group (CN→FR)
+    // Expected: 2 entries total (1 OSS + 1 IOSS), each balanced.
+    QList<JournalEntryFactory::GroupedShipmentData> groups;
+    groups.append(makeGroup(TaxScheme::EuOssUnion, "IT", "SE", 25.0, 8.0,  2.0, "EUR", "MIX-OSS"));
+    groups.append(makeGroup(TaxScheme::EuIoss,     "CN", "FR", 20.0, 15.0, 3.0, "EUR", "MIX-IOSS"));
+
+    // Also add a domestic group that must be ignored
+    groups.append(makeGroup(TaxScheme::DomesticVat, "FR", "FR", 20.0, 100.0, 20.0));
+
+    const auto entries = syncWait(
+        fx.factory.createEntryOssIoss(groups, QDate(2025, 3, 31), QDate(2025, 3, 1)));
+
+    QCOMPARE(entries.size(), 2);
+
+    bool foundOss  = false;
+    bool foundIoss = false;
+    for (const auto &e : entries) {
+        QVERIFY(!e.isNull());
+        QCOMPARE(e->getDebitSum(), e->getCreditSum());
+
+        const auto mixedDebits = e->getDebits();
+        const QString &title = mixedDebits.first().title;
+        if (title.contains("TVA OSS ")) {
+            foundOss = true;
+        }
+        if (title.contains("TVA IOSS ")) {
+            foundIoss = true;
+        }
+    }
+    QVERIFY(foundOss);
+    QVERIFY(foundIoss);
 }
 
 QTEST_MAIN(TestBookEntries)
