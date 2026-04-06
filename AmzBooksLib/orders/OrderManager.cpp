@@ -475,6 +475,33 @@ void OrderManager::recordShipmentFromSource(const QString &orderId,
             }
         }
     } else {
+        // Guard against a specific cross-source duplicate that occurs when the same refund
+        // event is recorded both as an activity in a VAT EU report file (giving it an
+        // amzn1:crow:... ID from ACTIVITY_TRANSACTION_ID) AND via tryRecordRefund() from a
+        // transactions file (which appends "-refund" to the original sale's activity ID).
+        // Both paths produce different IDs for the same logical refund, so the normal
+        // ID-based lookup above finds nothing and would insert a second refund row.
+        //
+        // We apply this check ONLY when the incoming ID ends with "-refund" — the signature
+        // of a tryRecordRefund()-created entry.  Regular VAT EU refunds (amzn1:crow:...) are
+        // NOT filtered here because an order CAN have multiple distinct partial refunds, each
+        // with its own amzn1:crow: ID reported across several monthly VAT reports.
+        if (dynamic_cast<const Refund*>(shipCopy.data()) && id.endsWith("-refund")) {
+            QSqlQuery qExisting(m_db);
+            qExisting.prepare("SELECT id FROM shipments "
+                              "WHERE order_id = ? AND COALESCE(is_refund, 0) = 1 "
+                              "AND id NOT LIKE '%-rev-%' AND id NOT LIKE '%-v-%' "
+                              "LIMIT 1");
+            qExisting.addBindValue(orderId);
+            if (qExisting.exec() && qExisting.next()) {
+                const QString existingId = qExisting.value(0).toString();
+                qWarning() << "OrderManager: Skipping duplicate tryRecordRefund entry for order"
+                           << orderId << "— incoming ID" << id
+                           << "(-refund suffix) but a refund already exists as" << existingId;
+                return;
+            }
+        }
+
         QSqlQuery qIns(m_db);
         qIns.prepare("INSERT INTO shipments (id, order_id, status, original_json, current_json, event_date, source_key, inserted_at, is_refund) VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, ?)");
         qIns.addBindValue(id);
@@ -572,6 +599,39 @@ void OrderManager::recordShipmentsFromSource(const ActivitySource *activitySourc
             }
         }
 
+        // Phase 3b — For refund entries whose ID ends with "-refund" (created by
+        // tryRecordRefund) and whose ID is new, check whether their order_id already has a
+        // refund.  Such entries must go to the fallback path so recordShipmentFromSource()
+        // can apply the cross-source duplicate guard and skip the insert.
+        // We restrict to "-refund"-suffixed IDs only: regular VAT EU refunds (amzn1:crow:...)
+        // must NOT be filtered here because an order can have multiple distinct partial refunds.
+        QSet<QString> orderIdsWithExistingRefund;
+        {
+            QStringList refundOrderIds;
+            for (const auto &pe : std::as_const(prepared)) {
+                if (pe.isRefund && !existingIds.contains(pe.id) && pe.id.endsWith("-refund")) {
+                    refundOrderIds.append(pe.entry->orderId);
+                }
+            }
+            if (!refundOrderIds.isEmpty()) {
+                QString placeholders = QString("?,").repeated(refundOrderIds.size());
+                placeholders.chop(1);
+                QSqlQuery qRef(m_db);
+                qRef.prepare(QString("SELECT DISTINCT order_id FROM shipments "
+                                     "WHERE order_id IN (%1) AND COALESCE(is_refund, 0) = 1 "
+                                     "AND id NOT LIKE '%-rev-%' AND id NOT LIKE '%-v-%'")
+                                 .arg(placeholders));
+                for (const auto &oid : std::as_const(refundOrderIds)) {
+                    qRef.addBindValue(oid);
+                }
+                if (qRef.exec()) {
+                    while (qRef.next()) {
+                        orderIdsWithExistingRefund.insert(qRef.value(0).toString());
+                    }
+                }
+            }
+        }
+
         // Phase 4 — Split: batch-insert new shipments; route complex cases to fallback.
         QVariantList ids, orderIds, jsons, eventDates, sourceKeys, nows, isRefunds;
         QList<const PreparedEntry*> toFallback;
@@ -581,7 +641,11 @@ void OrderManager::recordShipmentsFromSource(const ActivitySource *activitySourc
             const bool isNew    = !existingIds.contains(pe.id);
             const bool isUnique = !processedInBatch.contains(pe.id);
 
-            if (isNew && isUnique && !pe.entry->fixTaxDate) {
+            // Refunds with a new ID but whose order already has a refund must go to fallback
+            // so recordShipmentFromSource() can detect and skip the cross-source duplicate.
+            const bool refundOrderAlreadyHasRefund = pe.isRefund && orderIdsWithExistingRefund.contains(pe.entry->orderId);
+
+            if (isNew && isUnique && !pe.entry->fixTaxDate && !refundOrderAlreadyHasRefund) {
                 // Fast path: brand-new shipment with no special handling needed.
                 processedInBatch.insert(pe.id);
                 ids        << pe.id;

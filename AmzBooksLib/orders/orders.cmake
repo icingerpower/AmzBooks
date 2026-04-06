@@ -76,4 +76,6 @@ SET(ORDERS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/ImporterFileTemuVatEu.h
     ${CMAKE_CURRENT_LIST_DIR}/ImporterFileCommerceHQ.cpp
     ${CMAKE_CURRENT_LIST_DIR}/ImporterFileCommerceHQ.h
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterFileAmazonOrdersFBM.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/ImporterFileAmazonOrdersFBM.h
 )

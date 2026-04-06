@@ -493,10 +493,18 @@ QList<JournalEntryFactory::GroupedShipmentData> JournalEntryFactory::computeGrou
             key.countryTo   = activity.getCountryCodeTo();
             key.vatRate     = activity.getVatRate() * 100.0;
 
+            // For DomesticVat the declaring country is countryFrom, so countryTo is
+            // irrelevant for grouping — normalise it so IT→BE and IT→DE merge together.
+            // Must happen before the theoretical-rate snap so the snap looks up the
+            // correct (declaring) country instead of the raw destination country.
+            if (key.scheme == TaxScheme::DomesticVat) {
+                key.countryTo = key.countryFrom;
+            }
+
             // Snap to theoretical rate when within 1 percentage point
             const double theoreticalRate = vatResolver.getRate(
                 entryDate,
-                activity.getCountryCodeTo(),
+                key.countryTo,
                 activity.getSaleType(),
                 QString{},
                 activity.getVatTerritoryTo()
@@ -505,12 +513,6 @@ QList<JournalEntryFactory::GroupedShipmentData> JournalEntryFactory::computeGrou
                 key.vatRate = theoreticalRate;
 
             key.currency = activity.getCurrency();
-
-            // For DomesticVat the declaring country is countryFrom, so countryTo is
-            // irrelevant for grouping — normalise it so IT→BE and IT→DE merge together.
-            if (key.scheme == TaxScheme::DomesticVat) {
-                key.countryTo = key.countryFrom;
-            }
 
             if (!dataByKey.contains(key)) {
                 GroupedShipmentData g;
@@ -619,11 +621,18 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
             vg.countryTo
         );
 
+        auto enrichedCallback = callbackAddIfMissing
+            ? std::function<QCoro::Task<bool>(const QString &, const QString &)>(
+                [cb = callbackAddIfMissing, sampleId = vg.sampleEventId]
+                (const QString &t, const QString &tx) -> QCoro::Task<bool> {
+                    co_return co_await cb(t, tx + QString("\n(Sample order ID: %1)").arg(sampleId));
+                })
+            : nullptr;
         BooksAccountsSalesTable::Accounts accounts;
         try {
-            accounts = co_await m_saleBookAccounts->getAccounts(vc, vg.vatRatePct, SaleType::Products, callbackAddIfMissing);
+            accounts = co_await m_saleBookAccounts->getAccounts(vc, vg.vatRatePct, SaleType::Products, enrichedCallback);
         } catch (const ExceptionWithTitleText &e) {
-            QString newText = e.errorText() + QString("\n(Sample order ID for this VAT config: %1)").arg(vg.sampleEventId);
+            QString newText = e.errorText() + QString("\n(Sample order ID: %1)").arg(vg.sampleEventId);
             ExceptionWithTitleText newEx(e.errorTitle(), newText);
             newEx.raise();
         }
@@ -782,7 +791,21 @@ QCoro::Task<QSharedPointer<JournalEntry>> JournalEntryFactory::createEntry(
             activity.getCountryCodeTo()
         );
         
-        BooksAccountsSalesTable::Accounts accounts = co_await m_saleBookAccounts->getAccounts(vc, vatRate, activity.getSaleType(), callbackAddIfMissing);
+        auto enrichedCallback = callbackAddIfMissing
+            ? std::function<QCoro::Task<bool>(const QString &, const QString &)>(
+                [cb = callbackAddIfMissing, eventId = activity.getEventId()]
+                (const QString &t, const QString &tx) -> QCoro::Task<bool> {
+                    co_return co_await cb(t, tx + QString("\n(Sample order ID: %1)").arg(eventId));
+                })
+            : nullptr;
+        BooksAccountsSalesTable::Accounts accounts;
+        try {
+            accounts = co_await m_saleBookAccounts->getAccounts(vc, vatRate, activity.getSaleType(), enrichedCallback);
+        } catch (const ExceptionWithTitleText &e) {
+            QString newText = e.errorText() + QString("\n(Sample order ID: %1)").arg(activity.getEventId());
+            ExceptionWithTitleText newEx(e.errorTitle(), newText);
+            newEx.raise();
+        }
         
         
         // Use clientAccount from BooksAccountsSalesTable (broad client grouping account,
@@ -882,13 +905,20 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
         const VatCountries vc = m_saleBookAccounts->resolveVatCountries(
             vg.taxScheme, companyCountry, vg.countryFrom, vg.countryTo);
 
+        auto enrichedCallback = callbackAddIfMissing
+            ? std::function<QCoro::Task<bool>(const QString &, const QString &)>(
+                [cb = callbackAddIfMissing, sampleId = vg.sampleEventId]
+                (const QString &t, const QString &tx) -> QCoro::Task<bool> {
+                    co_return co_await cb(t, tx + QString("\n(Sample order ID: %1)").arg(sampleId));
+                })
+            : nullptr;
         BooksAccountsSalesTable::Accounts accounts;
         try {
             accounts = co_await m_saleBookAccounts->getAccounts(
-                vc, vg.vatRatePct, SaleType::Products, callbackAddIfMissing);
+                vc, vg.vatRatePct, SaleType::Products, enrichedCallback);
         } catch (const ExceptionWithTitleText &e) {
             const QString newText = e.errorText()
-                + QString("\n(Sample order ID for this VAT config: %1)").arg(vg.sampleEventId);
+                + QString("\n(Sample order ID: %1)").arg(vg.sampleEventId);
             ExceptionWithTitleText newEx(e.errorTitle(), newText);
             newEx.raise();
         }

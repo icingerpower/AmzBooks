@@ -140,6 +140,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
     int idxOrderNumber = csvData->header.pos("order-number");
     int idxOrderDate   = csvData->header.pos("order-date");
     int idxSubtotal    = csvData->header.pos("subtotal-paid");
+    int idxOrderTotal  = csvData->header.pos("order-total");
     int idxTax         = csvData->header.pos("tax");
     int idxCountryCode = csvData->header.pos("country-code");
 
@@ -175,7 +176,8 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
     };
     struct OrderAccum {
         QDateTime firstDt;
-        double    subtotalSum    = 0.0;
+        double    orderTotal     = 0.0; // from order-total column (first row); deducts discount codes
+        double    subtotalSum    = 0.0; // from subtotal-paid per row; used for InvoicingInfo line items
         double    taxSum         = 0.0;
         double    refundedAmount = 0.0; // taken from first row that carries a non-zero value
         QDate     refundDate;
@@ -218,6 +220,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
             };
             OrderAccum &acc  = orderMap[orderNumber];
             acc.firstDt      = dt;
+            acc.orderTotal   = parseAmount(line.value(idxOrderTotal));
             acc.destCountry  = line.value(idxCountryCode).trimmed().toUpper();
             if (acc.destCountry.isEmpty())
                 acc.destCountry = "US";
@@ -273,7 +276,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
         else
             scheme = TaxScheme::Exempt; // Export outside EU
 
-        ::Amount amount(acc.subtotalSum + acc.taxSum, acc.taxSum);
+        ::Amount amount(acc.orderTotal, acc.taxSum);
 
         auto actResult = Activity::create(
             orderNumber,                    // eventId
@@ -375,7 +378,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileCommerceHQ::_loadRep
         // Refund handling: full refund → Refund entry; partial → orderId_refundClue
         if (acc.refundedAmount > 0.0)
         {
-            const double totalGross  = qAbs(acc.subtotalSum + acc.taxSum);
+            const double totalGross  = qAbs(acc.orderTotal);
             const bool isFullRefund  = totalGross > 0.001 && qAbs(acc.refundedAmount - totalGross) < 0.01;
 
             if (isFullRefund)

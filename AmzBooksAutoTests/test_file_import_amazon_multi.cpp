@@ -13,9 +13,12 @@
 
 #include "orders/ImporterFileAmazonFbaInvoicing.h"
 #include "orders/ImporterFileAmazonVatEu.h"
+#include "orders/ImporterFileAmazonOrdersFBM.h"
+#include "orders/ImporterFileAmazonTransactions.h"
 #include "orders/OrderManager.h"
 #include "orders/InvoicingInfo.h"
 #include "orders/Refund.h"
+#include "books/TaxScheme.h"
 
 // ---------------------------------------------------------------------------
 // CSV helpers
@@ -105,6 +108,7 @@ static const QString VAT_HEADER_CLEAN =
     "\"TRANSACTION_CURRENCY_CODE\","
     "\"SALE_DEPART_COUNTRY\","
     "\"SALE_ARRIVAL_COUNTRY\","
+    "\"ARRIVAL_POST_CODE\","
     "\"VAT_CALCULATION_IMPUTATION_COUNTRY\","
     "\"TAX_REPORTING_SCHEME\","
     "\"TAX_COLLECTION_RESPONSIBILITY\","
@@ -133,25 +137,29 @@ static QString vatRow(const QString &type,
                       int qty = 1,
                       double vatRatePct = 0.0,
                       const QString &invNumber = QString(),
-                      const QString &marketplace = "amazon.fr")
+                      const QString &marketplace = "amazon.fr",
+                      const QString &taxCollectionResp = "SELLER",
+                      const QString &arrivalPostCode = QString())
 {
     return QString("\"%1\",\"%2\",\"%3\","
                    "\"%4\",\"%5\","
                    "\"%6\",\"%7\",\"%8\","
                    "\"%9\",\"%10\","
-                   "\"%11\",\"%12\","
-                   "\"SELLER\","       // TAX_COLLECTION_RESPONSIBILITY
-                   "\"%13\",\"%14\",\"%15\","
-                   "\"%16\",\"%17\","  // VAT rate, PRICE_OF_ITEMS_AMT_VAT_EXCL
-                   "\"%18\",\"\","     // VAT_INV_NUMBER, INVOICE_URL
-                   "\"%19\","          // MARKETPLACE
+                   "\"%11\","           // ARRIVAL_POST_CODE
+                   "\"%12\",\"%13\","
+                   "\"%14\","           // TAX_COLLECTION_RESPONSIBILITY
+                   "\"%15\",\"%16\",\"%17\","
+                   "\"%18\",\"%19\","   // VAT rate, PRICE_OF_ITEMS_AMT_VAT_EXCL
+                   "\"%20\",\"\","      // VAT_INV_NUMBER, INVOICE_URL
+                   "\"%21\","           // MARKETPLACE
                    "\"A_GEN_STANDARD\"\n") // PRODUCT_TAX_CODE
         .arg(type, orderId, actId)
         .arg(date, date)                     // TAX_CALCULATION_DATE, TRANSACTION_COMPLETE_DATE
         .arg(amtExcl, 0, 'f', 2)
         .arg(vatAmt, 0, 'f', 2)
-        .arg(currency, departCountry, arrivalCountry, vatCountry, scheme)
-        .arg(sku, desc)
+        .arg(currency, departCountry, arrivalCountry)
+        .arg(arrivalPostCode, vatCountry, scheme)
+        .arg(taxCollectionResp, sku, desc)
         .arg(qty)
         .arg(vatRatePct, 0, 'f', 2)
         .arg(amtExcl, 0, 'f', 2)     // PRICE_OF_ITEMS_AMT_VAT_EXCL (same as total excl)
@@ -168,6 +176,17 @@ private slots:
     // Regression: FBA-only shipments (no VAT EU counterpart) must have
     // InvoicingInfo so that invoice generation does not fail.
     void test_fbaOnly_hasInvoicingInfo();
+    // Regression: DEEMED_RESELLER-IOSS + MARKETPLACE responsibility must import
+    // as MarketplaceDeemedSupplier, not EuIoss.
+    void test_vatEu_marketplaceResponsibility_importedAsMarketplaceDeemedSupplier();
+    // Regression: UNION-OSS sale with GB arrival country but BT postcode (Northern
+    // Ireland) must remap arrival to XI, not stay as GB.
+    void test_vatEu_northernIreland_arrivalRemappedToXI();
+
+    // Idempotency: importing the full set of real annual reports a second time into
+    // the same OrderManager must not change the financial totals.
+    // Regression guard for cross-source duplicate refunds (VAT EU file vs tryRecordRefund).
+    void test_reimportIdempotency_realData();
 
     // Verify that after importing both FBA invoicing + VAT EU (with a refund),
     // every shipment and refund stored in OrderManager has InvoicingInfo.
@@ -460,6 +479,7 @@ void TestFileImportAmazonMulti::test_vatFirst_fbaSecond_preservesInvoiceNumber()
                        "\"%4\",\"%5\","
                        "\"%6\",\"%7\",\"%8\","
                        "\"%9\",\"%10\","
+                       "\"\","          // ARRIVAL_POST_CODE (empty)
                        "\"%11\",\"%12\","
                        "\"SELLER\","
                        "\"%13\",\"%14\",\"%15\","
@@ -570,6 +590,318 @@ void TestFileImportAmazonMulti::test_vatFirst_fbaSecond_preservesInvoiceNumber()
     QVERIFY2(info->getInvoiceLink().has_value(),
              "invoiceLink must NOT be erased by FBA invoicing re-import");
     QCOMPARE(info->getInvoiceLink().value(), invUrl);
+}
+
+// ---------------------------------------------------------------------------
+void TestFileImportAmazonMulti::test_vatEu_marketplaceResponsibility_importedAsMarketplaceDeemedSupplier()
+{
+    // DEEMED_RESELLER-IOSS with TAX_COLLECTION_RESPONSIBILITY=MARKETPLACE means
+    // Amazon collects the VAT. The seller's activity must be MarketplaceDeemedSupplier
+    // (not EuIoss), with VAT=0 as reported.
+    QTemporaryDir tmpDir;
+    QVERIFY(tmpDir.isValid());
+
+    const QString vatFile = tmpDir.filePath("vat-eu.csv");
+    {
+        QFile f(vatFile);
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&f);
+        out << VAT_HEADER_CLEAN;
+        out << vatRow("SALE",
+                      "204-4554555-0000000", "ACT_IOSS_MKT",
+                      "13-03-2026",
+                      14.99, 0.0, "GBP",
+                      "GB", "IE", "IE",
+                      "DEEMED_RESELLER-IOSS",
+                      "SKU-IOSS", "Test IOSS product", 1, 0.0,
+                      "", "amazon.co.uk",
+                      "MARKETPLACE");
+    }
+
+    ImporterFileAmazonVatEu importer(QDir(tmpDir.path()));
+    AbstractImporter::ReturnOrderInfos result;
+    try {
+        result = QCoro::waitFor(importer.loadReport(vatFile));
+    } catch (const std::exception &e) {
+        QFAIL(e.what());
+    }
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QVERIFY(result.orderInfos);
+    QCOMPARE(result.orderInfos->shipments.size(), 1);
+
+    const auto &activities = result.orderInfos->shipments.first().getActivities();
+    QVERIFY(!activities.isEmpty());
+    QCOMPARE(activities.first().getTaxScheme(), TaxScheme::MarketplaceDeemedSupplier);
+    QCOMPARE(activities.first().getAmountTaxes(), 0.0);
+}
+
+// ---------------------------------------------------------------------------
+void TestFileImportAmazonMulti::test_vatEu_northernIreland_arrivalRemappedToXI()
+{
+    // Amazon reports Northern Ireland orders as arrival country=GB. The BT
+    // postcode prefix identifies them as Northern Ireland (EU VAT area → XI).
+    QTemporaryDir tmpDir;
+    QVERIFY(tmpDir.isValid());
+
+    const QString vatFile = tmpDir.filePath("vat-eu.csv");
+    {
+        QFile f(vatFile);
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream out(&f);
+        out << VAT_HEADER_CLEAN;
+        out << vatRow("SALE",
+                      "203-6978271-0000000", "ACT_NI",
+                      "12-03-2026",
+                      6.84, 1.37, "GBP",
+                      "ES", "GB", "GB",
+                      "UNION-OSS",
+                      "SKU-NI", "Test NI product", 1, 20.0,
+                      "", "amazon.co.uk",
+                      "SELLER",
+                      "BT39 9RH");   // Northern Ireland postcode
+    }
+
+    ImporterFileAmazonVatEu importer(QDir(tmpDir.path()));
+    AbstractImporter::ReturnOrderInfos result;
+    try {
+        result = QCoro::waitFor(importer.loadReport(vatFile));
+    } catch (const std::exception &e) {
+        QFAIL(e.what());
+    }
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QVERIFY(result.orderInfos);
+    QCOMPARE(result.orderInfos->shipments.size(), 1);
+
+    const auto &activities = result.orderInfos->shipments.first().getActivities();
+    QVERIFY(!activities.isEmpty());
+    QCOMPARE(activities.first().getTaxScheme(), TaxScheme::EuOssUnion);
+    QCOMPARE(activities.first().getCountryCodeTo(), QStringLiteral("XI"));
+}
+
+// ---------------------------------------------------------------------------
+// test_reimportIdempotency_realData
+// ---------------------------------------------------------------------------
+
+// Returns all *.csv and *.txt files directly inside yearDir, sorted.
+static QStringList collectDataFiles(const QString &yearDir)
+{
+    QStringList files;
+    const QDir dir(yearDir);
+    if (!dir.exists()) {
+        return files;
+    }
+    const auto entries = dir.entryInfoList({"*.csv", "*.txt"}, QDir::Files, QDir::Name);
+    for (const auto &fi : entries) {
+        files.append(fi.absoluteFilePath());
+    }
+    return files;
+}
+
+// Sums amountUntaxed per (taxScheme, countryFrom, countryTo, vatRate4digits) across
+// every activity of every shipment returned by getShipmentAndRefunds().
+// Reversal entries (-rev-) are automatically negated by getShipmentAndRefunds, so
+// totals naturally cancel out if a conflict-reversal pair is present.
+static QMap<QString, double> computeAmountFingerprint(OrderManager &mgr,
+                                                       const QDate &from, const QDate &to)
+{
+    QMap<QString, double> totals;
+    const auto ships = mgr.getShipmentAndRefunds(from, to, nullptr);
+    for (const auto &ship : ships) {
+        for (const auto &act : ship->getActivities()) {
+            const QString key = QString("%1|%2|%3|%4")
+                .arg(static_cast<int>(act.getTaxScheme()))
+                .arg(act.getCountryCodeFrom(), act.getCountryCodeTo())
+                .arg(act.getVatRate_4digits());
+            totals[key] += act.getAmountUntaxed();
+        }
+    }
+    return totals;
+}
+
+// Records all shipments, refunds, and invoicing infos from result into mgr.
+static void recordResultIntoManager(OrderManager &mgr,
+                                    const AbstractImporter::ReturnOrderInfos &result,
+                                    const ActivitySource &source,
+                                    bool isWrongIfConflict,
+                                    bool fixRefundDate)
+{
+    QList<OrderManager::ShipmentFromSourceEntry> entries;
+    for (const auto &s : std::as_const(result.orderInfos->shipments)) {
+        entries.append({s.getActivities().first().getEventId(),
+                        &s, QDate(), isWrongIfConflict, false});
+    }
+    for (const auto &r : std::as_const(result.orderInfos->refunds)) {
+        entries.append({r.getActivities().first().getEventId(),
+                        &r, QDate(), isWrongIfConflict, fixRefundDate});
+    }
+    mgr.recordShipmentsFromSource(&source, entries);
+
+    for (const auto &inv : std::as_const(result.orderInfos->invoicingInfos)) {
+        mgr.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
+    }
+}
+
+// Imports a list of files using the given importer into mgr.
+// Returns false and calls QFAIL if any file fails to load.
+template <typename TImporter>
+static bool importFilesIntoManager(QObject *ctx, OrderManager &mgr,
+                                   TImporter &importer,
+                                   const QStringList &files)
+{
+    Q_UNUSED(ctx);
+    for (const auto &filePath : files) {
+        AbstractImporter::ReturnOrderInfos result;
+        try {
+            result = QCoro::waitFor(importer.loadReport(filePath));
+        } catch (const std::exception &e) {
+            QTest::qFail(qPrintable(QString("Exception loading %1: %2")
+                                        .arg(filePath, QString::fromUtf8(e.what()))),
+                         __FILE__, __LINE__);
+            return false;
+        }
+        if (!result.errorReturned.isEmpty()) {
+            QTest::qFail(qPrintable(QString("Error loading %1: %2")
+                                        .arg(filePath, result.errorReturned)),
+                         __FILE__, __LINE__);
+            return false;
+        }
+        if (!result.orderInfos) {
+            continue;
+        }
+        const ActivitySource source = importer.getActivitySource();
+        recordResultIntoManager(mgr, result, source,
+                                importer.isWrongIfConflict(),
+                                importer.fixRefundDate());
+    }
+    return true;
+}
+
+// Performs one full import pass (VAT EU + FBA EU invoicing + FBM + Transactions)
+// for targetYear into mgr.
+// importerWorkDir is a fresh temporary directory for the importer's settings
+// (dedup tracking) — use a NEW directory each time to simulate a fresh import session.
+// The OrderManager's DB directory is separate and persists across passes.
+static bool doImportPass(QObject *ctx, OrderManager &mgr,
+                         const QString &importerWorkDir, int targetYear)
+{
+    Q_UNUSED(ctx);
+    const QString appDataDir = QCoreApplication::applicationDirPath() + "/data";
+    const QString yearStr = QString::number(targetYear);
+
+    const QDir workDirQ(importerWorkDir); // named variable avoids most-vexing-parse below
+
+    // 1. Amazon VAT EU reports (all .csv and .txt files for the year)
+    {
+        const QStringList files = collectDataFiles(appDataDir + "/amazon-vat-reports/" + yearStr);
+        ImporterFileAmazonVatEu importer(workDirQ);
+        if (!importFilesIntoManager(ctx, mgr, importer, files)) {
+            return false;
+        }
+    }
+
+    // 2. FBA EU invoicing reports (invoicing-fba-ue_* only — not US)
+    {
+        QStringList allFiles = collectDataFiles(appDataDir + "/amazon-fba-invoicing/" + yearStr);
+        QStringList files;
+        for (const auto &f : std::as_const(allFiles)) {
+            if (QFileInfo(f).fileName().startsWith("invoicing-fba-ue_")) {
+                files.append(f);
+            }
+        }
+        ImporterFileAmazonFbaInvoicing importer(workDirQ);
+        if (!importFilesIntoManager(ctx, mgr, importer, files)) {
+            return false;
+        }
+    }
+
+    // 3. FBM orders (may be empty — gracefully skipped if no files exist)
+    {
+        const QStringList files = collectDataFiles(appDataDir + "/amazon-orders-fbm/" + yearStr);
+        if (!files.isEmpty()) {
+            ImporterFileAmazonOrdersFBM importer(workDirQ);
+            if (!importFilesIntoManager(ctx, mgr, importer, files)) {
+                return false;
+            }
+        }
+    }
+
+    // 4. Amazon transaction reports (build refund clues only — no shipments created here)
+    {
+        const QStringList files = collectDataFiles(appDataDir + "/amazon-transactions/" + yearStr);
+        ImporterFileAmazonTransactions importer(workDirQ);
+        if (!importFilesIntoManager(ctx, mgr, importer, files)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+// Regression: importing the full set of real annual reports a second time into
+// the same OrderManager must produce identical financial totals — no duplicate
+// shipments or refunds may be created on the second pass.
+void TestFileImportAmazonMulti::test_reimportIdempotency_realData()
+{
+    // Use the current year unless we are still in the first 10 days of February
+    // (or in January), in which case the current year has too little data and we
+    // fall back to the previous year.
+    const QDate today = QDate::currentDate();
+    const int targetYear =
+        (today.month() == 1 || (today.month() == 2 && today.day() <= 10))
+        ? today.year() - 1
+        : today.year();
+
+    const QDate yearStart(targetYear, 1, 1);
+    const QDate yearEnd(targetYear, 12, 31);
+
+    // Separate dirs: one for the OrderManager DB (persists across passes),
+    // two fresh importer dirs (so the per-importer "already imported" dedup is reset
+    // between passes — simulating a real user re-importing with a fresh session).
+    QTemporaryDir tmpMgr;
+    QVERIFY(tmpMgr.isValid());
+    QTemporaryDir tmpImporter1;
+    QVERIFY(tmpImporter1.isValid());
+    QTemporaryDir tmpImporter2;
+    QVERIFY(tmpImporter2.isValid());
+
+    OrderManager mgr(tmpMgr.path());
+
+    // --- First import pass ---
+    if (!doImportPass(this, mgr, tmpImporter1.path(), targetYear)) {
+        return; // QFAIL already called inside
+    }
+
+    const int countAfterFirst = mgr.getShipmentAndRefunds(yearStart, yearEnd, nullptr).size();
+    const QMap<QString, double> fp1 = computeAmountFingerprint(mgr, yearStart, yearEnd);
+
+    QVERIFY2(countAfterFirst > 0,
+             qPrintable(QString("No shipments found for year %1 — "
+                                "check that data files are copied to the test build dir")
+                            .arg(targetYear)));
+
+    // --- Second import pass (same files, fresh importer session, same OrderManager) ---
+    if (!doImportPass(this, mgr, tmpImporter2.path(), targetYear)) {
+        return;
+    }
+
+    const int countAfterSecond = mgr.getShipmentAndRefunds(yearStart, yearEnd, nullptr).size();
+    const QMap<QString, double> fp2 = computeAmountFingerprint(mgr, yearStart, yearEnd);
+
+    // The number of shipments must not grow: re-importing must be idempotent.
+    QCOMPARE(countAfterSecond, countAfterFirst);
+
+    // The financial totals per (scheme, from, to, vatRate) must be identical.
+    QCOMPARE(fp2.size(), fp1.size());
+    for (auto it = fp1.cbegin(); it != fp1.cend(); ++it) {
+        QVERIFY2(fp2.contains(it.key()),
+                 qPrintable("Fingerprint key missing after second import: " + it.key()));
+        const double diff = qAbs(fp2.value(it.key()) - it.value());
+        QVERIFY2(diff < 0.005,
+                 qPrintable(QString("Total changed for key %1: was %2, now %3")
+                                .arg(it.key())
+                                .arg(it.value(), 0, 'f', 4)
+                                .arg(fp2.value(it.key()), 0, 'f', 4)));
+    }
 }
 
 QTEST_MAIN(TestFileImportAmazonMulti)

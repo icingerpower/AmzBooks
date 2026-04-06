@@ -16,6 +16,7 @@ DialogVatParams::DialogVatParams(const QString &errorTitle,
     
     setWindowTitle(errorTitle);
     ui->labelErrorDescription->setText(errorText);
+    ui->labelErrorDescription->setTextInteractionFlags(Qt::TextSelectableByMouse | Qt::TextSelectableByKeyboard);
     
     // Add panes to stacked widget
     auto *paneVatRates = new PaneSettingsVatRates(this);

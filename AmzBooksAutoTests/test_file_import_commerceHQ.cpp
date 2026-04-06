@@ -34,6 +34,7 @@ private slots:
     void test_dateTimeFormats();
     void test_refundClueVsRefund();
     void test_ungroupedVsGroupedFiltering();
+    void test_discountCodeRespected();
 
 private:
     QString createTempCsv(const QString &content, QTemporaryDir &tempDir,
@@ -171,12 +172,12 @@ void TestFileImportCommerceHQ::test_columnOrderChanged()
     QTemporaryDir tempDir;
     QVERIFY(tempDir.isValid());
 
-    // Minimal header with columns in different order
+    // Minimal header with columns in different order (order-total = subtotal+tax, no discount)
     QString content =
-        "country-code,subtotal-paid,tax,order-number,order-date,order-time,sku\n"
-        "DE,45.00,3.60,5001,02/05/2026,8:30am,SKU-DE-01\n"
-        "FR,30.00,6.00,5002,02/06/2026,12:00pm,SKU-FR-01\n"
-        "US,20.00,0.00,5003,02/07/2026,3:15pm,SKU-US-01\n";
+        "country-code,subtotal-paid,order-total,tax,order-number,order-date,order-time,sku\n"
+        "DE,45.00,48.60,3.60,5001,02/05/2026,8:30am,SKU-DE-01\n"
+        "FR,30.00,36.00,6.00,5002,02/06/2026,12:00pm,SKU-FR-01\n"
+        "US,20.00,20.00,0.00,5003,02/07/2026,3:15pm,SKU-US-01\n";
 
     QString file = createTempCsv(content, tempDir);
     ImporterFileCommerceHQ importer(tempDir.path());
@@ -220,9 +221,9 @@ void TestFileImportCommerceHQ::test_missingRequiredColumn()
 
     // Helper: build a header lacking `missingCol` and run the importer
     auto runMissing = [&](const QString &missingCol) -> bool {
-        QStringList cols = {"order-number", "order-date", "subtotal-paid", "tax", "country-code"};
+        QStringList cols = {"order-number", "order-date", "subtotal-paid", "order-total", "tax", "country-code"};
         cols.removeAll(missingCol);
-        QString content = cols.join(",") + "\n1001,01/01/2026,50.00,5.00,US\n";
+        QString content = cols.join(",") + "\n1001,01/01/2026,50.00,50.00,5.00,US\n";
         // Remove the matching data value too (keep it simple — fewer fields = mismatched but that's fine)
         QString file = createTempCsv(content, tempDir, "missing_" + missingCol + ".csv");
         ImporterFileCommerceHQ importer(tempDir.path());
@@ -246,6 +247,7 @@ void TestFileImportCommerceHQ::test_missingRequiredColumn()
     QVERIFY2(runMissing("order-number"),  "Expected exception for missing order-number");
     QVERIFY2(runMissing("order-date"),    "Expected exception for missing order-date");
     QVERIFY2(runMissing("subtotal-paid"), "Expected exception for missing subtotal-paid");
+    QVERIFY2(runMissing("order-total"),   "Expected exception for missing order-total");
     QVERIFY2(runMissing("tax"),           "Expected exception for missing tax");
     QVERIFY2(runMissing("country-code"),  "Expected exception for missing country-code");
 }
@@ -279,9 +281,10 @@ void TestFileImportCommerceHQ::test_variedSituations()
     // Row 5: US order with sales tax, no refund
     content += "2005,03/05/2026,1:00pm,SKU-E,100.00,108.00,,,8.00,US\n";
 
-    // Rows 6a & 6b: same order-number, two different SKUs → two distinct shipments
-    content += "2006,03/06/2026,2:00pm,SKU-F1,25.00,25.00,,,0.00,CA\n";
-    content += "2006,03/06/2026,2:00pm,SKU-F2,25.00,25.00,,,0.00,CA\n";
+    // Rows 6a & 6b: same order-number, two SKUs → merged into one shipment.
+    // order-total=50.00 on both rows (real exports repeat the whole-order total on each line item row)
+    content += "2006,03/06/2026,2:00pm,SKU-F1,25.00,50.00,,,0.00,CA\n";
+    content += "2006,03/06/2026,2:00pm,SKU-F2,25.00,50.00,,,0.00,CA\n";
 
     // Row 7: partial refund (refunded < order-total) → 1 shipment; refund stored as orderId_refundClue
     content += "2007,03/07/2026,3:00pm,SKU-G,60.00,60.00,10.00,,0.00,US\n";
@@ -398,15 +401,15 @@ void TestFileImportCommerceHQ::test_dateTimeFormats()
     QVERIFY(tempDir.isValid());
 
     QString content =
-        "order-number,order-date,order-time,sku,subtotal-paid,tax,country-code\n"
+        "order-number,order-date,order-time,sku,subtotal-paid,order-total,tax,country-code\n"
         // 9:15am → 09:15
-        "6001,01/05/2026,9:15am,SKU-1,10.00,0.00,US\n"
+        "6001,01/05/2026,9:15am,SKU-1,10.00,10.00,0.00,US\n"
         // 11:59pm → 23:59
-        "6002,12/31/2025,11:59pm,SKU-2,20.00,0.00,US\n"
+        "6002,12/31/2025,11:59pm,SKU-2,20.00,20.00,0.00,US\n"
         // Empty time field → midnight 00:00
-        "6003,06/15/2026,,SKU-3,30.00,0.00,US\n"
+        "6003,06/15/2026,,SKU-3,30.00,30.00,0.00,US\n"
         // Single-digit month and day: 3/7/2026
-        "6004,3/7/2026,8:00am,SKU-4,40.00,0.00,US\n";
+        "6004,3/7/2026,8:00am,SKU-4,40.00,40.00,0.00,US\n";
 
     QString file = createTempCsv(content, tempDir);
     ImporterFileCommerceHQ importer(tempDir.path());
@@ -624,6 +627,96 @@ void TestFileImportCommerceHQ::test_ungroupedVsGroupedFiltering()
     {
         QVERIFY(it.value()->isGrouped());
     }
+}
+
+// ---------------------------------------------------------------------------
+// Test 8 — discount code: order-total (after discount) must be used, not subtotal-paid
+// Order 3109 has subtotal-paid=74.99 but order-total=52.49 (discount applied).
+// The shipment amount and the full-refund detection must both use order-total.
+// ---------------------------------------------------------------------------
+void TestFileImportCommerceHQ::test_discountCodeRespected()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    QString content = FULL_HEADER;
+
+    // Order 3110: US, no discount (subtotal == order-total), fully refunded same day
+    content += "3110,03/07/2026,8:13pm,CJNS103649303CX,4488,"
+               "\"Black Tankini One Piece Swimsuit\","
+               "1,Swimwear,,,39.99,39.99,0,39.99,39.99,03/07/2026,www.google.com,"
+               "\"Alexandra Corrin\",corrin.alexandra@gmail.com,\"+1 562 242 6076\","
+               "\"702 39th St\",,Oakland,94609,California,\"United States\",US,320,0,Visa,Stripe\n";
+
+    // Order 3109: SG, discount applied (subtotal-paid=74.99, order-total=52.49), fully refunded
+    // This is the key case: amount must be 52.49 (order-total), not 74.99 (subtotal-paid)
+    content += "3109,03/06/2026,6:14am,CJLT139631102BY,4004,"
+               "\"Black Waist Tie Wide Leg One Piece Shorts And Top Set\","
+               "1,Coat,,,74.99,74.99,0,52.49,52.49,03/06/2026,www.pinterest.com,"
+               "\"Yoonah Kim\",yoonki@microsoft.com,\"+65 9011 5010\","
+               "\"#06-8  8c Jalan Lempeng\",\"Parc Clematis\",Singapore,128825,,Singapore,SG,450,0,Visa,Stripe\n";
+
+    // Order 3107: SG, no discount, fully refunded
+    content += "3107,03/06/2026,6:10am,CJLY160626603CX,5829,"
+               "\"Pink Tweed Short Dress\","
+               "1,Dresses,,,84.99,84.99,0,84.99,84.99,03/06/2026,www.pinterest.com,"
+               "\"Yoonah Kim\",yoonki@microsoft.com,\"+65 9011 5010\","
+               "\"8c Jalan Lempeng\",\"Parc Clematis\",Singapore,128825,Singapore,Singapore,SG,370,0,Visa,Stripe\n";
+
+    QString file = createTempCsv(content, tempDir, "discount.csv");
+    ImporterFileCommerceHQ importer(tempDir.path());
+
+    AbstractImporter::ReturnOrderInfos result;
+    try
+    {
+        result = QCoro::waitFor(importer.loadReport(file));
+    }
+    catch (const std::exception &e)
+    {
+        QFAIL(qPrintable(QString("Unexpected exception: ") + e.what()));
+    }
+
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QVERIFY(result.orderInfos);
+
+    // 3 shipments
+    QCOMPARE(result.orderInfos->shipments.size(), 3);
+
+    // All 3 orders are fully refunded (refunded-amount == order-total)
+    QCOMPARE(result.orderInfos->refunds.size(), 3);
+
+    // Find order 3109 and verify amounts are from order-total, not subtotal-paid
+    bool found3109 = false;
+    for (const auto &s : std::as_const(result.orderInfos->shipments))
+    {
+        const auto &a = s.getActivities().first();
+        if (a.getEventId() == "3109")
+        {
+            found3109 = true;
+            // Must be 52.49 (order-total with discount), not 74.99 (subtotal-paid)
+            QVERIFY(qAbs(a.getAmountTaxed() - 52.49) < 0.01);
+            QVERIFY(qAbs(a.getAmountTaxes() -  0.00) < 0.01);
+            QCOMPARE(a.getCountryCodeTo(), QString("SG"));
+            QCOMPARE(a.getTaxScheme(), TaxScheme::Exempt);
+        }
+    }
+    QVERIFY2(found3109, "Order 3109 shipment not found");
+
+    // Refund for 3109 must also use order-total amount
+    bool foundRefund3109 = false;
+    for (const auto &r : std::as_const(result.orderInfos->refunds))
+    {
+        const auto &a = r.getActivities().first();
+        if (a.getEventId() == "3109")
+        {
+            foundRefund3109 = true;
+            QVERIFY(qAbs(a.getAmountTaxed() - (-52.49)) < 0.01);
+        }
+    }
+    QVERIFY2(foundRefund3109, "Refund for order 3109 not found (discount order not detected as full refund)");
+
+    // No partial refund clues — all 3 are full refunds
+    QCOMPARE(result.orderInfos->orderId_refundClues.size(), 0);
 }
 
 QTEST_GUILESS_MAIN(TestFileImportCommerceHQ)

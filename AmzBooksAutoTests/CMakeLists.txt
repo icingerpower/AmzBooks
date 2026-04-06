@@ -173,6 +173,28 @@ add_test(NAME TestFileImportAmazonMulti COMMAND TestFileImportAmazonMulti)
 target_link_libraries(TestFileImportAmazonMulti PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib QCoro::Core)
 target_include_directories(TestFileImportAmazonMulti PRIVATE ../AmzBooksLib ../../common)
 
+# Copy all real-data directories needed by test_reimportIdempotency_realData
+add_custom_command(TARGET TestFileImportAmazonMulti POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-vat-reports
+    $<TARGET_FILE_DIR:TestFileImportAmazonMulti>/data/amazon-vat-reports
+)
+add_custom_command(TARGET TestFileImportAmazonMulti POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-fba-invoicing
+    $<TARGET_FILE_DIR:TestFileImportAmazonMulti>/data/amazon-fba-invoicing
+)
+add_custom_command(TARGET TestFileImportAmazonMulti POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-orders-fbm
+    $<TARGET_FILE_DIR:TestFileImportAmazonMulti>/data/amazon-orders-fbm
+)
+add_custom_command(TARGET TestFileImportAmazonMulti POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-transactions
+    $<TARGET_FILE_DIR:TestFileImportAmazonMulti>/data/amazon-transactions
+)
+
 add_executable(TestRecorders test_recorders.cpp)
 add_test(NAME TestRecorders COMMAND TestRecorders)
 target_link_libraries(TestRecorders PRIVATE Qt${QT_VERSION_MAJOR}::Test -Wl,--whole-archive AmzBooksLib -Wl,--no-whole-archive)
@@ -284,6 +306,17 @@ set_target_properties(QXlsx::QXlsx PROPERTIES
     INTERFACE_INCLUDE_DIRECTORIES "/home/cedric/code/QXlsx/QXlsx/header")
 
 find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Widgets)
+
+add_executable(TestImporterFileAmazonOrdersFBM test_importer_file_amazon_orders_fbm.cpp)
+add_test(NAME TestImporterFileAmazonOrdersFBM COMMAND TestImporterFileAmazonOrdersFBM)
+target_link_libraries(TestImporterFileAmazonOrdersFBM PRIVATE Qt${QT_VERSION_MAJOR}::Test AmzBooksLib QCoro::Core)
+target_include_directories(TestImporterFileAmazonOrdersFBM PRIVATE ../AmzBooksLib ../../common)
+
+add_custom_command(TARGET TestImporterFileAmazonOrdersFBM POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_directory
+    ${CMAKE_CURRENT_SOURCE_DIR}/../data/amazon-orders-fbm
+    $<TARGET_FILE_DIR:TestImporterFileAmazonOrdersFBM>/data/amazon-orders-fbm
+)
 
 add_executable(TestFixVatTaxually
     test_fix_vat_taxually.cpp

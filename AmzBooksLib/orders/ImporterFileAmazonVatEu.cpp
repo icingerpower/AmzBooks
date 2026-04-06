@@ -1,6 +1,7 @@
 #include "ImporterFileAmazonVatEu.h"
 #include "orders/LineItem.h"
 #include "utils/CsvReader.h"
+#include "CountriesEu.h"
 #include <QFileInfo>
 #include <QDebug>
 
@@ -127,6 +128,9 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
     if (dataRode->header.contains("SALE_ARRIVAL_COUNTRY")) indArrival = dataRode->header.pos("SALE_ARRIVAL_COUNTRY");
     else if (dataRode->header.contains("ARRIVAL_COUNTRY")) indArrival = dataRode->header.pos("ARRIVAL_COUNTRY");
 
+    int indArrivalPostCode = dataRode->header.contains("ARRIVAL_POST_CODE")
+                             ? dataRode->header.pos("ARRIVAL_POST_CODE") : -1;
+
     // int indBuyerTax = -1; // Unused
     // if (dataRode->header.contains("BUYER_VAT_NUMBER")) indBuyerTax = dataRode->header.pos("BUYER_VAT_NUMBER");
     
@@ -219,6 +223,15 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
         QString arrival = (indArrival != -1) ? line.value(indArrival) : "";
         QString vatPaidTo = line.value(indTaxCountry);
         if (arrival.isEmpty()) arrival = vatPaidTo; // Fallback
+
+        // Northern Ireland postcodes start with "BT". Amazon reports the country as
+        // GB but NI remains in the EU VAT area under the NI Protocol → use XI.
+        if (arrival == "GB" && indArrivalPostCode != -1) {
+            const QString &arrivalPostCode = line.value(indArrivalPostCode);
+            if (arrivalPostCode.startsWith("BT", Qt::CaseInsensitive)) {
+                arrival = CountriesEu::XI;
+            }
+        }
         
         // Tax Scheme mapping
         // Logic similar to test_vat_rate could be useful but here we rely on columns if possible
@@ -244,6 +257,12 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonVatEu::_loadRe
             scheme = TaxScheme::Exempt; // Export to CH (Tax collected by Amazon)
         } else if (schemeStr == "COMMINGLE_VAT") {
             scheme = TaxScheme::DomesticVat; // Treat commingling as domestic storage/sale logic usually
+        }
+        // When Amazon is the deemed supplier it collects and remits the VAT itself.
+        // The seller receives gross revenue with 0 VAT — treat as MarketplaceDeemedSupplier
+        // regardless of what the scheme string says.
+        if (taxResp == "MARKETPLACE") {
+            scheme = TaxScheme::MarketplaceDeemedSupplier;
         }
         if (scheme == TaxScheme::EuOssUnion || scheme == TaxScheme::DomesticVat) {
             if (qAbs(amountVat) < 0.001
