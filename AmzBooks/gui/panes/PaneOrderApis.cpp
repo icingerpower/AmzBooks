@@ -174,9 +174,9 @@ void PaneOrderApis::import()
             // Merge Refund Clues from all result sets
             for (auto *resultPtr : {&resultShipments, &resultRefunds, &resultAddresses, &resultInvoiceInfos}) {
                 if (resultPtr->orderInfos) {
-                    for (auto it = resultPtr->orderInfos->orderId_refundClue.begin();
-                         it != resultPtr->orderInfos->orderId_refundClue.end(); ++it) {
-                        aggregatedInfos.orderId_refundClue.insert(it.key(), it.value());
+                    for (auto it = resultPtr->orderInfos->orderId_refundClues.constBegin();
+                         it != resultPtr->orderInfos->orderId_refundClues.constEnd(); ++it) {
+                        aggregatedInfos.orderId_refundClues[it.key()].append(it.value());
                     }
                 }
             }
@@ -255,8 +255,9 @@ void PaneOrderApis::import()
 
             // Process Refund Clues
             QStringList refundErrors;
-            for (auto it = aggregatedInfos.orderId_refundClue.begin();
-                 it != aggregatedInfos.orderId_refundClue.end(); ++it) {
+            for (auto it = aggregatedInfos.orderId_refundClues.constBegin();
+                 it != aggregatedInfos.orderId_refundClues.constEnd(); ++it) {
+                for (const auto &clue : it.value()) {
                 auto callbackPick = [self](const QString &errorTitle,
                                             const QString &errorText,
                                             const QList<QSharedPointer<Shipment>> &shipmentsToPick) -> QCoro::Task<QString> {
@@ -267,10 +268,11 @@ void PaneOrderApis::import()
                     co_return QString{};
                 };
                 QString err = co_await manager.tryRecordRefund(
-                    it.key(), it.value().value, it.value().currency, QString{}, it.value().date, callbackPick);
+                    it.key(), clue.value, clue.currency, QString{}, clue.date, callbackPick);
                 if (!err.isEmpty()) {
                     refundErrors.append(err);
                 }
+                } // for clue
             }
             if (!refundErrors.isEmpty()) {
                 QMessageBox::warning(self, tr("Refund Errors"), refundErrors.join("\n\n"));

@@ -72,6 +72,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::
     int indOrderId = dataRode->header.pos("Order ID");
     int indDate = dataRode->header.pos("Date");
     int indProductCharges = dataRode->header.pos("Total product charges");
+    int indOther = dataRode->header.contains("Other") ? dataRode->header.pos("Other") : -1;
     
     // Dynamic currency detection
     QList<QString> currencies = {
@@ -124,12 +125,14 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonTransactions::
             result.orderInfos->dateMax = date;
         }
 
-        // Store refund clue: orderId -> {amount, currency}
+        // The refund amount is product charges + other (e.g. taxes/surcharges returned).
         double productCharges = line.value(indProductCharges).toDouble();
-        if (qFuzzyIsNull(productCharges)) {
+        double other = (indOther >= 0) ? line.value(indOther).toDouble() : 0.0;
+        double refundAmount = productCharges + other;
+        if (qFuzzyIsNull(refundAmount)) {
             continue;
         }
-        result.orderInfos->orderId_refundClue[orderId] = {productCharges, currency, date};
+        result.orderInfos->orderId_refundClues[orderId].append({refundAmount, currency, date});
     }
 
     co_return result;

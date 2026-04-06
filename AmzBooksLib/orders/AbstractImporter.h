@@ -43,7 +43,8 @@ public:
         QList<AddressToWithId> orderAddresses;
         QList<Shipment> shipments;
         QList<Refund> refunds;
-        QHash<QString, RefundClue> orderId_refundClue;
+        // One order may have multiple refund lines (one per item/shipment).
+        QHash<QString, QList<RefundClue>> orderId_refundClues;
         QHash<QString, OrderManager::OrderInfo> orderId_infos;
         // year → month → countryFrom → countryTo → eventId → sku → units
         // One eventId can cover multiple SKUs; each (eventId, sku) pair is stored separately.
@@ -52,7 +53,11 @@ public:
         QDate dateMax;
 
         int countAll() const {
-            return shipments.size() + refunds.size() + orderId_refundClue.size();
+            int clueCount = 0;
+            for (const auto &list : std::as_const(orderId_refundClues)) {
+                clueCount += list.size();
+            }
+            return shipments.size() + refunds.size() + clueCount;
         }
     };
     struct ReturnOrderInfos{

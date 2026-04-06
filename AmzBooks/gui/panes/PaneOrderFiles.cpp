@@ -215,7 +215,10 @@ void PaneOrderFiles::importFile()
                    aggregatedResult.orderInfos->invoicingInfos.append(result.orderInfos->invoicingInfos);
                    
                    // Merge maps
-                   aggregatedResult.orderInfos->orderId_refundClue.insert(result.orderInfos->orderId_refundClue);
+                   for (auto it = result.orderInfos->orderId_refundClues.constBegin();
+                        it != result.orderInfos->orderId_refundClues.constEnd(); ++it) {
+                       aggregatedResult.orderInfos->orderId_refundClues[it.key()].append(it.value());
+                   }
                    aggregatedResult.orderInfos->orderId_infos.insert(result.orderInfos->orderId_infos);
 
                    // Merge inventory moves (txnIds are unique so inner insert is safe)
@@ -248,7 +251,7 @@ void PaneOrderFiles::importFile()
 
             const bool hasShipmentsOrRefunds = !aggregatedResult.orderInfos->shipments.isEmpty()
                                                || !aggregatedResult.orderInfos->refunds.isEmpty();
-            const bool hasRefundClues = !aggregatedResult.orderInfos->orderId_refundClue.isEmpty();
+            const bool hasRefundClues = !aggregatedResult.orderInfos->orderId_refundClues.isEmpty();
             if (hasShipmentsOrRefunds || hasRefundClues) {
                 int importedCount = 0;
                 QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
@@ -345,21 +348,23 @@ void PaneOrderFiles::importFile()
 
                 // Process Refund Clues
                 QStringList refundErrors;
-                for (auto it = aggregatedResult.orderInfos->orderId_refundClue.begin();
-                     it != aggregatedResult.orderInfos->orderId_refundClue.end(); ++it) {
-                    auto callbackPick = [self](const QString &errorTitle,
-                            const QString &errorText,
-                            const QList<QSharedPointer<Shipment>> &shipmentsToPick) -> QCoro::Task<QString> {
-                        DialogPickShipment dialog(errorTitle, errorText, shipmentsToPick, self);
-                        if (dialog.exec() == QDialog::Accepted) {
-                            co_return dialog.selectedShipmentId();
+                for (auto it = aggregatedResult.orderInfos->orderId_refundClues.constBegin();
+                     it != aggregatedResult.orderInfos->orderId_refundClues.constEnd(); ++it) {
+                    for (const auto &clue : it.value()) {
+                        auto callbackPick = [self](const QString &errorTitle,
+                                const QString &errorText,
+                                const QList<QSharedPointer<Shipment>> &shipmentsToPick) -> QCoro::Task<QString> {
+                            DialogPickShipment dialog(errorTitle, errorText, shipmentsToPick, self);
+                            if (dialog.exec() == QDialog::Accepted) {
+                                co_return dialog.selectedShipmentId();
+                            }
+                            co_return QString{};
+                        };
+                        QString err = co_await manager.tryRecordRefund(
+                                    it.key(), clue.value, clue.currency, QString{}, clue.date, callbackPick);
+                        if (!err.isEmpty()) {
+                            refundErrors.append(err);
                         }
-                        co_return QString{};
-                    };
-                    QString err = co_await manager.tryRecordRefund(
-                                it.key(), it.value().value, it.value().currency, QString{}, it.value().date, callbackPick);
-                    if (!err.isEmpty()) {
-                        refundErrors.append(err);
                     }
                 }
                 if (!refundErrors.isEmpty()) {

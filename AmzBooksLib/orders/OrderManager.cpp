@@ -1254,7 +1254,7 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
     QList<ShipmentInfo> shipments;
     {
         QSqlQuery q(m_db);
-        q.prepare("SELECT id, current_json, source_key FROM shipments WHERE order_id = ? AND id NOT LIKE '%-rev-%'");
+        q.prepare("SELECT id, current_json, source_key FROM shipments WHERE order_id = ? AND id NOT LIKE '%-rev-%' AND COALESCE(is_refund, 0) = 0");
         q.addBindValue(orderId);
         if (q.exec()) {
             while (q.next()) {
@@ -1284,16 +1284,18 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
         co_return QObject::tr("No shipments found for order %1").arg(orderId);
     }
 
-    // Look up whether this order is grouped and its customer account
+    // Look up whether this order is grouped, its customer account, and its store name
     bool orderIsGrouped = true;
     QString orderCustomerAccount;
+    QString orderStore;
     {
         QSqlQuery qOrd(m_db);
-        qOrd.prepare("SELECT COALESCE(is_ungrouped, 0), COALESCE(customer_account, '') FROM orders WHERE id = ?");
+        qOrd.prepare("SELECT COALESCE(is_ungrouped, 0), COALESCE(customer_account, ''), COALESCE(store, '') FROM orders WHERE id = ?");
         qOrd.addBindValue(orderId);
         if (qOrd.exec() && qOrd.next()) {
             orderIsGrouped = qOrd.value(0).toInt() == 0;
             orderCustomerAccount = qOrd.value(1).toString();
+            orderStore = qOrd.value(2).toString();
         }
     }
 
@@ -1378,6 +1380,22 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
         }
     }
 
+    // Case 2b: Partial refund — no exact match, but only one shipment is large enough to cover it.
+    // e.g. order has shipments 19.99 and 49.98, refund is -29.99: only 49.98 >= 29.99, so it must be a partial
+    // refund of that shipment.
+    {
+        double absAmount = qAbs(amount);
+        QList<int> eligibleIndices;
+        for (int i = 0; i < shipments.size(); ++i) {
+            if (qAbs(shipments[i].totalTaxed) >= absAmount - 0.01) {
+                eligibleIndices.append(i);
+            }
+        }
+        if (eligibleIndices.size() == 1) {
+            co_return createRefundFromShipment(shipments[eligibleIndices.first()]);
+        }
+    }
+
     // Case 3: shipmentId provided
     if (!shipmentId.isEmpty()) {
         for (const auto &info : shipments) {
@@ -1391,21 +1409,23 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
     // Case 4: Ambiguous — call callback to let the user pick a shipment
     QStringList details;
     QList<QSharedPointer<Shipment>> shipmentPtrs;
-    for (const auto &info : shipments) {
+    for (const auto &info : std::as_const(shipments)) {
         details.append(QObject::tr("  Shipment %1: amount=%2, from=%3, to=%4")
                         .arg(info.id, QString::number(info.totalTaxed, 'f', 2), info.countryFrom, info.countryTo));
         shipmentPtrs.append(info.shipment);
     }
 
     QString errorTitle = QObject::tr("Ambiguous refund for order %1").arg(orderId);
-    QString errorText = QObject::tr("Cannot determine which shipment to refund for order %1 (date=%2, amount=%3 %4).\n"
-              "Existing shipments:\n%5")
-            .arg(orderId, refundDate.isValid() ? refundDate.toString(Qt::ISODate) : QObject::tr("unknown"), QString::number(amount, 'f', 2), currency, details.join("\n"));
+    QString errorText = QObject::tr("Cannot determine which shipment to refund for order %1 (store=%2, date=%3, amount=%4 %5).\n"
+              "Existing shipments:\n%6")
+            .arg(orderId, orderStore,
+                 refundDate.isValid() ? refundDate.toString(Qt::ISODate) : QObject::tr("unknown"),
+                 QString::number(amount, 'f', 2), currency, details.join("\n"));
 
     if (callbackPickShipment) {
         QString pickedId = co_await callbackPickShipment(errorTitle, errorText, shipmentPtrs);
         if (!pickedId.isEmpty()) {
-            for (const auto &info : shipments) {
+            for (const auto &info : std::as_const(shipments)) {
                 if (info.id == pickedId) {
                     co_return createRefundFromShipment(info);
                 }

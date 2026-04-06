@@ -22,6 +22,7 @@ private slots:
     void test_amazonTransactions_structure();
     void test_amazonTransactions_realData();
     void test_amazonTransactions_invalid();
+    void test_amazonTransactions_multiLineRefund();
 };
 
 
@@ -102,7 +103,7 @@ void TestFileImportAmazonTransactions::test_amazonTransactions_structure()
     QVERIFY2(result.errorReturned.isEmpty(), qPrintable("Error: " + result.errorReturned));
     QVERIFY(result.orderInfos != nullptr);
 
-    // Now we expect orderId_refundClue to be populated, not refunds
+    // Now we expect orderId_refundClues to be populated, not refunds
     // No refunds or shipments should be created
     QCOMPARE(result.orderInfos->refunds.size(), 0);
     QCOMPARE(result.orderInfos->shipments.size(), 0);
@@ -127,27 +128,27 @@ void TestFileImportAmazonTransactions::test_amazonTransactions_structure()
         "111-1111111-1111127"
     };
 
-    const auto &clues = result.orderInfos->orderId_refundClue;
+    const auto &clues = result.orderInfos->orderId_refundClues;
 
     if (clues.size() != expectedIds.size()) {
         qDebug() << "Found clue IDs:";
-        for (auto it = clues.begin(); it != clues.end(); ++it) {
-            qDebug() << "  " << it.key() << " -> value:" << it.value().value << " currency:" << it.value().currency;
+        for (auto it = clues.constBegin(); it != clues.constEnd(); ++it) {
+            qDebug() << "  " << it.key() << " -> value:" << it.value().first().value << " currency:" << it.value().first().currency;
         }
     }
     QCOMPARE(clues.size(), expectedIds.size());
 
     for (const QString &id : expectedIds) {
         QVERIFY2(clues.contains(id), qPrintable("Missing clue for: " + id));
-        QCOMPARE(clues[id].currency, QString("USD"));
+        QCOMPARE(clues[id].first().currency, QString("USD"));
     }
 
-    // Verify specific amounts
-    QCOMPARE(clues["111-1111111-1111111"].value, -20.00);
-    QCOMPARE(clues["111-1111111-1111117"].value, 20.00);    // Positive amount is kept
-    QVERIFY(!clues.contains("111-1111111-1111118"));        // Zero amount must be skipped
-    QCOMPARE(clues["111-1111111-1111126"].value, -20000.00); // Large
-    QCOMPARE(clues["111-1111111-1111127"].value, -0.01);    // Small
+    // Verify specific amounts (all test lines have Other=0, so product charges == total)
+    QCOMPARE(clues["111-1111111-1111111"].first().value, -20.00);
+    QCOMPARE(clues["111-1111111-1111117"].first().value, 20.00);    // Positive amount is kept
+    QVERIFY(!clues.contains("111-1111111-1111118"));                // Zero amount must be skipped
+    QCOMPARE(clues["111-1111111-1111126"].first().value, -20000.00); // Large
+    QCOMPARE(clues["111-1111111-1111127"].first().value, -0.01);    // Small
 
     // Dates
     QVERIFY(result.orderInfos->dateMin.isValid());
@@ -208,48 +209,54 @@ void TestFileImportAmazonTransactions::test_amazonTransactions_realData()
         QVERIFY2(result.errorReturned.isEmpty(), qPrintable("Error in " + fileInfo.fileName() + ": " + result.errorReturned));
         QVERIFY(result.orderInfos != nullptr);
 
-        // No refunds/shipments should be created — only orderId_refundClue
+        // No refunds/shipments should be created — only orderId_refundClues
         QCOMPARE(result.orderInfos->refunds.size(), 0);
         QCOMPARE(result.orderInfos->shipments.size(), 0);
 
-        // Manual scan for refund count and amounts
+        // Manual scan: mirror the importer logic (product charges + other, append per line)
         CsvReader reader(fileInfo.absoluteFilePath(), ",", "\"", true, "\n", 0, "UTF-8");
         reader.readAll();
         const auto *data = reader.dataRode();
-        int indType = data->header.pos("Transaction type");
-        int indId = data->header.pos("Order ID");
+        int indType    = data->header.pos("Transaction type");
+        int indId      = data->header.pos("Order ID");
         int indCharges = data->header.pos("Total product charges");
+        int indOther   = data->header.pos("Other");
 
-        QHash<QString, double> expectedClues;
+        QHash<QString, QList<double>> expectedClues;
         if (indType != -1 && indId != -1) {
             for (const auto &line : data->lines) {
-                if (line.value(indType) == "Refund") {
-                    QString orderId = line.value(indId);
-                    if (orderId.isEmpty()) continue;
-                    // Note: later entries overwrite earlier ones for same orderId (same as importer)
-                    double charges = (indCharges != -1) ? line.value(indCharges).toDouble() : 0.0;
-                    if (qFuzzyIsNull(charges)) continue; // importer skips zero-amount clues
-                    expectedClues[orderId] = charges;
-                }
+                if (line.value(indType) != "Refund") continue;
+                const QString orderId = line.value(indId);
+                if (orderId.isEmpty()) continue;
+                double charges = (indCharges >= 0) ? line.value(indCharges).toDouble() : 0.0;
+                double other   = (indOther   >= 0) ? line.value(indOther).toDouble()   : 0.0;
+                double total   = charges + other;
+                if (qFuzzyIsNull(total)) continue;
+                expectedClues[orderId].append(total);
             }
         }
 
-        // Compare counts (only valid date lines are kept, but all real data should have valid dates)
-        const auto &clues = result.orderInfos->orderId_refundClue;
-        // clue count should match unique Refund orderIds (with valid dates)
-        // Allow some tolerance for invalid dates being skipped
+        const auto &clues = result.orderInfos->orderId_refundClues;
+        // Unique order IDs should match (modulo lines with invalid dates, at most 2)
         QVERIFY(clues.size() <= expectedClues.size());
-        QVERIFY(clues.size() >= expectedClues.size() - 2); // At most 2 invalid dates
+        QVERIFY(clues.size() >= expectedClues.size() - 2);
 
-        // Verify amounts match for shared keys
-        for (auto it = clues.begin(); it != clues.end(); ++it) {
+        // For each order in the result, the list of clue amounts must match
+        for (auto it = clues.constBegin(); it != clues.constEnd(); ++it) {
             QVERIFY2(expectedClues.contains(it.key()),
-                      qPrintable("Unexpected clue orderId: " + it.key()));
-            QVERIFY(qAbs(it.value().value - expectedClues[it.key()]) < 0.01);
+                     qPrintable("Unexpected clue orderId: " + it.key()));
+            const auto &expected = expectedClues[it.key()];
+            const auto &actual   = it.value();
+            QCOMPARE(actual.size(), expected.size());
+            for (int i = 0; i < actual.size(); ++i) {
+                QVERIFY(qAbs(actual[i].value - expected[i]) < 0.01);
+            }
         }
 
+        int totalClues = 0;
+        for (const auto &list : std::as_const(clues)) { totalClues += list.size(); }
         qDebug() << "File:" << fileInfo.fileName()
-                 << "Refund clues:" << clues.size();
+                 << "Refund clue entries:" << totalClues << "for" << clues.size() << "orders";
     }
 }
 
@@ -329,9 +336,77 @@ void TestFileImportAmazonTransactions::test_amazonTransactions_invalid()
 
         // Should succeed — no country extraction needed anymore
         QVERIFY2(result.errorReturned.isEmpty(), qPrintable("Error: " + result.errorReturned));
-        QCOMPARE(result.orderInfos->orderId_refundClue.size(), 1);
-        QVERIFY(result.orderInfos->orderId_refundClue.contains("111-1111111-1111111"));
+        QCOMPARE(result.orderInfos->orderId_refundClues.size(), 1);
+        QVERIFY(result.orderInfos->orderId_refundClues.contains("111-1111111-1111111"));
     }
+}
+
+void TestFileImportAmazonTransactions::test_amazonTransactions_multiLineRefund()
+{
+    // Reproduces the scenario of order 402-6078653-0276335 (2026-03-transactions-be.csv):
+    // Two products refunded in the same order, each on its own CSV row, each with a non-zero
+    // "Other" amount. The importer must produce one RefundClue per row (not overwrite) and
+    // must include "Other" in the amount so each clue matches its corresponding shipment.
+    //
+    // Order Payment rows (original sales, two shipments):
+    //   Caftan:  product=28.82  other=6.05  → shipment total 34.87
+    //   Qamis:   product=23.52  other=4.94  → shipment total 28.46
+    //
+    // Refund rows:
+    //   Caftan:  product=-28.82  other=-6.05  → refund total -34.87  (matches 34.87 shipment)
+    //   Qamis:   product=-23.52  other=-4.94  → refund total -28.46  (matches 28.46 shipment)
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    QString mockFile = tempDir.filePath("transactions-be.csv");
+    QFile file(mockFile);
+    QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream out(&file);
+
+    out << "\"Date\",\"Transaction status\",\"Transaction type\",\"Order ID\",\"Product Details\","
+           "\"Total product charges\",\"Total promotional rebates\",\"Amazon fees\",\"Other\",\"Total (EUR)\"\n";
+
+    // Two Refund lines for the same order
+    out << "\"27/03/2026\",\"Released\",\"Refund\",\"402-6078653-0276335\","
+           "\"Robe Caftan...\",\"-28.82\",\"0\",\"5.21\",\"-6.05\",\"-29.66\"\n";
+    out << "\"27/03/2026\",\"Released\",\"Refund\",\"402-6078653-0276335\","
+           "\"Robe Qamis...\",\"-23.52\",\"0\",\"4.25\",\"-4.94\",\"-24.21\"\n";
+    // Service fee row — should be ignored
+    out << "\"27/03/2026\",\"Released\",\"Service Fees\",\"402-6078653-0276335\","
+           "\"FBA Customer Returns Fee...\",\"0\",\"0\",\"-2.12\",\"0\",\"-2.12\"\n";
+
+    file.close();
+
+    QTemporaryDir workDir;
+    ImporterFileAmazonTransactions importer(workDir.path());
+    auto task = importer.loadReport(mockFile);
+    AbstractImporter::ReturnOrderInfos result = QCoro::waitFor(task);
+
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable("Error: " + result.errorReturned));
+    QVERIFY(result.orderInfos != nullptr);
+    QCOMPARE(result.orderInfos->refunds.size(), 0);
+    QCOMPARE(result.orderInfos->shipments.size(), 0);
+
+    const auto &clues = result.orderInfos->orderId_refundClues;
+
+    // Exactly one order ID
+    QCOMPARE(clues.size(), 1);
+    QVERIFY(clues.contains("402-6078653-0276335"));
+
+    // Two clues (one per refund line), not one (no overwriting)
+    const auto &orderClues = clues["402-6078653-0276335"];
+    QCOMPARE(orderClues.size(), 2);
+
+    // First clue: Caftan — product(-28.82) + other(-6.05) = -34.87
+    QVERIFY(qAbs(orderClues[0].value - (-34.87)) < 0.01);
+    QCOMPARE(orderClues[0].currency, QString("EUR"));
+    QCOMPARE(orderClues[0].date, QDate(2026, 3, 27));
+
+    // Second clue: Qamis — product(-23.52) + other(-4.94) = -28.46
+    QVERIFY(qAbs(orderClues[1].value - (-28.46)) < 0.01);
+    QCOMPARE(orderClues[1].currency, QString("EUR"));
+    QCOMPARE(orderClues[1].date, QDate(2026, 3, 27));
 }
 
 QTEST_MAIN(TestFileImportAmazonTransactions)

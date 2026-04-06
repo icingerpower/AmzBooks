@@ -245,8 +245,8 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonEu::_fetchRefun
                 }
 
                 if (!qFuzzyIsNull(principal)) {
-                    result.orderInfos->orderId_refundClue[orderId] =
-                        {qAbs(principal), currency, date};
+                    result.orderInfos->orderId_refundClues[orderId].append(
+                        {qAbs(principal), currency, date});
                 }
             }
         }

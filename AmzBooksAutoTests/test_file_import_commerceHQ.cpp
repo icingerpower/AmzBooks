@@ -372,10 +372,10 @@ void TestFileImportCommerceHQ::test_variedSituations()
     }
     QVERIFY2(foundFullRefund, "Full refund for order 2002 not found");
 
-    // Partial refund for order 2007 → stored as orderId_refundClue, not as a Refund
-    QVERIFY(result.orderInfos->orderId_refundClue.contains("2007"));
-    QVERIFY(qAbs(result.orderInfos->orderId_refundClue["2007"].value - 10.00) < 0.01);
-    QCOMPARE(result.orderInfos->orderId_refundClue["2007"].currency, QString("USD"));
+    // Partial refund for order 2007 → stored as orderId_refundClues, not as a Refund
+    QVERIFY(result.orderInfos->orderId_refundClues.contains("2007"));
+    QVERIFY(qAbs(result.orderInfos->orderId_refundClues["2007"].first().value - 10.00) < 0.01);
+    QCOMPARE(result.orderInfos->orderId_refundClues["2007"].first().currency, QString("USD"));
 
     // Address deduplication: 8 rows but only 7 distinct order-numbers (2006 appears twice)
     QCOMPARE(result.orderInfos->orderAddresses.size(), 7);
@@ -493,10 +493,10 @@ void TestFileImportCommerceHQ::test_refundClueVsRefund()
     QVERIFY(qAbs(refundAct.getAmountTaxed() - (-60.00)) < 0.01);
     QCOMPARE(refundAct.getDateTime().date(), QDate(2026, 2, 12)); // explicit refund-date
 
-    // Partial refund (7002) → stored as orderId_refundClue, not a Refund
-    QCOMPARE(result.orderInfos->orderId_refundClue.size(), 1);
-    QVERIFY(result.orderInfos->orderId_refundClue.contains("7002"));
-    const auto &clue = result.orderInfos->orderId_refundClue["7002"];
+    // Partial refund (7002) → stored as orderId_refundClues, not a Refund
+    QCOMPARE(result.orderInfos->orderId_refundClues.size(), 1);
+    QVERIFY(result.orderInfos->orderId_refundClues.contains("7002"));
+    const auto &clue = result.orderInfos->orderId_refundClues["7002"].first();
     QVERIFY(qAbs(clue.value - 30.00) < 0.01);
     QCOMPARE(clue.currency, QString("USD"));
 

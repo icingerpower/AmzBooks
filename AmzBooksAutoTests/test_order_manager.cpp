@@ -2288,10 +2288,12 @@ void TestOrderManager::test_importOrderInvariance()
                 // It's a coroutine, so it runs sequentially.
                 // tryRecordRefund usually does SELECTs and then INSERT/UPDATE.
                 // Keeping it outside the main bulk transaction is safer to avoid long-held locks if it yields.
-                for (auto it = result.orderInfos->orderId_refundClue.begin();
-                     it != result.orderInfos->orderId_refundClue.end(); ++it) {
-                    QCoro::waitFor(manager.tryRecordRefund(
-                        it.key(), it.value().value, it.value().currency, QString{}, it.value().date, noopCallback));
+                for (auto it = result.orderInfos->orderId_refundClues.constBegin();
+                     it != result.orderInfos->orderId_refundClues.constEnd(); ++it) {
+                    for (const auto &clue : it.value()) {
+                        QCoro::waitFor(manager.tryRecordRefund(
+                            it.key(), clue.value, clue.currency, QString{}, clue.date, noopCallback));
+                    }
                 }
             }
         }

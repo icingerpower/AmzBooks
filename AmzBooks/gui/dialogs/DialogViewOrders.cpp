@@ -60,12 +60,14 @@ DialogViewOrders::DialogViewOrders(const AbstractImporter::OrderInfos &orderInfo
     m_refundClueModel = new QStandardItemModel(this);
     m_refundClueModel->setColumnCount(3);
     m_refundClueModel->setHorizontalHeaderLabels({tr("Order ID"), tr("Amount"), tr("Currency")});
-    for (auto it = orderInfos.orderId_refundClue.constBegin(); it != orderInfos.orderId_refundClue.constEnd(); ++it) {
-        QList<QStandardItem *> row;
-        row << new QStandardItem(it.key());
-        row << new QStandardItem(QString::number(it.value().value, 'f', 2));
-        row << new QStandardItem(it.value().currency);
-        m_refundClueModel->appendRow(row);
+    for (auto it = orderInfos.orderId_refundClues.constBegin(); it != orderInfos.orderId_refundClues.constEnd(); ++it) {
+        for (const auto &clue : it.value()) {
+            QList<QStandardItem *> row;
+            row << new QStandardItem(it.key());
+            row << new QStandardItem(QString::number(clue.value, 'f', 2));
+            row << new QStandardItem(clue.currency);
+            m_refundClueModel->appendRow(row);
+        }
     }
     ui->tableViewRefundClues->setModel(m_refundClueModel);
     ui->tableViewRefundClues->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
