@@ -155,12 +155,17 @@ void TaxAmountTable::aggregate(const TaxResolver::TaxContext &ctx, const Shipmen
         double amountUntaxed = act.getAmountUntaxed();
         double amountTaxes = act.getAmountTaxes();
 
-        // Convert if needed
+        // Convert if needed.
+        // Use the last day of the activity's month as the exchange-rate date so
+        // that the displayed totals match what the bookkeeping CSV will contain
+        // (createEntryOssIoss also uses the month-end date for conversions).
         if (m_currencyRateManager) {
             if (act.getCurrency() != m_destCurrency) {
-                 double rate = m_currencyRateManager->rate(act.getCurrency(), m_destCurrency, act.getDateTime().date());
-                 amountUntaxed *= rate;
-                 amountTaxes *= rate;
+                const QDate actDate = act.getDateTime().date();
+                const QDate rateDate(actDate.year(), actDate.month(), actDate.daysInMonth());
+                const double rate = m_currencyRateManager->rate(act.getCurrency(), m_destCurrency, rateDate);
+                amountUntaxed *= rate;
+                amountTaxes *= rate;
             }
         }
 

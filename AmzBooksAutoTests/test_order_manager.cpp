@@ -1821,39 +1821,39 @@ void TestOrderManager::test_TaxAmountTable()
     // And an importRate method to feed fake rates.
     CurrencyRateManager rateManager(tempDir.path(), "fake_key");
     
-    // Inject fake rates
-    // USD -> EUR = 0.95
-    // GBP -> EUR = 1.15
-    // Note: The date must match the shipment date
+    // Inject fake rates for the month-end date (2023-01-31).
+    // TaxAmountTable now uses the last day of the activity's month for currency
+    // conversion so that its totals match the bookkeeping CSV (which also uses
+    // the month-end date via createEntryOssIoss / addDebitLeft).
+    // USD -> EUR = 0.95, GBP -> EUR = 1.15
+    const QDate monthEnd(2023, 1, 31); // last day of January 2023
+    rateManager.importRate(monthEnd.toString("yyyy-MM-dd"), "USD", "EUR", 0.95);
+    rateManager.importRate(monthEnd.toString("yyyy-MM-dd"), "GBP", "EUR", 1.15);
+
     QDate date1(2023, 1, 1);
     QDate date2(2023, 1, 5);
-    
-    rateManager.importRate(date1.toString("yyyy-MM-dd"), "USD", "EUR", 0.95);
-    rateManager.importRate(date2.toString("yyyy-MM-dd"), "GBP", "EUR", 1.15);
-    
+
     // Setup Data
     QList<QSharedPointer<Shipment>> shipmentsList;
-    
-    // Shipment 1: USD 100 + 20 Tax. 
-    // Untaxed: 100 * 0.95 = 95.0
-    // Tax: 20 * 0.95 = 19.0
-    auto act1 = Activity::create("ord1", "act1", "", QDateTime(date1, QTime(12, 0)), QDateTime(date1, QTime(12, 0)), "USD", "US", "DE", false, "DE", 
+
+    // Shipment 1: USD 100 + 20 Tax.
+    // Untaxed: (100-20) * 0.95 = 76.0
+    // Tax:     20 * 0.95 = 19.0
+    auto act1 = Activity::create("ord1", "act1", "", QDateTime(date1, QTime(12, 0)), QDateTime(date1, QTime(12, 0)), "USD", "US", "DE", false, "DE",
         Amount(100, 20), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act1.value}, "", true));
-    
+
     // Shipment 2: GBP 200 + 40 Tax.
-    // Untaxed: 200 * 1.15 = 230.0
-    // Tax: 40 * 1.15 = 46.0
-    auto act2 = Activity::create("ord2", "act2", "", QDateTime(date2, QTime(12, 0)), QDateTime(date2, QTime(12, 0)), "GBP", "UK", "DE", false, "DE", 
+    // Untaxed: (200-40) * 1.15 = 184.0
+    // Tax:     40 * 1.15 = 46.0
+    auto act2 = Activity::create("ord2", "act2", "", QDateTime(date2, QTime(12, 0)), QDateTime(date2, QTime(12, 0)), "GBP", "UK", "DE", false, "DE",
         Amount(200, 40), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act2.value}, "", true));
-    
-    // Shipment 3: Same Context as Shipment 1, but added to verify aggregation
-    // USD 50 + 10 Tax
-    // Untaxed: 50 * 0.95 = 47.5
-    // Tax: 10 * 0.95 = 9.5
-    // Total Context 1: Untaxed = 95+47.5 = 142.5. Tax = 19+9.5 = 28.5. Total = 171.0
-    auto act3 = Activity::create("ord3", "act3", "", QDateTime(date1, QTime(12, 0)), QDateTime(date1, QTime(12, 0)), "USD", "US", "DE", false, "DE", 
+
+    // Shipment 3: USD 50 + 10 Tax (same context as Shipment 1)
+    // Untaxed: (50-10) * 0.95 = 38.0
+    // Tax:     10 * 0.95 = 9.5
+    auto act3 = Activity::create("ord3", "act3", "", QDateTime(date1, QTime(12, 0)), QDateTime(date1, QTime(12, 0)), "USD", "US", "DE", false, "DE",
         Amount(50, 10), TaxSource::MarketplaceProvided, "DE", TaxScheme::EuOssUnion, TaxJurisdictionLevel::Country, SaleType::Products);
     shipmentsList.append(QSharedPointer<Shipment>::create(QList<Activity>{*act3.value}, "", true));
 

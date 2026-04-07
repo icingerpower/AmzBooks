@@ -318,6 +318,11 @@ add_custom_command(TARGET TestImporterFileAmazonOrdersFBM POST_BUILD
     $<TARGET_FILE_DIR:TestImporterFileAmazonOrdersFBM>/data/amazon-orders-fbm
 )
 
+add_executable(TestOssVatConsistency test_oss_vat_consistency.cpp)
+add_test(NAME TestOssVatConsistency COMMAND TestOssVatConsistency)
+target_link_libraries(TestOssVatConsistency PRIVATE Qt${QT_VERSION_MAJOR}::Test Qt${QT_VERSION_MAJOR}::Sql AmzBooksLib QCoro::Core)
+target_include_directories(TestOssVatConsistency PRIVATE ../AmzBooksLib ../../common)
+
 add_executable(TestFixVatTaxually
     test_fix_vat_taxually.cpp
     ../AmzBooks/gui/vatfixer/VatFixerTaxually.cpp
