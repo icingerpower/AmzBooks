@@ -139,10 +139,13 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         }
         
         const QString &orderId = line.value(idxOrderId);
-        const QString &shipId = line.value(idxShipId);
-        if (orderId.isEmpty() || shipId.isEmpty()) {
+        if (orderId.isEmpty()) {
             continue;
         }
+        const QString &shipId = line.value(idxShipId);
+        // When Shipment ID is empty (can happen in Amazon US reports), fall back to Order ID
+        // as the grouping key so the row is still processed rather than silently dropped.
+        const QString &groupKey = shipId.isEmpty() ? orderId : shipId;
         const QString &name = line.value(idxName);
         const QString &email = line.value(idxEmail);
         if (name.isEmpty() && email.isEmpty()) { // Vine refunded order
@@ -203,8 +206,8 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
         const QString &eventId = orderId; // Unique ID for shipment? Or OrderId? Usually ShipmentId for FBA shipments.
 
         // Create Activity
-        // Note: Using shipItemId as activityId to ensure uniqueness if multiple items per shipment
-        const QString &activityId = shipId;
+        // Note: Using groupKey (shipId, or orderId when shipId is empty) as activityId
+        const QString &activityId = groupKey;
 
         auto actResult = Activity::create(
                     eventId,
@@ -230,12 +233,12 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
             co_return ret;
         }
 
-        if (!shipIdActivities.contains(shipId)) {
-            shipIdOrder.append(shipId);
-            shipIdActivities[shipId] = QList<Activity>();
-            shipIdLineItems[shipId] = QList<LineItem>();
+        if (!shipIdActivities.contains(groupKey)) {
+            shipIdOrder.append(groupKey);
+            shipIdActivities[groupKey] = QList<Activity>();
+            shipIdLineItems[groupKey] = QList<LineItem>();
         }
-        shipIdActivities[shipId].append(*actResult.value);
+        shipIdActivities[groupKey].append(*actResult.value);
 
         // Line item for InvoicingInfo (one per CSV row / item)
         {
@@ -250,7 +253,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
             if (!title.isEmpty() && qAbs(taxedTotal) > 0.001) {
                 auto liRes = LineItem::create(sku, title, taxedTotal / qty, vatRate, qty);
                 if (liRes.ok()) {
-                    shipIdLineItems[shipId].append(*liRes.value);
+                    shipIdLineItems[groupKey].append(*liRes.value);
                 }
             }
         }

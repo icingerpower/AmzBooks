@@ -518,7 +518,10 @@ void TestFileImportAmazonFbaInvoicing::test_crossVerifyVsEuVat()
             int idxPrice = data->header.pos("Item Price");
             int idxTax = data->header.pos("Item Tax");
             int idxOriginCountry = data->header.pos("FC"); // FC needs resolution, skip country comparison
-            int idxDestCountry = data->header.pos("Delivery Country Code");
+            int idxDestCountry = -1;
+            for (const QString &col : QStringList{"Delivery Country Code", "Shipping Country Code"}) {
+                if (data->header.contains(col)) { idxDestCountry = data->header.pos(col); break; }
+            }
             
             if (idxOrderId == -1 || idxPrice == -1 || idxTax == -1) continue;
             
