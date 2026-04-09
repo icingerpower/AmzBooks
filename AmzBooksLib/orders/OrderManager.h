@@ -22,6 +22,7 @@
 #include "ActivitySource.h"
 #include "books/TaxResolver.h"
 #include "Address.h"
+#include "LineItem.h"
 class ActivitySource;
 class Shipment;
 class InvoicingInfo;
@@ -101,8 +102,25 @@ public:
                                                const QString &errorText,
                                                const QList<QSharedPointer<Shipment>> &shipmentsToPick)> callbackPickShipment);
 
+    // Records a manually-specified refund for the given order. Scales the original
+    // shipment's activities proportionally to totalRefundAmount (negative value),
+    // uses refundId as the shipment/activity ID, and sets the activity date to refundDate.
+    // If refundItems is non-empty, an InvoicingInfo is stored for the refund.
+    // Returns an empty string on success, or an error message.
+    QString recordManualRefund(
+            const QString &orderId,
+            const QString &refundId,
+            double totalRefundAmount,
+            const QString &currency,
+            const QDate &refundDate,
+            const QList<LineItem> &refundItems = {});
+
     // Retrieves the invoicing info associated with a shipment's root ID.
     QSharedPointer<InvoicingInfo> getInvoicingInfo(const QString &shipmentId) const;
+
+    // Retrieves the invoicing info for the first non-refund shipment of the given order,
+    // without any invoice-number restriction. Returns nullptr if nothing found.
+    QSharedPointer<InvoicingInfo> getInvoicingInfoByOrderId(const QString &orderId) const;
 
     // Retrieves the recorded "address to" for a given order ID, or nullptr if none.
     QSharedPointer<Address> getAddressTo(const QString &orderId) const;

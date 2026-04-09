@@ -1,5 +1,6 @@
 #include <QTest>
 #include <QTemporaryDir>
+#include <QCoroTask>
 
 #include "books/UngroupedOrderTable.h"
 #include "books/ServiceSalesBooksTable.h"
@@ -131,6 +132,95 @@ private slots:
         UngroupedOrderTable table(nullptr, &orderManager, tempDir.path());
         table.load(2024);
 
+        QCOMPARE(table.rowCount(), 0);
+    }
+
+    // tryRecordRefund: single shipment — refund is created and appears in the table.
+    void test_tryRecordRefund_singleShipment_addsRefundRow()
+    {
+        QTemporaryDir tempDir;
+        if (!tempDir.isValid()) QFAIL("Could not create temp dir");
+
+        OrderManager orderManager(tempDir.path());
+        orderManager.deleteDatabase();
+
+        ActivitySource source{ActivitySourceType::Report, "Amazon", "EU", "report-2024"};
+
+        auto ship = makeShipment("Order-Ref-1", QDate(2024, 5, 10), 80.0, "EUR", "acc1", false);
+        QVERIFY(ship);
+        orderManager.recordShipmentFromSource("Order-Ref-1", &source, ship.data(), QDate(2024, 5, 10));
+        orderManager.recordOrders({{"Order-Ref-1", OrderManager::OrderInfo{QString(), false, "acc1"}}});
+
+        // Apply full refund via tryRecordRefund (no callback needed for single shipment).
+        const QString errorMsg = QCoro::waitFor(orderManager.tryRecordRefund(
+            "Order-Ref-1", -80.0, "EUR", QString(), QDate(2024, 6, 1), nullptr));
+        QVERIFY2(errorMsg.isEmpty(), qPrintable(errorMsg));
+
+        // The table for 2024 should now contain both the original sale and the refund.
+        UngroupedOrderTable table(nullptr, &orderManager, tempDir.path());
+        table.load(2024);
+
+        // Two rows: original (+80) and refund (−80).
+        QCOMPARE(table.rowCount(), 2);
+
+        double sumAmounts = 0.0;
+        for (int i = 0; i < table.rowCount(); ++i) {
+            sumAmounts += table.data(table.index(i, AbstractBooksTable::IND_AMOUNT)).toDouble();
+        }
+        QCOMPARE(sumAmounts, 0.0);
+    }
+
+    // tryRecordRefund: partial refund — refund row reflects the partial amount.
+    void test_tryRecordRefund_partialAmount()
+    {
+        QTemporaryDir tempDir;
+        if (!tempDir.isValid()) QFAIL("Could not create temp dir");
+
+        OrderManager orderManager(tempDir.path());
+        orderManager.deleteDatabase();
+
+        ActivitySource source{ActivitySourceType::Report, "Amazon", "EU", "report-2024"};
+
+        auto ship = makeShipment("Order-Partial-1", QDate(2024, 3, 5), 100.0, "EUR", "acc1", false);
+        QVERIFY(ship);
+        orderManager.recordShipmentFromSource("Order-Partial-1", &source, ship.data(), QDate(2024, 3, 5));
+        orderManager.recordOrders({{"Order-Partial-1", OrderManager::OrderInfo{QString(), false, "acc1"}}});
+
+        const QString errorMsg = QCoro::waitFor(orderManager.tryRecordRefund(
+            "Order-Partial-1", -40.0, "EUR", QString(), QDate(2024, 4, 1), nullptr));
+        QVERIFY2(errorMsg.isEmpty(), qPrintable(errorMsg));
+
+        UngroupedOrderTable table(nullptr, &orderManager, tempDir.path());
+        table.load(2024);
+
+        QCOMPARE(table.rowCount(), 2);
+
+        double maxAmt = 0.0;
+        double minAmt = 0.0;
+        for (int i = 0; i < table.rowCount(); ++i) {
+            const double amt = table.data(table.index(i, AbstractBooksTable::IND_AMOUNT)).toDouble();
+            if (amt > maxAmt) { maxAmt = amt; }
+            if (amt < minAmt) { minAmt = amt; }
+        }
+        QCOMPARE(maxAmt, 100.0);
+        QCOMPARE(minAmt, -40.0);
+    }
+
+    // tryRecordRefund: non-existent order returns an error message, table unchanged.
+    void test_tryRecordRefund_unknownOrder_returnsError()
+    {
+        QTemporaryDir tempDir;
+        if (!tempDir.isValid()) QFAIL("Could not create temp dir");
+
+        OrderManager orderManager(tempDir.path());
+        orderManager.deleteDatabase();
+
+        const QString errorMsg = QCoro::waitFor(orderManager.tryRecordRefund(
+            "Order-Does-Not-Exist", -50.0, "EUR", QString(), QDate(2024, 1, 1), nullptr));
+        QVERIFY(!errorMsg.isEmpty());
+
+        UngroupedOrderTable table(nullptr, &orderManager, tempDir.path());
+        table.load(2024);
         QCOMPARE(table.rowCount(), 0);
     }
 };

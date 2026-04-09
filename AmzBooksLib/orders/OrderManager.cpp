@@ -1380,9 +1380,10 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
             double refundTaxes = act.getAmountTaxesSource() * ratio;
 
             ::Amount negatedAmount(refundTaxed, refundTaxes);
+            const QString refundActivityId = act.getActivityId() + "-refund";
             auto res = Activity::create(
                 act.getEventId(),
-                act.getActivityId() + "-refund",
+                refundActivityId,
                 act.getSubActivityId(),
                 act.getDateTime(),
                 act.getDateTimeTax(), // Using original tax date as requested
@@ -1422,6 +1423,7 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
         }
 
         recordShipmentFromSource(orderId, &source, &refund, refundDate.isValid() ? refundDate : QDate::currentDate(), false);
+
         return QString{}; // Success
     };
 
@@ -1501,6 +1503,152 @@ QCoro::Task<QString> OrderManager::tryRecordRefund(
     co_return errorText;
 }
 
+QString OrderManager::recordManualRefund(
+        const QString &orderId,
+        const QString &refundId,
+        double totalRefundAmount,
+        const QString &currency,
+        const QDate &refundDate,
+        const QList<LineItem> &refundItems)
+{
+    // 1. Find the first (earliest) non-refund shipment for this order
+    QString originalId;
+    QString originalSourceKey;
+    QSharedPointer<Shipment> originalShipment;
+    double originalTotalTaxed = 0.0;
+    {
+        QSqlQuery q(m_db);
+        q.prepare("SELECT id, current_json, source_key FROM shipments "
+                  "WHERE order_id = ? AND id NOT LIKE '%-rev-%' AND COALESCE(is_refund, 0) = 0 "
+                  "ORDER BY event_date ASC LIMIT 1");
+        q.addBindValue(orderId);
+        if (!q.exec() || !q.next()) {
+            return QObject::tr("No shipment found for order %1").arg(orderId);
+        }
+        originalId = q.value(0).toString();
+        originalSourceKey = q.value(2).toString();
+        const QJsonObject obj = QJsonDocument::fromJson(q.value(1).toString().toUtf8()).object();
+        originalShipment = QSharedPointer<Shipment>::create(Shipment::fromJson(obj));
+        for (const auto &act : originalShipment->getActivities()) {
+            originalTotalTaxed += act.getAmountTaxed();
+        }
+    }
+
+    // 2. Look up order metadata
+    bool orderIsGrouped = true;
+    QString orderCustomerAccount;
+    {
+        QSqlQuery qOrd(m_db);
+        qOrd.prepare("SELECT COALESCE(is_ungrouped, 0), COALESCE(customer_account, '') FROM orders WHERE id = ?");
+        qOrd.addBindValue(orderId);
+        if (qOrd.exec() && qOrd.next()) {
+            orderIsGrouped = qOrd.value(0).toInt() == 0;
+            orderCustomerAccount = qOrd.value(1).toString();
+        }
+    }
+
+    // 3. Scale original activities proportionally to totalRefundAmount (negative)
+    const auto &activities = originalShipment->getActivities();
+    if (activities.isEmpty()) {
+        return QObject::tr("Shipment %1 has no activities").arg(originalId);
+    }
+
+    const QDateTime refundDateTime(refundDate, QTime(0, 0));
+    const double ratio = (qAbs(originalTotalTaxed) > 0.001) ? (totalRefundAmount / originalTotalTaxed) : 1.0;
+
+    QList<Activity> refundActivities;
+    for (const auto &act : activities) {
+        const double refundTaxed = act.getAmountTaxed() * ratio;
+        const double refundTaxes = act.getAmountTaxesSource() * ratio;
+        auto res = Activity::create(
+            act.getEventId(),
+            refundId,
+            act.getSubActivityId(),
+            refundDateTime,
+            refundDateTime,
+            currency.isEmpty() ? act.getCurrency() : currency,
+            act.getCountryCodeFrom(),
+            act.getCountryCodeTo(),
+            act.getIsCompany(),
+            act.getCountryCodeVatPaidTo(),
+            Amount(refundTaxed, refundTaxes),
+            act.getTaxSource(),
+            act.getTaxDeclaringCountryCode(),
+            act.getTaxScheme(),
+            act.getTaxJurisdictionLevel(),
+            act.getSaleType(),
+            act.getVatTerritoryFrom(),
+            act.getVatTerritoryTo());
+        if (res.ok()) {
+            refundActivities.append(*res.value);
+        }
+    }
+
+    if (refundActivities.isEmpty()) {
+        return QObject::tr("Failed to create refund activities for order %1").arg(orderId);
+    }
+
+    // 4. Parse source from original shipment's source key
+    ActivitySource source;
+    {
+        const QStringList parts = originalSourceKey.split('|');
+        if (parts.size() >= 4) {
+            source.type = static_cast<ActivitySourceType>(parts[0].toInt());
+            source.channel = parts[1];
+            source.subchannel = parts[2];
+            source.reportOrMethode = parts[3];
+        }
+    }
+
+    // 5. Insert the refund directly, bypassing the cross-source duplicate guard in
+    //    recordShipmentFromSource (which blocks any "-refund"-suffixed ID when a refund
+    //    already exists — that guard is for automated imports, not manual user actions).
+    Refund refund(refundActivities, orderCustomerAccount, orderIsGrouped);
+    const QString insertedId = refund.getId();
+
+    // If a row with this exact ID already exists, treat it as an error (true duplicate).
+    {
+        QSqlQuery qCheck(m_db);
+        qCheck.prepare("SELECT 1 FROM shipments WHERE id = ? LIMIT 1");
+        qCheck.addBindValue(insertedId);
+        if (qCheck.exec() && qCheck.next()) {
+            return QObject::tr("A refund with ID \"%1\" already exists. "
+                               "Please choose a different refund ID.").arg(insertedId);
+        }
+    }
+
+    const QString jsonStr = QString::fromUtf8(
+        QJsonDocument(refund.toJson()).toJson(QJsonDocument::Compact));
+    const QString eventDate = refundActivities.first().getDateTime().toString(Qt::ISODate);
+    const QString sourceKey = getSourceKey(&source);
+
+    QSqlQuery qIns(m_db);
+    qIns.prepare("INSERT INTO shipments "
+                 "(id, order_id, status, original_json, current_json, event_date, source_key, inserted_at, is_refund) "
+                 "VALUES (?, ?, 'Draft', ?, ?, ?, ?, ?, 1)");
+    qIns.addBindValue(insertedId);
+    qIns.addBindValue(orderId);
+    qIns.addBindValue(jsonStr);
+    qIns.addBindValue(jsonStr);
+    qIns.addBindValue(eventDate);
+    qIns.addBindValue(sourceKey);
+    qIns.addBindValue(QDateTime::currentDateTime().toString(Qt::ISODate));
+    if (!qIns.exec()) {
+        return QObject::tr("Failed to record refund for order %1: %2")
+            .arg(orderId, qIns.lastError().text());
+    }
+
+    // 6. Record invoicing info for the refund if items were provided
+    if (!refundItems.isEmpty()) {
+        const auto invRes = InvoicingInfo::create(&refund, refundItems);
+        if (invRes.ok()) {
+            recordInvoicingInfo(insertedId, &(*invRes.value));
+        }
+    }
+
+    return QString{};
+}
+
 QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfo(const QString &shipmentId) const
 {
     // 1. Resolve to Root ID
@@ -1569,6 +1717,23 @@ QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfo(const QString &ship
     }
 
     // Return empty pointer if not found
+    return nullptr;
+}
+
+QSharedPointer<InvoicingInfo> OrderManager::getInvoicingInfoByOrderId(const QString &orderId) const
+{
+    QSqlQuery q(m_db);
+    q.prepare(
+        "SELECT inv.json FROM invoicing_infos inv "
+        "JOIN shipments s ON COALESCE(s.root_id, s.id) = inv.shipment_root_id "
+        "WHERE s.order_id = ? "
+        "AND COALESCE(s.is_refund, 0) = 0 "
+        "ORDER BY s.event_date ASC LIMIT 1");
+    q.addBindValue(orderId);
+    if (q.exec() && q.next()) {
+        const QJsonObject json = QJsonDocument::fromJson(q.value(0).toString().toUtf8()).object();
+        return QSharedPointer<InvoicingInfo>::create(InvoicingInfo::fromJson(json));
+    }
     return nullptr;
 }
 

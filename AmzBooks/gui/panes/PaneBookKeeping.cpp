@@ -27,8 +27,12 @@
 #include <QTableWidget>
 #include <QHeaderView>
 #include <QVBoxLayout>
+#include <QFormLayout>
 #include <QDialogButtonBox>
+#include <QDateEdit>
+#include <QDoubleSpinBox>
 #include <QLabel>
+#include <QLineEdit>
 
 #include "CurrencyRateManager.h"
 
@@ -57,6 +61,7 @@
 #include "gui/dialogs/DialogEditServiceClients.h"
 #include "gui/dialogs/DialogAddSaleService.h"
 #include "gui/dialogs/DialogVatParams.h"
+#include "gui/dialogs/DialogPickShipment.h"
 #include "books/ServiceSalesBooksTable.h"
 #include "books/UngroupedOrderTable.h"
 #include "books/ServiceClientManager.h"
@@ -2255,6 +2260,173 @@ void PaneBookKeeping::serviceCreateFromSelection()
     }
 }
 
+void PaneBookKeeping::saleAddRefund()
+{
+    QCoro::connect(saleAddRefundAsync(), this, []() {});
+}
+
+QCoro::Task<> PaneBookKeeping::saleAddRefundAsync()
+{
+    auto *ecomTable = qobject_cast<UngroupedOrderTable *>(ui->tableEcomSales->model());
+    if (!ecomTable) {
+        co_return;
+    }
+
+    const QModelIndexList selection = ui->tableEcomSales->selectionModel()->selectedRows();
+    if (selection.size() != 1) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select exactly one order to refund."));
+        co_return;
+    }
+
+    const int row = selection.first().row();
+    const QString orderId   = ecomTable->getRowId(ecomTable->index(row, 0));
+    const double amount     = ecomTable->data(ecomTable->index(row, AbstractBooksTable::IND_AMOUNT)).toDouble();
+    const QString currency  = ecomTable->data(ecomTable->index(row, AbstractBooksTable::IND_CURRENCY)).toString();
+
+    if (amount <= 0.0) {
+        QMessageBox::warning(this, tr("Invalid Selection"),
+                             tr("The selected entry is already a refund (negative amount). "
+                                "Please select a sale entry."));
+        co_return;
+    }
+
+    const QDate today       = QDate::currentDate();
+    const QDate defaultDate = QDate(today.year(), today.month(), 1).addMonths(-1);
+
+    const auto invoicingInfo = m_orderManager->getInvoicingInfoByOrderId(orderId);
+    const QList<LineItem> items = invoicingInfo ? invoicingInfo->getItems() : QList<LineItem>{};
+
+    QDialog dlg(this);
+    dlg.setWindowTitle(tr("Add Refund — %1").arg(orderId));
+
+    auto *form       = new QFormLayout;
+    auto *dateEdit   = new QDateEdit(defaultDate, &dlg);
+    dateEdit->setCalendarPopup(true);
+    dateEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd"));
+    form->addRow(tr("Refund date:"), dateEdit);
+
+    auto *refundIdLineEdit = new QLineEdit(orderId + QStringLiteral("-refund"), &dlg);
+    form->addRow(tr("Refund ID:"), refundIdLineEdit);
+
+    // Case A: no items — simple amount spinbox (existing behaviour)
+    QDoubleSpinBox *amountSpin = nullptr;
+    // Case B: items available — table with per-item refund spinboxes
+    QList<QDoubleSpinBox *> itemSpinBoxes;
+    QLabel *totalLabel = nullptr;
+
+    if (items.isEmpty()) {
+        amountSpin = new QDoubleSpinBox(&dlg);
+        amountSpin->setRange(0.01, amount);
+        amountSpin->setDecimals(2);
+        amountSpin->setSingleStep(0.01);
+        amountSpin->setValue(amount);
+        amountSpin->setSuffix(QStringLiteral(" ") + currency);
+        form->addRow(tr("Amount to refund:"), amountSpin);
+    } else {
+        auto *table = new QTableWidget(items.size(), 4, &dlg);
+        table->setHorizontalHeaderLabels({tr("Item"), tr("Qty"), tr("Full amount"), tr("Refund amount")});
+        table->horizontalHeader()->setStretchLastSection(true);
+        table->verticalHeader()->setVisible(false);
+
+        totalLabel = new QLabel(&dlg);
+
+        for (int i = 0; i < items.size(); ++i) {
+            const auto &item = items[i];
+
+            auto *itemName = new QTableWidgetItem(item.getName());
+            itemName->setFlags(itemName->flags() & ~Qt::ItemIsEditable);
+            table->setItem(i, 0, itemName);
+
+            auto *itemQty = new QTableWidgetItem(QString::number(item.getQuantity()));
+            itemQty->setFlags(itemQty->flags() & ~Qt::ItemIsEditable);
+            table->setItem(i, 1, itemQty);
+
+            auto *itemAmount = new QTableWidgetItem(QString::number(item.getTotalTaxed(), 'f', 2));
+            itemAmount->setFlags(itemAmount->flags() & ~Qt::ItemIsEditable);
+            table->setItem(i, 2, itemAmount);
+
+            auto *spin = new QDoubleSpinBox(&dlg);
+            spin->setRange(0.0, item.getTotalTaxed());
+            spin->setDecimals(2);
+            spin->setSingleStep(0.01);
+            spin->setValue(item.getTotalTaxed());
+            table->setCellWidget(i, 3, spin);
+            itemSpinBoxes.append(spin);
+        }
+
+        auto updateTotal = [totalLabel, &itemSpinBoxes, currency]() {
+            double total = 0.0;
+            for (const auto *spin : std::as_const(itemSpinBoxes)) {
+                total += spin->value();
+            }
+            totalLabel->setText(QObject::tr("Total refund: %1 %2").arg(QString::number(total, 'f', 2), currency));
+        };
+        updateTotal();
+
+        for (auto *spin : std::as_const(itemSpinBoxes)) {
+            connect(spin, &QDoubleSpinBox::valueChanged, &dlg, updateTotal);
+        }
+
+        table->resizeColumnsToContents();
+        form->addRow(table);
+        form->addRow(totalLabel);
+    }
+
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
+    connect(buttons, &QDialogButtonBox::accepted, &dlg, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+
+    auto *layout = new QVBoxLayout(&dlg);
+    layout->addLayout(form);
+    layout->addWidget(buttons);
+
+    if (dlg.exec() != QDialog::Accepted) {
+        co_return;
+    }
+
+    const QDate refundDate = dateEdit->date();
+    const QString customRefundId = refundIdLineEdit->text().trimmed();
+
+    double refundAmount = 0.0;
+    QList<LineItem> refundItems;
+
+    if (amountSpin) {
+        refundAmount = amountSpin->value();
+    } else {
+        for (int i = 0; i < items.size(); ++i) {
+            const double newTotal = itemSpinBoxes.at(i)->value();
+            refundAmount += newTotal;
+            if (qAbs(newTotal) < 0.001) {
+                continue;
+            }
+            const double qty = items.at(i).getQuantity();
+            if (qAbs(qty) < 0.001) {
+                continue;
+            }
+            const double newTaxedPerUnit = newTotal / qty;
+            const double untaxedPerUnit = items.at(i).getAmountUntaxed();
+            const double vatRate = (qAbs(untaxedPerUnit) > 0.001)
+                ? (items.at(i).getAmountTaxed() - untaxedPerUnit) / untaxedPerUnit
+                : 0.0;
+            const auto res = LineItem::create(items.at(i).getSku(), items.at(i).getName(),
+                                              newTaxedPerUnit, vatRate, qty);
+            if (res.ok()) {
+                refundItems.append(*res.value);
+            }
+        }
+    }
+
+    const QString errorMsg = m_orderManager->recordManualRefund(
+        orderId, customRefundId, -refundAmount, currency, refundDate, refundItems);
+
+    if (!errorMsg.isEmpty()) {
+        QMessageBox::warning(this, tr("Refund Error"), errorMsg);
+        co_return;
+    }
+
+    loadYearSelected();
+}
 void PaneBookKeeping::amzPaymentAdd()
 {
     QSettings settings;
@@ -2624,6 +2796,10 @@ void PaneBookKeeping::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneBookKeeping::amzPaymentRemove);
+    connect(ui->buttonEcomRefund,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::saleAddRefund);
 }
 
 void PaneBookKeeping::_updateServiceButtonsEnabled()
