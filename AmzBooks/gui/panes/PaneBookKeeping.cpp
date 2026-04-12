@@ -446,9 +446,10 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
         }
 
         qDebug() << "[PaneBookKeeping] Sales completed. Generating OSS/IOSS VAT declaration entries...";
-        // 5.1c OSS/IOSS VAT declaration entries — one set per complete month,
+        // 5.1c OSS/IOSS VAT declaration entries — one set per complete trimester,
         //      all sources (grouped + ungrouped) combined so the declaration
-        //      matches the full month's cross-border sales.
+        //      matches the full quarter's cross-border sales.
+        //      Months 01+02+03 → entry dated 03/31, 04+05+06 → 06/30, etc.
         {
             // Collect every shipment from all sources, bucketed by calendar month
             QMap<QPair<int,int>, QMultiMap<QDateTime, QSharedPointer<Shipment>>> monthlyAllShipments;
@@ -463,18 +464,30 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
             collectIntoMonthly(sourceMapGrouped);
             collectIntoMonthly(sourceMapUngrouped);
 
+            // Re-bucket months into quarters (Q1: 1-3, Q2: 4-6, Q3: 7-9, Q4: 10-12)
+            QMap<QPair<int,int>, QMultiMap<QDateTime, QSharedPointer<Shipment>>> quarterlyAllShipments;
             for (auto it = monthlyAllShipments.cbegin(); it != monthlyAllShipments.cend(); ++it) {
-                const int mYear  = it.key().first;
-                const int mMonth = it.key().second;
+                const int qYear   = it.key().first;
+                const int qMonth  = it.key().second;
+                const int quarter = (qMonth - 1) / 3 + 1;
+                for (auto jt = it.value().cbegin(); jt != it.value().cend(); ++jt) {
+                    quarterlyAllShipments[{qYear, quarter}].insert(jt.key(), jt.value());
+                }
+            }
 
-                // Skip current or future months
-                if (mYear > currentDate.year()
-                        || (mYear == currentDate.year() && mMonth >= currentDate.month())) {
+            for (auto it = quarterlyAllShipments.cbegin(); it != quarterlyAllShipments.cend(); ++it) {
+                const int qYear     = it.key().first;
+                const int quarter   = it.key().second;
+                const int lastMonth = quarter * 3;
+
+                // Skip current or future quarters (complete only when last month has fully passed)
+                if (qYear > currentDate.year()
+                        || (qYear == currentDate.year() && lastMonth >= currentDate.month())) {
                     continue;
                 }
 
-                const QDate entryDate(mYear, mMonth, QDate(mYear, mMonth, 1).daysInMonth());
-                const QDate declarationPeriod(mYear, mMonth, 1);
+                const QDate entryDate(qYear, lastMonth, QDate(qYear, lastMonth, 1).daysInMonth());
+                const QDate declarationPeriod(qYear, lastMonth, 1);
 
                 const QList<JournalEntryFactory::GroupedShipmentData> allGroups =
                     JournalEntryFactory::computeGrouping(nullptr, it.value(), entryDate);
