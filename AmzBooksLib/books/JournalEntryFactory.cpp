@@ -960,11 +960,19 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
                 : 1.0;
 
             const QString countryFromFR = CountriesEu::toFrenchName(rg.data.countryFrom);
-            const QString debitLabel = QString("TVA OSS %1 %2 %3 => %4 %5 %6 %7%")
-                .arg(periodStr, periodStr, countryFromFR, countryToFR,
-                     QString::number(rg.data.totalRevenue, 'f', 2),
-                     rg.data.currency,
-                     QString::number(rg.data.vatRatePct, 'f', 2));
+            const QString debitLabel = (rg.data.currency != companyCurrency)
+                ? QString("TVA OSS %1 %2 %3 => %4 %5 %6 %7 %8 %9%")
+                      .arg(periodStr, periodStr, countryFromFR, countryToFR,
+                           QString::number(std::round(rg.data.totalRevenue * cr * 100.0) / 100.0, 'f', 2),
+                           companyCurrency,
+                           QString::number(rg.data.totalRevenue, 'f', 2),
+                           rg.data.currency,
+                           QString::number(rg.data.vatRatePct, 'f', 2))
+                : QString("TVA OSS %1 %2 %3 => %4 %5 %6 %7%")
+                      .arg(periodStr, periodStr, countryFromFR, countryToFR,
+                           QString::number(rg.data.totalRevenue, 'f', 2),
+                           rg.data.currency,
+                           QString::number(rg.data.vatRatePct, 'f', 2));
 
             JournalEntry::EntryLine debitLine;
             debitLine.title   = debitLabel;
@@ -1020,11 +1028,19 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
 
         const QString countryFromFR = CountriesEu::toFrenchName(rg.data.countryFrom);
         const QString countryToFR   = CountriesEu::toFrenchName(rg.data.countryTo);
-        const QString debitLabel = QString("TVA IOSS %1 %2 %3 => %4 %5 %6 %7%")
-            .arg(periodStr, periodStr, countryFromFR, countryToFR,
-                 QString::number(rg.data.totalRevenue, 'f', 2),
-                 rg.data.currency,
-                 QString::number(rg.data.vatRatePct, 'f', 2));
+        const QString debitLabel = (rg.data.currency != companyCurrency)
+            ? QString("TVA IOSS %1 %2 %3 => %4 %5 %6 %7 %8 %9%")
+                  .arg(periodStr, periodStr, countryFromFR, countryToFR,
+                       QString::number(std::round(rg.data.totalRevenue * cr * 100.0) / 100.0, 'f', 2),
+                       companyCurrency,
+                       QString::number(rg.data.totalRevenue, 'f', 2),
+                       rg.data.currency,
+                       QString::number(rg.data.vatRatePct, 'f', 2))
+            : QString("TVA IOSS %1 %2 %3 => %4 %5 %6 %7%")
+                  .arg(periodStr, periodStr, countryFromFR, countryToFR,
+                       QString::number(rg.data.totalRevenue, 'f', 2),
+                       rg.data.currency,
+                       QString::number(rg.data.vatRatePct, 'f', 2));
 
         JournalEntry::EntryLine debitLine;
         debitLine.title   = debitLabel;
