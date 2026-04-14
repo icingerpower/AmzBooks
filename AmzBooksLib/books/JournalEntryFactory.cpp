@@ -960,19 +960,33 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
                 : 1.0;
 
             const QString countryFromFR = CountriesEu::toFrenchName(rg.data.countryFrom);
-            const QString debitLabel = (rg.data.currency != companyCurrency)
-                ? QString("TVA OSS %1 %2 %3 => %4 %5 %6 %7 %8 %9%")
-                      .arg(periodStr, periodStr, countryFromFR, countryToFR,
-                           QString::number(std::round(rg.data.totalRevenue * cr * 100.0) / 100.0, 'f', 2),
-                           companyCurrency,
-                           QString::number(rg.data.totalRevenue, 'f', 2),
-                           rg.data.currency,
-                           QString::number(rg.data.vatRatePct, 'f', 2))
-                : QString("TVA OSS %1 %2 %3 => %4 %5 %6 %7%")
-                      .arg(periodStr, periodStr, countryFromFR, countryToFR,
-                           QString::number(rg.data.totalRevenue, 'f', 2),
-                           rg.data.currency,
-                           QString::number(rg.data.vatRatePct, 'f', 2));
+
+            // Company-currency amounts for the label and rounding-correction hint
+            const double vatCcy = (rg.data.currency != companyCurrency)
+                ? std::round(rg.data.totalVat * cr * 100.0) / 100.0
+                : rg.data.totalVat;
+            const double revenueCcy = (rg.data.currency != companyCurrency)
+                ? std::round(rg.data.totalRevenue * cr * 100.0) / 100.0
+                : rg.data.totalRevenue;
+            // Corrected revenue: exact base that yields the declared VAT at the nominal rate.
+            // Shown as a hint for the OSS portal declaration (always in company currency).
+            const double correctedRevenueCcy = std::round(vatCcy / (rg.data.vatRatePct / 100.0) * 100.0) / 100.0;
+            const QString correctionStr = (qAbs(correctedRevenueCcy - revenueCcy) >= 0.005)
+                ? QString(" (cor. arrondi %1 %2)").arg(QString::number(correctedRevenueCcy, 'f', 2), companyCurrency)
+                : QString();
+
+            // Revenue part: show EUR equivalent first when sale is in a foreign currency
+            const QString revenuePart = (rg.data.currency != companyCurrency)
+                ? QString("%1 %2 %3 %4")
+                      .arg(QString::number(revenueCcy, 'f', 2), companyCurrency,
+                           QString::number(rg.data.totalRevenue, 'f', 2), rg.data.currency)
+                : QString("%1 %2")
+                      .arg(QString::number(rg.data.totalRevenue, 'f', 2), rg.data.currency);
+
+            const QString debitLabel = QString("TVA OSS %1 %2 %3 => %4 %5%6 %7%")
+                .arg(periodStr, periodStr, countryFromFR, countryToFR,
+                     revenuePart, correctionStr,
+                     QString::number(rg.data.vatRatePct, 'f', 2));
 
             JournalEntry::EntryLine debitLine;
             debitLine.title   = debitLabel;
@@ -981,9 +995,6 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
             entry->addDebitLeft(debitLine, rg.data.currency, cr);
 
             // Mirror amount in company currency for credit tracking
-            const double vatCcy = (rg.data.currency != companyCurrency)
-                ? std::round(rg.data.totalVat * cr * 100.0) / 100.0
-                : rg.data.totalVat;
             payAccountAmounts[rg.vatAccountToPay] += vatCcy;
         }
 
@@ -1028,19 +1039,31 @@ QCoro::Task<QList<QSharedPointer<JournalEntry>>> JournalEntryFactory::createEntr
 
         const QString countryFromFR = CountriesEu::toFrenchName(rg.data.countryFrom);
         const QString countryToFR   = CountriesEu::toFrenchName(rg.data.countryTo);
-        const QString debitLabel = (rg.data.currency != companyCurrency)
-            ? QString("TVA IOSS %1 %2 %3 => %4 %5 %6 %7 %8 %9%")
-                  .arg(periodStr, periodStr, countryFromFR, countryToFR,
-                       QString::number(std::round(rg.data.totalRevenue * cr * 100.0) / 100.0, 'f', 2),
-                       companyCurrency,
-                       QString::number(rg.data.totalRevenue, 'f', 2),
-                       rg.data.currency,
-                       QString::number(rg.data.vatRatePct, 'f', 2))
-            : QString("TVA IOSS %1 %2 %3 => %4 %5 %6 %7%")
-                  .arg(periodStr, periodStr, countryFromFR, countryToFR,
-                       QString::number(rg.data.totalRevenue, 'f', 2),
-                       rg.data.currency,
-                       QString::number(rg.data.vatRatePct, 'f', 2));
+
+        // Company-currency amounts for the label and rounding-correction hint
+        const double vatCcy = (rg.data.currency != companyCurrency)
+            ? std::round(rg.data.totalVat * cr * 100.0) / 100.0
+            : rg.data.totalVat;
+        const double revenueCcy = (rg.data.currency != companyCurrency)
+            ? std::round(rg.data.totalRevenue * cr * 100.0) / 100.0
+            : rg.data.totalRevenue;
+        const double correctedRevenueCcy = std::round(vatCcy / (rg.data.vatRatePct / 100.0) * 100.0) / 100.0;
+        const QString correctionStr = (qAbs(correctedRevenueCcy - revenueCcy) >= 0.005)
+            ? QString(" (cor. arrondi %1 %2)").arg(QString::number(correctedRevenueCcy, 'f', 2), companyCurrency)
+            : QString();
+
+        // Revenue part: show EUR equivalent first when sale is in a foreign currency
+        const QString revenuePart = (rg.data.currency != companyCurrency)
+            ? QString("%1 %2 %3 %4")
+                  .arg(QString::number(revenueCcy, 'f', 2), companyCurrency,
+                       QString::number(rg.data.totalRevenue, 'f', 2), rg.data.currency)
+            : QString("%1 %2")
+                  .arg(QString::number(rg.data.totalRevenue, 'f', 2), rg.data.currency);
+
+        const QString debitLabel = QString("TVA IOSS %1 %2 %3 => %4 %5%6 %7%")
+            .arg(periodStr, periodStr, countryFromFR, countryToFR,
+                 revenuePart, correctionStr,
+                 QString::number(rg.data.vatRatePct, 'f', 2));
 
         JournalEntry::EntryLine debitLine;
         debitLine.title   = debitLabel;
