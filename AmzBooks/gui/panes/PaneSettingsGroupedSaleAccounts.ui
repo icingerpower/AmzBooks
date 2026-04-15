@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>600</width>
-    <height>300</height>
+    <height>500</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -15,17 +15,82 @@
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
-    <widget class="QLabel" name="labelDescription">
-     <property name="text">
-      <string>Grouped receivable account used when orders from a sale channel are aggregated into a single journal entry. Double-click a cell to edit the account.</string>
+    <widget class="QSplitter" name="splitter">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
      </property>
-     <property name="wordWrap">
-      <bool>true</bool>
-     </property>
+     <widget class="QWidget" name="widgetTop">
+      <layout class="QVBoxLayout" name="verticalLayoutTop">
+       <property name="margin">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QLabel" name="labelDescription">
+         <property name="text">
+          <string>Grouped receivable account used when orders from a sale channel are aggregated into a single journal entry. Double-click a cell to edit the account.</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QTableView" name="tableAccounts"/>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="widgetBottom">
+      <layout class="QVBoxLayout" name="verticalLayoutBottom">
+       <property name="margin">
+        <number>0</number>
+       </property>
+       <item>
+        <widget class="QLabel" name="labelControlDescription">
+         <property name="text">
+          <string>Sale control: stores listed here are checked before generating bookkeeping. If no activity of the expected type is found for the last complete month, a warning is shown.</string>
+         </property>
+         <property name="wordWrap">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="horizontalLayoutButtons">
+         <item>
+          <widget class="QPushButton" name="buttonAddSaleControl">
+           <property name="text">
+            <string>Add</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="buttonRemoveSaleControl">
+           <property name="text">
+            <string>Remove</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="horizontalSpacer">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </item>
+       <item>
+        <widget class="QTableView" name="tableSaleControl"/>
+       </item>
+      </layout>
+     </widget>
     </widget>
-   </item>
-   <item>
-    <widget class="QTableView" name="tableAccounts"/>
    </item>
   </layout>
  </widget>

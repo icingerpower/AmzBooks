@@ -14,6 +14,8 @@ SET(GUI_FILES
     ${CMAKE_CURRENT_LIST_DIR}/delegates/ComboBoxDelegate.h
     ${CMAKE_CURRENT_LIST_DIR}/delegates/FrequencyDelegate.cpp
     ${CMAKE_CURRENT_LIST_DIR}/delegates/FrequencyDelegate.h
+    ${CMAKE_CURRENT_LIST_DIR}/delegates/SaleTypeDelegate.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/delegates/SaleTypeDelegate.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddSaleAccount.cpp
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddSaleAccount.h
     ${CMAKE_CURRENT_LIST_DIR}/dialogs/DialogAddSaleAccount.ui

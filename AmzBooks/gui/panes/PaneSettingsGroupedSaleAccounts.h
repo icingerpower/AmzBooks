@@ -15,6 +15,10 @@ public:
     explicit PaneSettingsGroupedSaleAccounts(QWidget *parent = nullptr);
     ~PaneSettingsGroupedSaleAccounts();
 
+private slots:
+    void addSaleControlEntry();
+    void removeSaleControlEntry();
+
 private:
     Ui::PaneSettingsGroupedSaleAccounts *ui;
 };

@@ -83,6 +83,8 @@ public slots:
 private:
     void generateInvoicesWithSelection(std::optional<QSet<QString>> selectedShipmentIds);
     void displayPurchaseMissingWarning();
+    // Returns false if the user chose to abort generation, true to continue.
+    bool displaySaleMissingWarning();
     BooksConnections *m_booksConnections;
     class OrderManager *m_orderManager;
     bool m_splitterInitialized = false;

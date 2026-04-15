@@ -11,6 +11,7 @@
 #include "books/PurchaseInvoiceManager.h"
 #include "books/PurchaseAmzPaymentsTable.h"
 #include "books/PurchaseControlTable.h"
+#include "books/SaleControlTable.h"
 #include "books/JournalTable.h"
 #include "books/JournalEntryFactory.h"
 #include "books/ReportGenerator.h"
@@ -231,6 +232,86 @@ void PaneBookKeeping::displayPurchaseMissingWarning()
             .arg(monthLabel, missingLines.join('\n')));
 }
 
+bool PaneBookKeeping::displaySaleMissingWarning()
+{
+    const QDir workingDir = WorkingDirectoryManager::instance()->workingDir();
+
+    const SaleControlTable controlTable{workingDir};
+    if (controlTable.rowCount() == 0) {
+        return true;
+    }
+
+    // Last complete month: first day of previous month → last day of previous month.
+    const QDate today = QDate::currentDate();
+    const QDate lastMonthFirst = QDate(today.year(), today.month(), 1).addMonths(-1);
+    const QDate lastMonthLast  = lastMonthFirst.addMonths(1).addDays(-1);
+
+    // Collect all stores that have at least one sale (positive total) and/or refund
+    // (negative total) in the last complete month, across all activity sources.
+    const auto activitySource_store_shipments =
+        m_orderManager->getActivitySource_store_ShipmentAndRefunds(
+            lastMonthFirst, lastMonthLast,
+            [](const ActivitySource *, const Shipment *) { return true; });
+
+    QSet<QString> storesWithSales;
+    QSet<QString> storesWithRefunds;
+
+    for (auto it = activitySource_store_shipments.cbegin();
+         it != activitySource_store_shipments.cend(); ++it) {
+        for (auto storeIt = it.value().cbegin();
+             storeIt != it.value().cend(); ++storeIt) {
+            const QString &store = storeIt.key();
+            for (const auto &shipment : storeIt.value()) {
+                if (shipment->getTotalTaxed() >= 0.0) {
+                    storesWithSales.insert(store);
+                } else {
+                    storesWithRefunds.insert(store);
+                }
+            }
+        }
+    }
+
+    QStringList missingLines;
+
+    for (int row = 0; row < controlTable.rowCount(); ++row) {
+        const QString storeName    = controlTable.data(controlTable.index(row, 0), Qt::EditRole).toString();
+        const QString saleTypeCode = controlTable.data(controlTable.index(row, 1), Qt::EditRole).toString();
+
+        bool missing = false;
+        if (saleTypeCode == SaleControlTable::SALE_TYPE_BOTH) {
+            missing = !storesWithSales.contains(storeName) || !storesWithRefunds.contains(storeName);
+        } else if (saleTypeCode == SaleControlTable::SALE_TYPE_SALE) {
+            missing = !storesWithSales.contains(storeName);
+        } else if (saleTypeCode == SaleControlTable::SALE_TYPE_REFUND) {
+            missing = !storesWithRefunds.contains(storeName);
+        }
+
+        if (missing) {
+            missingLines.append(storeName
+                + QStringLiteral(" (")
+                + SaleControlTable::saleTypeDisplayText(saleTypeCode)
+                + QStringLiteral(")"));
+        }
+    }
+
+    if (missingLines.isEmpty()) {
+        return true;
+    }
+
+    const QString monthLabel = QLocale().monthName(lastMonthFirst.month())
+                               + QStringLiteral(" ")
+                               + QString::number(lastMonthFirst.year());
+
+    const auto answer = QMessageBox::question(
+        this,
+        tr("Missing Sales"),
+        tr("The following stores have no expected activity for %1:\n\n%2\n\nContinue anyway?")
+            .arg(monthLabel, missingLines.join('\n')),
+        QMessageBox::Yes | QMessageBox::No);
+
+    return answer == QMessageBox::Yes;
+}
+
 QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
 {
     qDebug() << "[PaneBookKeeping] generateBookKeepingAsync() entered";
@@ -253,6 +334,10 @@ QCoro::Task<> PaneBookKeeping::generateBookKeepingAsync()
     CompanyInfosTable companyInfo{workingDir};
 
     displayPurchaseMissingWarning();
+
+    if (!displaySaleMissingWarning()) {
+        co_return;
+    }
 
     qDebug() << "[PaneBookKeeping] Associating tables...";
     // 2. Associate tables

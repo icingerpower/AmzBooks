@@ -97,6 +97,8 @@ set(BOOKS_FILES
     ${CMAKE_CURRENT_LIST_DIR}/UngroupedOrderTable.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PurchaseControlTable.h
     ${CMAKE_CURRENT_LIST_DIR}/PurchaseControlTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/SaleControlTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/SaleControlTable.cpp
 )
 
 
