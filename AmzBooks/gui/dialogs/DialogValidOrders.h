@@ -8,6 +8,7 @@
 
 class QStandardItemModel;
 class QSortFilterProxyModel;
+class VatSummaryModel;
 
 namespace Ui {
 class DialogValidOrders;
@@ -36,6 +37,7 @@ private:
     Ui::DialogValidOrders *ui;
     QStandardItemModel    *m_model;
     QSortFilterProxyModel *m_proxy;
+    VatSummaryModel       *m_summaryModel;
 
     // Column indices in m_model
     enum Columns {

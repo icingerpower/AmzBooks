@@ -1,11 +1,13 @@
 #include "DialogValidOrders.h"
 #include "ui_DialogValidOrders.h"
 #include "gui/delegates/ComboBoxDelegate.h"
+#include "vatfixer/VatSummaryModel.h"
 
 #include <QStandardItemModel>
 #include <QSortFilterProxyModel>
 #include <QHeaderView>
 #include <QLocale>
+#include <QSplitter>
 
 // Action labels in the combo box
 static const QString ACTION_FIX    = QObject::tr("Fix");
@@ -31,6 +33,7 @@ DialogValidOrders::DialogValidOrders(const QList<VatOrderEntry> &entries,
     , ui(new Ui::DialogValidOrders)
     , m_model(nullptr)
     , m_proxy(nullptr)
+    , m_summaryModel(nullptr)
 {
     ui->setupUi(this);
     resize(1400, 700);
@@ -130,6 +133,16 @@ DialogValidOrders::DialogValidOrders(const QList<VatOrderEntry> &entries,
         COL_ACTION, new ComboBoxDelegate(actionOptions, this));
 
     ui->labelCount->setText(tr("%1 discrepan­cies").arg(entries.size()));
+
+    m_summaryModel = new VatSummaryModel(entries, this);
+    ui->tableViewSummary->setModel(m_summaryModel);
+    ui->tableViewSummary->setSortingEnabled(false);
+    ui->tableViewSummary->verticalHeader()->setVisible(false);
+    ui->tableViewSummary->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    ui->tableViewSummary->horizontalHeader()->setStretchLastSection(true);
+
+    ui->splitter->setStretchFactor(0, 4);
+    ui->splitter->setStretchFactor(1, 1);
 
     connect(ui->checkBoxSelectAll, &QCheckBox::checkStateChanged,
             this, &DialogValidOrders::onSelectAllChanged);
