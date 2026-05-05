@@ -195,6 +195,11 @@ void PaneOrderFiles::importFile()
                 co_return (result == QDialog::Accepted);
             };
 
+            // Ensure the importer reads fbacenters.csv from the same location as the
+            // settings pane (WorkingDirectoryManager's root dir), so centers added via
+            // DialogVatParams are visible to the importer on retry.
+            importer->setSharedConfigDirectory(WorkingDirectoryManager::instance()->workingDir());
+
             AbstractImporter::ReturnOrderInfos aggregatedResult;
             aggregatedResult.orderInfos = QSharedPointer<AbstractImporter::OrderInfos>::create();
             QStringList errors;

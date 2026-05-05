@@ -5,6 +5,7 @@
 #include <QDebug>
 #include <QCoroTask>
 
+#include "ExceptionWithTitleText.h"
 #include "orders/ImporterFileAmazonFbaInvoicing.h"
 #include "orders/ImporterFileAmazonVatEu.h"
 #include "books/FbaCentersTable.h"
@@ -308,15 +309,9 @@ void TestFileImportAmazonFbaInvoicing::test_realData()
     // Recursively find Csv files
     QDirIterator it(m_dataDir, QStringList() << "*.csv", QDir::Files, QDirIterator::Subdirectories);
     
-    ImporterFileAmazonFbaInvoicing importer(m_dataDir); 
-    
-    QTemporaryDir tempDir;
-    ImporterFileAmazonFbaInvoicing importerSafe(tempDir.path());
-    
     bool filesFound = false;
     while (it.hasNext()) {
         QString filePath = it.next();
-        // Strict filter for test purpose to avoid crashing on alien files if catch block fails
         QFileInfo fi(filePath);
         if (!fi.fileName().startsWith("invoicing-fba-")) {
             qDebug() << "Skipping file (name filter):" << filePath;
@@ -325,7 +320,7 @@ void TestFileImportAmazonFbaInvoicing::test_realData()
 
         filesFound = true;
         qDebug() << "Testing file:" << filePath;
-        
+
         // Manual Sum
         CsvReader reader(filePath, ",", "\"", true, "\n", 0, "UTF-8");
         if (!reader.readAll()) continue;
@@ -368,24 +363,22 @@ void TestFileImportAmazonFbaInvoicing::test_realData()
              // csvTotal 0.
         }
         
-        // Importer
+        // Fresh importer per file so "already imported" state never accumulates.
+        QTemporaryDir tempDir;
+        ImporterFileAmazonFbaInvoicing importerSafe(tempDir.path());
+
         AbstractImporter::ReturnOrderInfos result;
-        auto task = importerSafe.loadReport(filePath);
-        result = QCoro::waitFor(task);
+        try {
+            auto task = importerSafe.loadReport(filePath);
+            result = QCoro::waitFor(task);
+        } catch (const ExceptionWithTitleText &e) {
+            QFAIL(qPrintable(filePath + ": " + e.errorTitle() + " — " + e.errorText()));
+        } catch (const std::exception &e) {
+            QFAIL(qPrintable(filePath + ": " + QString::fromUtf8(e.what())));
+        }
         
         if (!result.errorReturned.isEmpty()) {
-             qWarning() << "Failed to import" << filePath << ":" << result.errorReturned;
-             // Some old files might have different format?
-             // "invoicing-fba-ue_2022-04-05-FIXING-OLD-REFUND.csv"
-             // If format differs, it will fail.
-             // We should verify if failure is expected or not.
-             // Prompt says: "check everythink was read correctly"
-             // If legacy files are present, they should ideally be supported or skipped.
-             // I will FAIL if error, unless it's a known legacy file.
-             // Let's assume strictness.
-             // QFAIL(qPrintable(result.errorReturned)); 
-             // But if invalid headers, it throws?
-             // try/catch block needed here too if I want to catch header errors.
+            QFAIL(qPrintable(filePath + ": " + result.errorReturned));
         } else {
              // Compare sums
              double impTotal = 0.0;

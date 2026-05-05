@@ -11,6 +11,11 @@ AbstractImporter::AbstractImporter(const QDir &workingDirectory)
     m_settingPath = m_workingDirectory.absoluteFilePath("importer.ini");
 }
 
+void AbstractImporter::setSharedConfigDirectory(const QDir &dir)
+{
+    m_sharedConfigDirectoryPath = dir.absolutePath();
+}
+
 const QMap<QString, AbstractImporter::ParamInfo> &AbstractImporter::getLoadedParamValues() const
 {
     return m_params;

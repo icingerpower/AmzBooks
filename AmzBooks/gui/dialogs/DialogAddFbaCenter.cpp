@@ -17,7 +17,11 @@ DialogAddFbaCenter::~DialogAddFbaCenter()
 
 void DialogAddFbaCenter::_setupCountries()
 {
-    ui->comboCountry->addItems(CountriesEu::getCountries());
+    // Non-EU countries first (per CLAUDE.md UI standard), then EU countries
+    QStringList countries;
+    countries << "US" << "CA" << "CN" << "JP" << "AU" << "MX" << "TR" << "IN" << "BR" << "SA" << "AE" << "SG";
+    countries << CountriesEu::getCountries();
+    ui->comboCountry->addItems(countries);
 }
 
 QString DialogAddFbaCenter::getCenterId() const

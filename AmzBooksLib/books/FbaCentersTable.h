@@ -21,10 +21,12 @@ public:
 
     explicit FbaCentersTable(const QDir &workingDir, QObject *parent = nullptr);
 
-    // QCoro-based retrieval with user interaction callback
+    // QCoro-based retrieval with user interaction callback.
+    // marketplaceHint (e.g. "amazon.com") is optional and used only to improve the error message.
     QCoro::Task<QString> getCountryCode(
         const QString &fbaCenterId,
-        std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr) const;
+        std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr,
+        const QString &marketplaceHint = {}) const;
 
     void addCenter(const FbaCenter &center);
     bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
@@ -53,7 +55,12 @@ private:
     // Map CenterID -> Row Index (or struct)
     QHash<QString, FbaCenter> m_cache;
 
-    void _fillIfEmpty();
+    void _fillIfMissing();
+    // Append a center to the in-memory list and cache without triggering a _save().
+    // Used during _fillIfMissing() to avoid 200+ disk writes; caller is responsible
+    // for calling _save() once at the end if anything was actually added.
+    // Returns true if the center was added, false if it was already present.
+    bool _addCenterBatch(const FbaCenter &center);
     void _save();
     void _load();
     void _rebuildCache();

@@ -86,8 +86,11 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
     // So we should verify headers and throw this exception if missing.
     // Assuming CsvHeaderException is defined in utils/CsvHeader.h
     
-    // Initialize FbaCentersTable
-    FbaCentersTable fbaTable(m_workingDirectory);
+    // Use the shared config directory if set (so the pane and importer use the same fbacenters.csv).
+    const QDir fbaDir = m_sharedConfigDirectoryPath.isEmpty()
+        ? m_workingDirectory
+        : QDir(m_sharedConfigDirectoryPath);
+    FbaCentersTable fbaTable(fbaDir);
 
     // Helper for optional columns (returns -1 if missing)
     auto getOptionalPos = [&](const QStringList &names) -> int {
@@ -170,8 +173,8 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileAmazonFbaInvoicing::
 
         // Forward the callback to allow user to add missing FBA centers
         // EXCEPTION MUST NOT BE CAUGHT HERE: if an FBA center is missing, the test must fail
-        // so we can identify and add it to FbaCentersTable::_fillIfEmpty.
-        originCountry = co_await fbaTable.getCountryCode(fc, callbackAddIfMissing);
+        // so we can identify and add it to FbaCentersTable::_fillIfMissing.
+        originCountry = co_await fbaTable.getCountryCode(fc, callbackAddIfMissing, line.value(idxSalesChannel));
 
         const QString &destCountry = line.value(idxDelivCountry);
         const QString &shippingCountry = originCountry; // From FC

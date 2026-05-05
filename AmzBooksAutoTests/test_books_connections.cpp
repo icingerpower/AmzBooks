@@ -498,29 +498,26 @@ void TestBooksConnection::test_tryToConnect_overload()
     // 2. Same Currency, Exact Match (Negative)
     runTestCase("2_Same_Exact_Neg", -50.0, "EUR", -50.0, "EUR", 1.0, true);
 
-    // 3. Same Currency, Within 1% Tolerance (0.9% Diff)
-    // 100 vs 100.9. Diff 0.9. Max 100.9. 0.9/100.9 < 0.01
+    // 3. Same Currency, Within 2.1% Tolerance (0.9% Diff)
+    // 100 vs 100.9. Diff 0.9. Tol = max(0.4, 0.021*100.9) = 2.119. 0.9 < 2.119.
     runTestCase("3_Same_Tol_Success", 100.0, "EUR", 100.9, "EUR", 1.0, true);
 
-    // 4. Same Currency, Outside 1.7% Tolerance (2% Diff)
-    // 100 vs 102.0. Diff 2.0. Tol = max(0.4, 0.017*102.0) = 1.734. 2.0 > 1.734.
-    runTestCase("4_Same_Tol_Fail", 100.0, "EUR", 102.0, "EUR", 1.0, false);
+    // 4. Same Currency, Outside 2.1% Tolerance (2.2% Diff)
+    // 100 vs 102.3. Diff 2.3. Tol = max(0.4, 0.021*102.3) = 2.148. 2.3 > 2.148.
+    runTestCase("4_Same_Tol_Fail", 100.0, "EUR", 102.3, "EUR", 1.0, false);
 
     // 5. Diff Currency (EUR/USD), Exact Match
     // 100 EUR vs 110 USD. Rate USD->EUR = 100/110 ~= 0.9090909
     runTestCase("5_EurUsd_Exact", 100.0, "EUR", 110.0, "USD", 100.0/110.0, true);
 
-    // 6. Diff Currency (EUR/USD), Within Tolerance
-    // Book 100 EUR. Bank 110 USD. Rate 0.90909... -> 100 EUR.
-    // Let's modify Bank Amount slightly. 111 USD.
-    // 111 * (100/110) = 100.909...
-    // Diff ~0.9. Within 1% of 100.
+    // 6. Diff Currency (EUR/USD), Within 2.1% Tolerance
+    // 111 USD * (100/110) = 100.909 EUR. Diff ~0.9. Tol = max(0.4, 0.021*100.9) = 2.119. 0.9 < 2.119.
     runTestCase("6_EurUsd_Tol_Success", 100.0, "EUR", 111.0, "USD", 100.0/110.0, true);
 
-    // 7. Diff Currency (EUR/USD), Outside Tolerance
-    // Bank 112 USD. 112 * (100/110) = 101.81...
-    // Diff 1.81. > 1%.
-    runTestCase("7_EurUsd_Tol_Fail", 100.0, "EUR", 112.0, "USD", 100.0/110.0, false);
+    // 7. Diff Currency (EUR/USD), Outside 2.1% Tolerance
+    // Bank 114 USD. 114 * (100/110) = 103.636...
+    // Diff 3.636. Tol = max(0.4, 0.021*103.636) = 2.176. 3.636 > 2.176.
+    runTestCase("7_EurUsd_Tol_Fail", 100.0, "EUR", 114.0, "USD", 100.0/110.0, false);
 
     // 8. GBP/JPY (Diff Currencies 3 & 4)
     // 10 GBP vs 1500 JPY.

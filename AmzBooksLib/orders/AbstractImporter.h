@@ -91,9 +91,15 @@ public:
     void setParam(const QString& key, const QVariant& value);
     QVariant getParam(const QString& key) const;
 
+    // Shared config directory for tables that must be shared across importers
+    // (e.g. fbacenters.csv). When set, importers should prefer this over
+    // m_workingDirectory for those tables so the GUI and importer see the same data.
+    void setSharedConfigDirectory(const QDir &dir);
+
 protected:
     AbstractImporter() : m_workingDirectory(QDir::current()) {}
     QDir m_workingDirectory;
+    QString m_sharedConfigDirectoryPath; // empty = use m_workingDirectory
     QString m_settingPath;
     QSharedPointer<QSettings> _settings() const;
     QMap<QString, ParamInfo> m_params;
