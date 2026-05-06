@@ -105,6 +105,14 @@ public:
     static QString shortenChannel(const QString &channel);
     static QString shortenStore(const QString &store);
 
+    // Builds the amount suffix appended to the PDF filename.
+    // Returns "_<TTC><CUR>" when order currency matches company currency,
+    // or "_<TTC><CUR>_<convTTC><companyCUR>" when they differ and rates are available.
+    static QString buildAmountSuffix(const InvoicingInfo &info,
+                                     const QDate &date,
+                                     const QString &companyCurrency,
+                                     const CurrencyRateManager *rates);
+
     // Column indices
     enum Column {
         ColDate = 0,

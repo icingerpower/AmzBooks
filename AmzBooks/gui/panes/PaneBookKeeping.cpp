@@ -999,7 +999,9 @@ void PaneBookKeeping::generateInvoicesWithSelection(std::optional<QSet<QString>>
                     QString subDirName = QString("%1/%2").arg(invoiceDate.year()).arg(invoiceDate.month(), 2, 10, QChar('0'));
                     QDir subDir(outDir.filePath(subDirName));
                     subDir.mkpath(".");
-                    const QString pdfPath = subDir.absoluteFilePath(sanitized + ".pdf");
+                    const QString amountSuffix = InvoiceGenerator::buildAmountSuffix(
+                        *info, invoiceDate, companyInfos.getCurrency(), &currencyRates);
+                    const QString pdfPath = subDir.absoluteFilePath(sanitized + amountSuffix + ".pdf");
 
                     // Set prevNumber only for actual revision invoices (suffix -R\d+),
                     // not simply because this is the second shipment in the group.
@@ -1114,9 +1116,11 @@ void PaneBookKeeping::regenerateInvoices()
             sanitized.replace('/', '-').replace('\\', '-');
             QString subDirName = QString("%1/%2").arg(recDate.year()).arg(recDate.month(), 2, 10, QChar('0'));
             QDir subDir(outDir.filePath(subDirName));
-            const QString pdfPath = subDir.absoluteFilePath(sanitized + ".pdf");
-            if (QFile::exists(pdfPath))
-                QFile::remove(pdfPath);
+            // Match both old format (sanitized.pdf) and new format (sanitized_<amount>.pdf)
+            const QStringList matches = subDir.entryList({sanitized + "*.pdf"}, QDir::Files);
+            for (const QString &f : matches) {
+                QFile::remove(subDir.absoluteFilePath(f));
+            }
         }
     }
 
@@ -1132,6 +1136,7 @@ void PaneBookKeeping::regenerateInvoices()
         try {
             generator.regenerateInvoices(outDir, from, to, *m_orderManager);
             QApplication::restoreOverrideCursor();
+            progress.hide();
 
             QMessageBox::information(
                 this,
@@ -1141,6 +1146,7 @@ void PaneBookKeeping::regenerateInvoices()
                     .arg(outDir.absolutePath()));
         } catch (const ExceptionWithTitleText &e) {
             QApplication::restoreOverrideCursor();
+            progress.hide();
             QMessageBox::warning(this, e.errorTitle(), e.errorText());
         }
     }
@@ -1150,12 +1156,12 @@ void PaneBookKeeping::generateReports()
 {
     // 1. Ask for the output folder
     QSettings settings;
-    QString lastDir = settings.value("lastInvoicesDir", QDir::homePath()).toString();
+    QString lastDir = settings.value("lastReportsDir", QDir::homePath()).toString();
     QString dir = QFileDialog::getExistingDirectory(this, tr("Select Reports Output Folder"), lastDir);
     if (dir.isEmpty()) {
         return;
     }
-    settings.setValue("lastInvoicesDir", dir);
+    settings.setValue("lastReportsDir", dir);
     QDir outDir(dir);
 
     generateSaleReports(outDir);

@@ -4,6 +4,9 @@
 #include <QCoroTask>
 #include <QException>
 #include <QSettings>
+#include <QFile>
+#include <QTextStream>
+#include <QDateTime>
 
 #include "../../../../common/workingdirectory/WorkingDirectoryManager.h"
 
@@ -203,15 +206,17 @@ void PaneOrderFiles::importFile()
             AbstractImporter::ReturnOrderInfos aggregatedResult;
             aggregatedResult.orderInfos = QSharedPointer<AbstractImporter::OrderInfos>::create();
             QStringList errors;
+            QStringList successfulPaths; // tracks files that loaded without error
 
             for (const QString &path : paths) {
                 // Load Report with callback
                 auto result = co_await importer->loadReport(path, callbackAddIfMissing);
-                
+
                 if (!result.errorReturned.isEmpty()) {
                     errors.append(QString("File: %1\nError: %2").arg(QFileInfo(path).fileName(), result.errorReturned));
                     continue;
                 }
+                successfulPaths.append(path);
 
                 if (result.orderInfos) {
                    aggregatedResult.orderInfos->shipments.append(result.orderInfos->shipments);
@@ -377,6 +382,33 @@ void PaneOrderFiles::importFile()
                 }
 
                 importedCount = aggregatedResult.orderInfos->countAll();
+
+                // Append one CSV row per imported file to the audit log.
+                {
+                    const QString logPath = workingDir.absoluteFilePath("import_log.csv");
+                    QFile logFile(logPath);
+                    const bool writeHeader = !logFile.exists();
+                    if (logFile.open(QIODevice::Append | QIODevice::Text)) {
+                        QTextStream out(&logFile);
+                        out.setEncoding(QStringConverter::Utf8);
+                        if (writeHeader) {
+                            out << "DateTime;Importer;File;Shipments;Refunds;DateFrom;DateTo\n";
+                        }
+                        const QString now = QDateTime::currentDateTime().toString(Qt::ISODate);
+                        const QString label = importer->getLabel();
+                        const int ships = aggregatedResult.orderInfos->shipments.size();
+                        const int refs  = aggregatedResult.orderInfos->refunds.size();
+                        const QString dateFrom = aggregatedResult.orderInfos->dateMin.isValid()
+                            ? aggregatedResult.orderInfos->dateMin.toString(Qt::ISODate) : QString{};
+                        const QString dateTo = aggregatedResult.orderInfos->dateMax.isValid()
+                            ? aggregatedResult.orderInfos->dateMax.toString(Qt::ISODate) : QString{};
+                        for (const QString &p : std::as_const(successfulPaths)) {
+                            out << now << ";" << label << ";" << QFileInfo(p).fileName()
+                                << ";" << ships << ";" << refs
+                                << ";" << dateFrom << ";" << dateTo << "\n";
+                        }
+                    }
+                }
 
                 // Update Chart Data
                 if (importedCount > 0) {

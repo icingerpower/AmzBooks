@@ -132,6 +132,31 @@ QString InvoiceGenerator::shortenStore(const QString &store)
     return store.left(3).toUpper();
 }
 
+QString InvoiceGenerator::buildAmountSuffix(const InvoicingInfo &info,
+                                             const QDate &date,
+                                             const QString &companyCurrency,
+                                             const CurrencyRateManager *rates)
+{
+    double totalTTC = 0.0;
+    for (const auto &item : info.getItems()) {
+        totalTTC += item.getQuantity() * (item.getAmountUntaxed() + item.getTaxes());
+    }
+
+    const QString orderCurrency = info.getCurrency().isEmpty() ? companyCurrency : info.getCurrency();
+    QString suffix = QString("_%1%2").arg(QString::number(totalTTC, 'f', 2), orderCurrency);
+
+    if (orderCurrency != companyCurrency && rates) {
+        try {
+            const double convTTC = rates->convert(totalTTC, orderCurrency, companyCurrency, date);
+            suffix += QString("_%1%2").arg(QString::number(convTTC, 'f', 2), companyCurrency);
+        } catch (...) {
+            // Rate unavailable — omit converted amount rather than show wrong data
+        }
+    }
+
+    return suffix;
+}
+
 // Constructor
 
 InvoiceGenerator::InvoiceGenerator(
@@ -1044,7 +1069,9 @@ void InvoiceGenerator::regenerateInvoices(
         QString subDirName = QString("%1/%2").arg(record.date.year()).arg(record.date.month(), 2, 10, QChar('0'));
         QDir subDir(folderTo.filePath(subDirName));
         subDir.mkpath(".");
-        const QString pdfPath = subDir.absoluteFilePath(sanitized + ".pdf");
+        const QString amountSuffix = buildAmountSuffix(
+            *info, record.date, m_companyInfos->getCurrency(), m_currencyRates);
+        const QString pdfPath = subDir.absoluteFilePath(sanitized + amountSuffix + ".pdf");
 
         // Pass activityId as the shipmentId param so generateInvoice records
         // the invoicingInfo under the correct key (e.g. "3105_refund" for refunds)
