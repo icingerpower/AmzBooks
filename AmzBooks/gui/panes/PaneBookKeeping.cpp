@@ -1206,6 +1206,12 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
     const auto sourceMapGrouped =
         m_orderManager->getActivitySource_ShipmentAndRefunds(from, to, acceptGrouped);
 
+    auto acceptUngrouped = [](const ActivitySource *, const Shipment *s) {
+        return !s->isGrouped();
+    };
+    const auto sourceMapUngrouped =
+        m_orderManager->getActivitySource_ShipmentAndRefunds(from, to, acceptUngrouped);
+
     const QStringList tableHeaders = {
         tr("Store"), tr("Date"), tr("Order ID"), tr("Shipment/Refund ID"),
         tr("Type"), tr("Untaxed amount"), tr("Taxes"), tr("Taxed amount"),
@@ -1415,6 +1421,215 @@ void PaneBookKeeping::generateSaleReports(const QDir &dirTo)
                     qWarning() << "[generateSaleReports] Failed to save report:" << ex.what();
                 }
             }
+        }
+    }
+
+    // ── VAT reports (IOSS monthly, OSS trimestral) ──────────────────────────
+    // Collect shipments from both source maps filtered to a month range.
+    // Source maps are already year-filtered so checking the month is sufficient.
+    auto collectForMonths = [&](int firstMonth, int lastMonth)
+            -> QMultiMap<QDateTime, QSharedPointer<Shipment>>
+    {
+        QMultiMap<QDateTime, QSharedPointer<Shipment>> result;
+        auto collectFrom = [&](const auto &sourceMap) {
+            for (auto it = sourceMap.cbegin(); it != sourceMap.cend(); ++it) {
+                for (auto jt = it.value().cbegin(); jt != it.value().cend(); ++jt) {
+                    const int m = jt.key().date().month();
+                    if (m >= firstMonth && m <= lastMonth) {
+                        result.insert(jt.key(), jt.value());
+                    }
+                }
+            }
+        };
+        collectFrom(sourceMapGrouped);
+        collectFrom(sourceMapUngrouped);
+        return result;
+    };
+
+    // Resolve sale/VAT accounts for a list of groups (best-effort, no user prompt).
+    auto resolveAccounts = [&](QList<JournalEntryFactory::GroupedShipmentData> &groups) {
+        for (auto &g : groups) {
+            const VatCountries vc = salesAccounts.resolveVatCountries(
+                g.taxScheme, companyInfos.getCompanyCountryCode(),
+                g.countryFrom, g.countryTo);
+            const BooksAccountsSalesTable::Accounts accts =
+                salesAccounts.getAccountsIfPresent(vc, g.vatRatePct);
+            g.saleAccount = accts.saleAccount;
+            g.vatAccount  = accts.vatAccount;
+        }
+    };
+
+    // Build table sections in a report for the given groups (no invoice info).
+    auto addGroupsToReport = [&](ReportGenerator &report,
+                                 const QList<JournalEntryFactory::GroupedShipmentData> &vatGroups)
+    {
+        for (const auto &group : std::as_const(vatGroups)) {
+            QString subtitle =
+                QString("%1 %2→%3 %4% %5")
+                    .arg(schemeShortStr(group.taxScheme),
+                         group.countryFrom, group.countryTo,
+                         QString::number(group.vatRatePct, 'f', 2),
+                         group.currency);
+            if (!group.saleAccount.isEmpty()) {
+                subtitle += " [" + group.saleAccount;
+                if (group.vatRatePct > 0.01 && !group.vatAccount.isEmpty()) {
+                    subtitle += " / " + group.vatAccount;
+                }
+                subtitle += "]";
+            }
+            report.addSubtitle(subtitle);
+            report.startTable(tableHeaders);
+
+            QList<JournalEntryFactory::ShipmentReportInfo> rows = group.shipments;
+            std::sort(rows.begin(), rows.end(),
+                [](const JournalEntryFactory::ShipmentReportInfo &a,
+                   const JournalEntryFactory::ShipmentReportInfo &b) {
+                    if (a.store != b.store) { return a.store < b.store; }
+                    return a.date < b.date;
+                });
+
+            for (auto &row : rows) {
+                if (row.currency != companyCurrency) {
+                    row.untaxedAmount = currencyRateManager.convert(row.untaxedAmount, row.currency, companyCurrency, row.date);
+                    row.taxes         = currencyRateManager.convert(row.taxes,         row.currency, companyCurrency, row.date);
+                    row.taxedAmount   = currencyRateManager.convert(row.taxedAmount,   row.currency, companyCurrency, row.date);
+                    row.currency      = companyCurrency;
+                }
+            }
+
+            double sumUntaxed = 0.0, sumTaxes = 0.0, sumTaxed = 0.0;
+            for (const auto &row : std::as_const(rows)) {
+                sumUntaxed += row.untaxedAmount;
+                sumTaxes   += row.taxes;
+                sumTaxed   += row.taxedAmount;
+
+                report.addRow({
+                    row.store,
+                    row.date.toString("yyyy-MM-dd"),
+                    row.orderId,
+                    row.shipmentRefundId,
+                    row.isRefund ? tr("Refund") : tr("Shipment"),
+                    QString::number(row.untaxedAmount, 'f', 2),
+                    QString::number(row.taxes,         'f', 2),
+                    QString::number(row.taxedAmount,   'f', 2),
+                    row.currency,
+                    QString::number(row.origTaxedAmount, 'f', 2),
+                    row.origCurrency,
+                    QString::number(row.vatRatePct, 'f', 2) + "%",
+                    schemeShortStr(row.taxScheme),
+                    row.countryFrom,
+                    row.countryTo,
+                    row.isCompany ? row.taxNumber : QString{},
+                    QString{},
+                    QString{}
+                });
+            }
+
+            QStringList totalRow(NB_COLS, QString{});
+            totalRow[0] = tr("Total");
+            totalRow[5] = QString::number(sumUntaxed, 'f', 2);
+            totalRow[6] = QString::number(sumTaxes,   'f', 2);
+            totalRow[7] = QString::number(sumTaxed,   'f', 2);
+            totalRow[8] = companyCurrency;
+            report.addRowTotal(totalRow);
+            report.endTable();
+        }
+    };
+
+    // IOSS: one report per complete month
+    for (int month = 1; month <= 12; ++month) {
+        if (year > today.year() || (year == today.year() && month >= today.month())) {
+            continue;
+        }
+
+        const QString iossMonthStr = QString("%1").arg(month, 2, 10, QChar('0'));
+        const QMultiMap<QDateTime, QSharedPointer<Shipment>> iossShipments =
+            collectForMonths(month, month);
+        if (iossShipments.isEmpty()) {
+            continue;
+        }
+
+        const QDate iossEntryDate(year, month, QDate(year, month, 1).daysInMonth());
+        QList<JournalEntryFactory::GroupedShipmentData> allGroups =
+            JournalEntryFactory::computeGrouping(nullptr, iossShipments, iossEntryDate);
+
+        QList<JournalEntryFactory::GroupedShipmentData> iossGroups;
+        for (const auto &g : std::as_const(allGroups)) {
+            if (g.taxScheme == TaxScheme::EuIoss) {
+                iossGroups.append(g);
+            }
+        }
+        if (iossGroups.isEmpty()) {
+            continue;
+        }
+        resolveAccounts(iossGroups);
+
+        ReportGenerator iossReport;
+        iossReport.setLandscape(true);
+        iossReport.setPageSize(QPageSize::A3);
+        iossReport.setFontScale(1.5);
+        iossReport.addTitle(tr("VAT IOSS %1/%2").arg(year).arg(iossMonthStr));
+        addGroupsToReport(iossReport, iossGroups);
+
+        const QString iossSubDirName = QString("%1/%2").arg(year).arg(iossMonthStr);
+        QDir iossSubDir(dirTo.filePath(iossSubDirName));
+        iossSubDir.mkpath(".");
+        const QString iossPath = iossSubDir.absoluteFilePath(
+            QString("vat_ioss_%1_%2.pdf").arg(year).arg(iossMonthStr));
+        try {
+            iossReport.save(iossPath);
+        } catch (const std::exception &ex) {
+            qWarning() << "[generateSaleReports] Failed to save IOSS report:" << ex.what();
+        }
+    }
+
+    // OSS: one report per complete quarter, saved in the last month's directory (03, 06, 09, 12)
+    for (int quarter = 1; quarter <= 4; ++quarter) {
+        const int lastMonth  = quarter * 3;
+        const int firstMonth = lastMonth - 2;
+
+        if (year > today.year() || (year == today.year() && lastMonth >= today.month())) {
+            continue;
+        }
+
+        const QString ossMonthStr = QString("%1").arg(lastMonth, 2, 10, QChar('0'));
+        const QMultiMap<QDateTime, QSharedPointer<Shipment>> ossShipments =
+            collectForMonths(firstMonth, lastMonth);
+        if (ossShipments.isEmpty()) {
+            continue;
+        }
+
+        const QDate ossEntryDate(year, lastMonth, QDate(year, lastMonth, 1).daysInMonth());
+        QList<JournalEntryFactory::GroupedShipmentData> allGroups =
+            JournalEntryFactory::computeGrouping(nullptr, ossShipments, ossEntryDate);
+
+        QList<JournalEntryFactory::GroupedShipmentData> ossGroups;
+        for (const auto &g : std::as_const(allGroups)) {
+            if (g.taxScheme == TaxScheme::EuOssUnion) {
+                ossGroups.append(g);
+            }
+        }
+        if (ossGroups.isEmpty()) {
+            continue;
+        }
+        resolveAccounts(ossGroups);
+
+        ReportGenerator ossReport;
+        ossReport.setLandscape(true);
+        ossReport.setPageSize(QPageSize::A3);
+        ossReport.setFontScale(1.5);
+        ossReport.addTitle(tr("VAT OSS Q%1 %2").arg(quarter).arg(year));
+        addGroupsToReport(ossReport, ossGroups);
+
+        const QString ossSubDirName = QString("%1/%2").arg(year).arg(ossMonthStr);
+        QDir ossSubDir(dirTo.filePath(ossSubDirName));
+        ossSubDir.mkpath(".");
+        const QString ossPath = ossSubDir.absoluteFilePath(
+            QString("vat_oss_%1_%2.pdf").arg(year).arg(ossMonthStr));
+        try {
+            ossReport.save(ossPath);
+        } catch (const std::exception &ex) {
+            qWarning() << "[generateSaleReports] Failed to save OSS report:" << ex.what();
         }
     }
 

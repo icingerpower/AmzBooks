@@ -9,7 +9,7 @@
 #include <QRegularExpression>
 #include <QLocale>
 
-DECLARE_IMPORTER_FILE(ImporterFileTemuOrders)
+//DECLARE_IMPORTER_FILE(ImporterFileTemuOrders)
 
 QString ImporterFileTemuOrders::getLabel() const
 {

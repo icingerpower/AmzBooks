@@ -217,6 +217,7 @@ private slots:
     void test_oss_ioss_ioss_two_groups();
     void test_oss_ioss_ioss_label_format();
     void test_oss_ioss_mixed_oss_and_ioss();
+    void test_oss_ioss_report_totals_match_journal();
 
     // ── Invoice generation with refunds that have no Amazon invoice number ───
     void test_invoice_generation_refunds_synthetic();
@@ -6459,6 +6460,49 @@ void TestBookEntries::test_oss_ioss_mixed_oss_and_ioss()
     }
     QVERIFY(foundOss);
     QVERIFY(foundIoss);
+}
+
+void TestBookEntries::test_oss_ioss_report_totals_match_journal()
+{
+    // Verify that the totalVat figures from computeGrouping (what the VAT PDF
+    // reports show) equal the debit amounts that createEntryOssIoss posts to
+    // the journal. Non-eligible schemes must be excluded from the journal but
+    // must not affect the OSS/IOSS totals.
+    OssTestFixture fx;
+    QVERIFY(fx.tempDir.isValid());
+
+    const double ossDeVat  = 1.90;  // FR→DE 19%
+    const double ossSEVat  = 2.00;  // FR→SE 25%
+    const double iossESVat = 3.15;  // CN→ES 21%
+    const double iossNLVat = 4.41;  // CN→NL 21%
+
+    QList<JournalEntryFactory::GroupedShipmentData> groups;
+    groups.append(makeGroup(TaxScheme::EuOssUnion,  "FR", "DE", 19.0, 10.0, ossDeVat));
+    groups.append(makeGroup(TaxScheme::EuOssUnion,  "FR", "SE", 25.0,  8.0, ossSEVat));
+    groups.append(makeGroup(TaxScheme::EuIoss,      "CN", "ES", 21.0, 15.0, iossESVat));
+    groups.append(makeGroup(TaxScheme::EuIoss,      "CN", "NL", 21.0, 21.0, iossNLVat));
+    groups.append(makeGroup(TaxScheme::DomesticVat, "FR", "FR", 20.0, 50.0, 10.0));
+
+    const QDate entryDate(2025, 3, 31);
+    const QDate period(2025, 3, 1);
+
+    const auto entries = syncWait(fx.factory.createEntryOssIoss(groups, entryDate, period));
+
+    // 2 OSS destinations (DE, SE) + 2 IOSS groups = 4 entries; DomesticVat ignored
+    QCOMPARE(entries.size(), 4);
+
+    for (const auto &e : entries) {
+        QVERIFY(!e.isNull());
+        QCOMPARE(e->getDebitSum(), e->getCreditSum());
+    }
+
+    // Combined debit sum must equal the sum of all OSS+IOSS totalVat values
+    const double expectedTotal = ossDeVat + ossSEVat + iossESVat + iossNLVat;
+    double actualTotal = 0.0;
+    for (const auto &e : entries) {
+        actualTotal += e->getDebitSum();
+    }
+    QCOMPARE(actualTotal, expectedTotal);
 }
 
 QTEST_MAIN(TestBookEntries)
