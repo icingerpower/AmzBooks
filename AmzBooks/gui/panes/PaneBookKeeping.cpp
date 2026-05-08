@@ -996,12 +996,14 @@ void PaneBookKeeping::generateInvoicesWithSelection(std::optional<QSet<QString>>
                     // Sanitize invoice number for use as a filename
                     QString sanitized = invoiceNumber;
                     sanitized.replace('/', '-').replace('\\', '-');
+                    QString sanitizedOrderId = orderId;
+                    sanitizedOrderId.replace('/', '-').replace('\\', '-');
                     QString subDirName = QString("%1/%2").arg(invoiceDate.year()).arg(invoiceDate.month(), 2, 10, QChar('0'));
                     QDir subDir(outDir.filePath(subDirName));
                     subDir.mkpath(".");
                     const QString amountSuffix = InvoiceGenerator::buildAmountSuffix(
                         *info, invoiceDate, companyInfos.getCurrency(), &currencyRates);
-                    const QString pdfPath = subDir.absoluteFilePath(sanitized + amountSuffix + ".pdf");
+                    const QString pdfPath = subDir.absoluteFilePath(sanitized + "_" + sanitizedOrderId + amountSuffix + ".pdf");
 
                     // Set prevNumber only for actual revision invoices (suffix -R\d+),
                     // not simply because this is the second shipment in the group.
@@ -1125,6 +1127,8 @@ void PaneBookKeeping::regenerateInvoices()
     }
 
     // 5. Regenerate
+    bool regenOk = false;
+    QString regenErrTitle, regenErrText;
     {
         QProgressDialog progress(tr("Regenerating invoices for %1...").arg(year),
                                  QString(), 0, 0, this);
@@ -1135,20 +1139,23 @@ void PaneBookKeeping::regenerateInvoices()
 
         try {
             generator.regenerateInvoices(outDir, from, to, *m_orderManager);
-            QApplication::restoreOverrideCursor();
-            progress.hide();
-
-            QMessageBox::information(
-                this,
-                tr("Regeneration Complete"),
-                tr("Invoices for %1 have been regenerated in:\n%2")
-                    .arg(year)
-                    .arg(outDir.absolutePath()));
+            regenOk = true;
         } catch (const ExceptionWithTitleText &e) {
-            QApplication::restoreOverrideCursor();
-            progress.hide();
-            QMessageBox::warning(this, e.errorTitle(), e.errorText());
+            regenErrTitle = e.errorTitle();
+            regenErrText = e.errorText();
         }
+        QApplication::restoreOverrideCursor();
+    } // progress destroyed here — modal released before the message box
+
+    if (regenOk) {
+        QMessageBox::information(
+            this,
+            tr("Regeneration Complete"),
+            tr("Invoices for %1 have been regenerated in:\n%2")
+                .arg(year)
+                .arg(outDir.absolutePath()));
+    } else {
+        QMessageBox::warning(this, regenErrTitle, regenErrText);
     }
 }
 

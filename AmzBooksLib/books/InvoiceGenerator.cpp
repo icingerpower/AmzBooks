@@ -1066,12 +1066,14 @@ void InvoiceGenerator::regenerateInvoices(
         // Build output path mirroring the layout used by generateInvoices()
         QString sanitized = record.invoiceNumber;
         sanitized.replace('/', '-').replace('\\', '-');
+        QString sanitizedShipmentId = record.shipmentId;
+        sanitizedShipmentId.replace('/', '-').replace('\\', '-');
         QString subDirName = QString("%1/%2").arg(record.date.year()).arg(record.date.month(), 2, 10, QChar('0'));
         QDir subDir(folderTo.filePath(subDirName));
         subDir.mkpath(".");
         const QString amountSuffix = buildAmountSuffix(
             *info, record.date, m_companyInfos->getCurrency(), m_currencyRates);
-        const QString pdfPath = subDir.absoluteFilePath(sanitized + amountSuffix + ".pdf");
+        const QString pdfPath = subDir.absoluteFilePath(sanitized + "_" + sanitizedShipmentId + amountSuffix + ".pdf");
 
         // Pass activityId as the shipmentId param so generateInvoice records
         // the invoicingInfo under the correct key (e.g. "3105_refund" for refunds)
