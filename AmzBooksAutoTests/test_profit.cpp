@@ -47,6 +47,7 @@ private slots:
     void testUSFees();
     void testMissingFbaColumns();
     void testMonthlyUnitsSold();
+    void testAgedInventorySurcharge();
 
 private:
     QDir m_testDir;
@@ -1064,19 +1065,18 @@ void TestProfit::testExtraCoverage()
         ProfitTree pt(dir, ecoDir, dir, QDate(2023,1,1), 0, 0.0, &ci, &crm);
         pt.load();
         
-        QCOMPARE(pt.columnCount(), 27); // VERIFY 2
+        QCOMPARE(pt.columnCount(), 29); // VERIFY 2
         QCOMPARE(pt.headerData(3, Qt::Horizontal).toString(), "Units sold"); // VERIFY 6
         QCOMPARE(pt.headerData(4, Qt::Horizontal).toString(), "Monthly Units"); 
         QCOMPARE(pt.headerData(5, Qt::Horizontal).toString(), "Unit returned"); // VERIFY 7
-        QCOMPARE(pt.headerData(6, Qt::Horizontal).toString(), "Return %"); // VERIFY 8
-        QCOMPARE(pt.headerData(7, Qt::Horizontal).toString(), "Avg Sale Price"); // VERIFY 9
-        QCOMPARE(pt.headerData(8, Qt::Horizontal).toString(), "Profit Per Unit"); // VERIFY 10
-        QCOMPARE(pt.headerData(9, Qt::Horizontal).toString(), "Profit %"); // VERIFY 11
-        QCOMPARE(pt.headerData(10, Qt::Horizontal).toString(), "Profit / Capital"); // NEW
-        // 11 is Avg Import Price
-        QCOMPARE(pt.headerData(12, Qt::Horizontal).toString(), "Unit Price"); // Cost
-        QCOMPARE(pt.headerData(13, Qt::Horizontal).toString(), "Profit without ads"); // VERIFY 13
-        QCOMPARE(pt.headerData(14, Qt::Horizontal).toString(), "Ads cost"); // VERIFY 14
+        QCOMPARE(pt.headerData(ProfitTree::COL_RETURN_PERCENT, Qt::Horizontal).toString(), "Return %"); // VERIFY 8
+        QCOMPARE(pt.headerData(ProfitTree::COL_AVG_SALE_PRICE, Qt::Horizontal).toString(), "Avg Sale Price"); // VERIFY 9
+        QCOMPARE(pt.headerData(ProfitTree::COL_PROFIT_PER_UNIT, Qt::Horizontal).toString(), "Profit Per Unit"); // VERIFY 10
+        QCOMPARE(pt.headerData(ProfitTree::COL_PROFIT_PERCENT, Qt::Horizontal).toString(), "Profit %"); // VERIFY 11
+        QCOMPARE(pt.headerData(ProfitTree::COL_PROFIT_PER_CAPITAL, Qt::Horizontal).toString(), "Profit / Capital"); // NEW
+        QCOMPARE(pt.headerData(ProfitTree::COL_UNIT_PRICE, Qt::Horizontal).toString(), "Unit Price"); // Cost
+        QCOMPARE(pt.headerData(ProfitTree::COL_PROFIT_NO_ADS_PER_UNIT, Qt::Horizontal).toString(), "Profit without ads"); // VERIFY 13
+        QCOMPARE(pt.headerData(ProfitTree::COL_ADS_COST_PER_UNIT, Qt::Horizontal).toString(), "Ads cost"); // VERIFY 14
     }
     
     // --- Sub-test C: Pink background fallback when no purchase data ---
@@ -1762,7 +1762,7 @@ void TestProfit::testTotalCosts()
     QCOMPARE(pt.headerData(ProfitTree::COL_TOTAL_AMZ_COSTS, Qt::Horizontal).toString(), "Total Amz Costs"); // VERIFY 18
     
     // Verify Column Count
-    QCOMPARE(pt.columnCount(), 27); // VERIFY 19
+    QCOMPARE(pt.columnCount(), 29); // VERIFY 19
     
     // Empty QModelIndex checks
     QVERIFY(!pt.data(pt.index(0, ProfitTree::COL_TOTAL_ADS).parent()).isValid()); // VERIFY 20
@@ -2397,17 +2397,107 @@ void TestProfit::testMonthlyUnitsSold()
     
     // Additional Verifies for coverage
     QVERIFY(pt.columnCount() > ProfitTree::COL_MONTHLY_UNITS_SOLD); // VERIFY 8
-    
-    // Verify aggregation logic in isolation? 
-    // Already covered by Parent check.
-    
-    // Add dummy verifies to reach 15 if strict requirement
-    // Checking other columns on the new items
+
     for(int i=0; i<pt.rowCount(); ++i) {
          if (pt.data(pt.index(i, ProfitTree::COL_MSKU)).toString() == "SKU_ODD") {
              QVERIFY(pt.data(pt.index(i, ProfitTree::COL_UNITS_SOLD)).toInt() == 27); // 5+10+12 VERIFY 9
          }
     }
+}
+
+void TestProfit::testAgedInventorySurcharge()
+{
+    // Scenario: parent P_AGED has two children.
+    //   SKU_AGED_A: 10 units sold, aged surcharge total = 3.00  => per unit = 0.30
+    //   SKU_AGED_B:  5 units sold, aged surcharge total = 2.50  => per unit = 0.50
+    // Parent aggregation: total = 5.50, net units = 15, per unit = 5.50/15 ≈ 0.3667
+    // Storage cost on SKU_AGED_A = monthly(1.00) + aged(3.00) = 4.00
+    // Storage cost on SKU_AGED_B = monthly(0.50) + aged(2.50) = 3.00
+    // Profit is unaffected: aged surcharge stays inside storageCost.
+
+    QDir dir = setupTestDir("test_aged_surcharge");
+    CompanyInfosTable ci(dir);
+    CurrencyRateManager crm(dir, "dummy");
+
+    writePurchaseCsv(dir, "purchases-COM.csv", {
+        {"SKU_AGED_A", "Item A", "5.00"},
+        {"SKU_AGED_B", "Item B", "5.00"}
+    });
+
+    QStringList extraHeaders = {
+        "Monthly storage fee total",
+        "Aged inventory surcharge total",
+        "Fulfilment by Amazon fulfilment fees total",
+        "Referral fee total"
+    };
+
+    QDir ecoDir = dir;
+    ecoDir.mkdir("economics_aged");
+    ecoDir.cd("economics_aged");
+
+    // Rows: store, start, end, parentASIN, ASIN, FNSKU, MSKU, currency,
+    //        units sold, net sales,
+    //        Monthly storage fee total, Aged inventory surcharge total,
+    //        FBA total, Referral total
+    writeEconomicsCsv(ecoDir, "economics_aged.csv", extraHeaders, {
+        {"FR", "01/01/2026", "01/31/2026", "P_AGED", "A1", "F1", "SKU_AGED_A",
+         "EUR", "10", "100.0", "1.00", "3.00", "8.00", "7.00"},
+        {"FR", "01/01/2026", "01/31/2026", "P_AGED", "A2", "F2", "SKU_AGED_B",
+         "EUR",  "5",  "50.0", "0.50", "2.50", "4.00", "3.50"}
+    });
+
+    ProfitTree pt(dir, ecoDir, dir, QDate(2023, 1, 1), 0, 0.0, &ci, &crm);
+    pt.load();
+
+    QCOMPARE(pt.rowCount(), 1);
+    QModelIndex pIdx = pt.index(0, 0); // parent P_AGED
+
+    // Locate children by MSKU
+    auto childRow = [&](const QString &msku) -> int {
+        for (int i = 0; i < pt.rowCount(pIdx); ++i) {
+            if (pt.data(pt.index(i, ProfitTree::COL_MSKU, pIdx)).toString() == msku) {
+                return i;
+            }
+        }
+        return -1;
+    };
+
+    int rA = childRow("SKU_AGED_A");
+    int rB = childRow("SKU_AGED_B");
+    QVERIFY(rA >= 0);
+    QVERIFY(rB >= 0);
+
+    // --- Header labels ---
+    QCOMPARE(pt.headerData(ProfitTree::COL_AGED_SURCHARGE_TOTAL,    Qt::Horizontal).toString(),
+             QString("Total aged surcharge"));
+    QCOMPARE(pt.headerData(ProfitTree::COL_AGED_SURCHARGE_PER_UNIT, Qt::Horizontal).toString(),
+             QString("Aged surcharge/unit"));
+
+    // --- Child A ---
+    double aTotal = pt.data(pt.index(rA, ProfitTree::COL_AGED_SURCHARGE_TOTAL, pIdx)).toDouble();
+    double aPerUnit = pt.data(pt.index(rA, ProfitTree::COL_AGED_SURCHARGE_PER_UNIT, pIdx)).toDouble();
+    QVERIFY(qAbs(aTotal   - 3.00) < 0.001);
+    QVERIFY(qAbs(aPerUnit - 0.30) < 0.001); // 3.00 / 10
+
+    // Storage cost must still include the aged surcharge (profit unaffected)
+    double aStorage = pt.data(pt.index(rA, ProfitTree::COL_TOTAL_STORAGE, pIdx)).toDouble();
+    QVERIFY(qAbs(aStorage - 4.00) < 0.001); // monthly(1.00) + aged(3.00)
+
+    // --- Child B ---
+    double bTotal = pt.data(pt.index(rB, ProfitTree::COL_AGED_SURCHARGE_TOTAL, pIdx)).toDouble();
+    double bPerUnit = pt.data(pt.index(rB, ProfitTree::COL_AGED_SURCHARGE_PER_UNIT, pIdx)).toDouble();
+    QVERIFY(qAbs(bTotal   - 2.50) < 0.001);
+    QVERIFY(qAbs(bPerUnit - 0.50) < 0.001); // 2.50 / 5
+
+    // --- Parent aggregation ---
+    double pTotal = pt.data(pt.index(0, ProfitTree::COL_AGED_SURCHARGE_TOTAL)).toDouble();
+    double pPerUnit = pt.data(pt.index(0, ProfitTree::COL_AGED_SURCHARGE_PER_UNIT)).toDouble();
+    QVERIFY(qAbs(pTotal   - 5.50)         < 0.001); // 3.00 + 2.50
+    // data() formats to 2 decimal places, so tolerance reflects that rounding
+    QVERIFY(qAbs(pPerUnit - 5.50 / 15.0) < 0.01);  // net units = 10 + 5
+
+    // Column count reflects new columns
+    QCOMPARE(pt.columnCount(), 29);
 }
 
 

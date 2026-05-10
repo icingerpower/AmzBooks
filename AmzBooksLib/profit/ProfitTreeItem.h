@@ -89,7 +89,10 @@ public:
 
     void setIsPinkBackground(bool isPink);
     bool isPinkBackground() const;
-    
+
+    void setAgedInventorySurcharge(double surcharge);
+    double getAgedInventorySurcharge() const;
+
     // Aggregate children values into this item
     void aggregate();
 
@@ -119,7 +122,8 @@ private:
     QString m_parentAsin;
     QString m_title;
     bool m_isPinkBackground = false;
-    
+    double m_agedInventorySurcharge = 0.0;
+
     void updateItemData();
 };
 

@@ -261,9 +261,17 @@ QString ProfitTreeItem::getTitle() const {
 
 void ProfitTreeItem::setIsPinkBackground(bool isPink) {
     m_isPinkBackground = isPink;
-} // No text update needed usually
+}
 bool ProfitTreeItem::isPinkBackground() const {
     return m_isPinkBackground;
+}
+
+void ProfitTreeItem::setAgedInventorySurcharge(double surcharge) {
+    m_agedInventorySurcharge = surcharge;
+    updateItemData();
+}
+double ProfitTreeItem::getAgedInventorySurcharge() const {
+    return m_agedInventorySurcharge;
 }
 
 
@@ -298,8 +306,8 @@ void ProfitTreeItem::updateItemData()
     // 25: ASIN
     
     // Resize if needed
-    if (m_itemData.size() < 27) {
-        m_itemData.resize(27);
+    if (m_itemData.size() < 29) {
+        m_itemData.resize(29);
     }
     
     // Per Unit Calculation Helper (uses Net Units)
@@ -331,34 +339,36 @@ void ProfitTreeItem::updateItemData()
     m_itemData[0] = m_parentAsin;
     m_itemData[1] = m_msku;
     m_itemData[2] = m_title;
-    m_itemData[3] = unitsNet; // Display Net Units
+    m_itemData[3] = unitsNet;
     m_itemData[4] = m_monthlyUnitsSoldMedian;
     m_itemData[5] = m_unitsReturned;
-    m_itemData[6] = returnPercent;
-    m_itemData[7] = avgSalePrice;
-    m_itemData[8] = profitPerUnit;
-    m_itemData[9] = profitPercent;
-    m_itemData[10] = profitPerCapital;
-    m_itemData[11] = m_avgImportPrice;
-    m_itemData[12] = totalUnitCost; // Unit Price (Total Cost)
-    m_itemData[13] = perUnit(m_profit + m_adsCost); // Profit without ads
-    m_itemData[14] = perUnit(m_adsCost);
-    m_itemData[15] = perUnit(m_storageCost);
-    m_itemData[16] = perUnit(m_fbaFees);
-    m_itemData[17] = perUnit(m_referralFees);
-    m_itemData[18] = perUnit(m_otherFees);
-    
+    m_itemData[6] = (unitsNet > 0) ? m_agedInventorySurcharge / unitsNet : 0.0;
+    m_itemData[7] = returnPercent;
+    m_itemData[8] = avgSalePrice;
+    m_itemData[9] = profitPerUnit;
+    m_itemData[10] = profitPercent;
+    m_itemData[11] = profitPerCapital;
+    m_itemData[12] = m_avgImportPrice;
+    m_itemData[13] = totalUnitCost;
+    m_itemData[14] = perUnit(m_profit + m_adsCost);
+    m_itemData[15] = perUnit(m_adsCost);
+    m_itemData[16] = perUnit(m_storageCost);
+    m_itemData[17] = perUnit(m_fbaFees);
+    m_itemData[18] = perUnit(m_referralFees);
+    m_itemData[19] = perUnit(m_otherFees);
+
     // Total Columns (Absolute Values)
-    m_itemData[19] = m_adsCost;
-    m_itemData[20] = m_storageCost;
-    m_itemData[21] = m_fbaFees;
-    m_itemData[22] = m_referralFees;
-    m_itemData[23] = m_otherFees;
+    m_itemData[20] = m_adsCost;
+    m_itemData[21] = m_storageCost;
+    m_itemData[22] = m_fbaFees;
+    m_itemData[23] = m_referralFees;
+    m_itemData[24] = m_otherFees;
     double totalAmzCosts = m_adsCost + m_storageCost + m_fbaFees + m_referralFees + m_otherFees;
-    m_itemData[24] = totalAmzCosts;
-    
-    m_itemData[25] = m_fbaFeesMostSoldCountry;
-    m_itemData[26] = m_asin;
+    m_itemData[25] = totalAmzCosts;
+
+    m_itemData[26] = m_fbaFeesMostSoldCountry;
+    m_itemData[27] = m_asin;
+    m_itemData[28] = m_agedInventorySurcharge;
 }
 
 void ProfitTreeItem::aggregate()
@@ -375,6 +385,7 @@ void ProfitTreeItem::aggregate()
     m_fbaFees = 0.0;
     m_referralFees = 0.0;
     m_otherFees = 0.0;
+    m_agedInventorySurcharge = 0.0;
     m_avgImportPrice = 0.0;
 
     double totalCost = 0.0;
@@ -398,6 +409,7 @@ void ProfitTreeItem::aggregate()
         m_fbaFees += child->getFbaFees();
         m_referralFees += child->getReferralFees();
         m_otherFees += child->getOtherFees();
+        m_agedInventorySurcharge += child->getAgedInventorySurcharge();
         m_revenue += child->getRevenue();
         m_revenueForAvgPrice += child->getRevenueForAvgPrice();
         

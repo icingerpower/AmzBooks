@@ -32,33 +32,35 @@ ProfitTree::ProfitTree(const QDir &workingDir,
     , m_companyInfos(companyInfos)
     , m_currencyRateManager(currencyRateManager),
       m_rootItem(new ProfitTreeItem({
-          tr("Parent ASIN"), 
-          tr("MSKU"), 
-          tr("Title"), 
-          tr("Units sold"), 
+          tr("Parent ASIN"),
+          tr("MSKU"),
+          tr("Title"),
+          tr("Units sold"),
           tr("Monthly Units"),
           tr("Unit returned"),
+          tr("Aged surcharge/unit"),
           tr("Return %"),
-          tr("Avg Sale Price"), 
-          tr("Profit Per Unit"), 
-          tr("Profit %"), 
-          tr("Profit / Capital"), 
-          tr("Avg Import Price"), 
-          tr("Unit Price"), 
-          tr("Profit without ads"), 
-          tr("Ads cost"), 
-          tr("Storage cost"), 
-          tr("FBA fees"), 
-          tr("Referal fees"), 
-          tr("Other fees"), 
+          tr("Avg Sale Price"),
+          tr("Profit Per Unit"),
+          tr("Profit %"),
+          tr("Profit / Capital"),
+          tr("Avg Import Price"),
+          tr("Unit Price"),
+          tr("Profit without ads"),
+          tr("Ads cost"),
+          tr("Storage cost"),
+          tr("FBA fees"),
+          tr("Referal fees"),
+          tr("Other fees"),
           tr("Total Ads"),
           tr("Total Storage"),
           tr("Total FBA"),
           tr("Total Referral"),
           tr("Total Other"),
           tr("Total Amz Costs"),
-          tr("FBA fees most sold country"), 
-          tr("ASIN")
+          tr("FBA fees most sold country"),
+          tr("ASIN"),
+          tr("Total aged surcharge")
       }))
 {
 }
@@ -153,7 +155,9 @@ QVariant ProfitTree::data(const QModelIndex &index, int role) const
             col == COL_FBA_FEES_PER_UNIT ||
             col == COL_REFERRAL_FEES_PER_UNIT ||
             col == COL_OTHER_FEES_PER_UNIT ||
-            col == COL_FBA_FEES_MOST_SOLD) 
+            col == COL_FBA_FEES_MOST_SOLD ||
+            col == COL_AGED_SURCHARGE_PER_UNIT ||
+            col == COL_AGED_SURCHARGE_TOTAL)
         {
             double v = val.toDouble();
             return QString::number(v, 'f', 2);
@@ -196,7 +200,7 @@ void ProfitTree::sort(int column, Qt::SortOrder order)
     }
     
     // Sort
-    bool isNumeric = (column >= 3 && column <= 13);
+    bool isNumeric = (column >= 3 && column <= COL_AGED_SURCHARGE_TOTAL);
     std::sort(children.begin(), children.end(), 
         [column, order, isNumeric](ProfitTreeItem *a, ProfitTreeItem *b) {
             if (isNumeric) {
@@ -264,7 +268,7 @@ void ProfitTree::setupTreeData()
         
         if (childrenData.size() > 1) {
             // Create Parent
-            QVector<QVariant> pData(27);
+            QVector<QVariant> pData(29);
             pData[0] = parentKey;
             ProfitTreeItem *pItem = new ProfitTreeItem(pData, m_rootItem);
             pItem->setParentAsin(parentKey);
@@ -512,8 +516,17 @@ void ProfitTree::processEconomicsFile(const QString &filePath,
     const DataFromCsv *rode = reader.dataRode();
     const CsvHeader &header = rode->header;
 
-    
-    
+    // Safe multi-candidate lookup: returns -1 when none of the names exist in the header.
+    // Use for optional columns only (required columns keep using header.pos() so errors surface).
+    auto posOpt = [&](const QStringList &names) -> int {
+        for (const auto &name : std::as_const(names)) {
+            if (header.contains(name)) {
+                return header.pos(name);
+            }
+        }
+        return -1;
+    };
+
     // Map Columns
     // Required (Strict)
     int colParent = header.pos({"Parent ASIN", "ParentASIN"});
@@ -544,11 +557,18 @@ void ProfitTree::processEconomicsFile(const QString &filePath,
                              , "AdvertisingCost"});
     
     // Storage components
+    // LongTermStorageFee@... is Amazon's internal name for "Aged inventory surcharge" (renamed ~2023)
+    int colAgedSurchargeTotal = header.pos({"Aged inventory surcharge total",
+                                            "LongTermStorageFee@stringId:SC_FBA_SER_total:X"});
+
     QList<int> storageCols;
-    storageCols << header.pos({"Monthly storage fee total", "Base monthly storage fee total"})
-                // << header.pos("Base monthly storage fee total") already included in the previous one
-                << header.pos({"Storage utilisation surcharge total", "Storage utilization surcharge total"})
-                << header.pos("Aged inventory surcharge total");
+    // BaseMonthlyStorageFee@... equals FbaStorageFee@... in @stringId files (same value, different label)
+    storageCols << header.pos({"Monthly storage fee total", "Base monthly storage fee total",
+                                "Monthly inventory storage fee total",
+                                "BaseMonthlyStorageFee@stringId:SC_FBA_SER_total:X"})
+                << header.pos({"Storage utilisation surcharge total", "Storage utilization surcharge total",
+                                "UtilizationSurchargeFee@stringId:SC_FBA_SER_total:X"})
+                << colAgedSurchargeTotal;
 
     // FBA Fees: STRICT CHECK
     int colFba = header.pos({
@@ -559,44 +579,61 @@ void ProfitTree::processEconomicsFile(const QString &filePath,
                             });
     
     int colReferral = header.pos({"Referral fee total", "ReferralFee@stringId:SC_FBA_SER_total:X"});
-    int colReferralRefund1 = header.pos(
-                {"RefundedReferralFee@stringId:SC_FBA_SER_total:X"
-                , "Refund administration fee total"}
-                );
-    /*
-    int colReferralRefund2 = -1; // We do it exceptionnaly as this column were added mid-2026
-    if (header.contains("RefundCommissionFee@stringId:SC_FBA_SER_total:X")) {
-        colReferralRefund2 =
-            header.pos("RefundCommissionFee@stringId:SC_FBA_SER_total:X");
-    }
-    else if (header.contains("Referral Fee Refunds total")) {
-        colReferralRefund2 =
-            header.pos("Referral Fee Refunds total");
-    }
-    //*/
-    int colReferralRefund2 = header.pos({"RefundCommissionFee@stringId:SC_FBA_SER_total:X"
-                                         , "Referral Fee Refunds total"});
+    // Refund admin fee (cost charged to seller when processing a return)
+    // RefundCommissionFee@... == "Refund administration fee total" — confirmed from data
+    int colReferralRefund1 = header.pos({"RefundCommissionFee@stringId:SC_FBA_SER_total:X"
+                                         , "Refund administration fee total"});
+    // Referral fee refunded to seller when a customer returns an item (credit, negative value)
+    // RefundedReferralFee@... == "Referral Fee Refunds total" — confirmed from data
+    // Optional: absent in early file formats (e.g. 2025-01)
+    int colReferralRefund2 = posOpt({"RefundedReferralFee@stringId:SC_FBA_SER_total:X"
+                                     , "Referral Fee Refunds total"});
 
     // Other Fees: Sum of remaining (Strict)
     QList<int> otherCols;
-    
-    // Explicitly add all required columns
+
+    // Each fee is listed with its human-readable name first, then its @stringId equivalent
+    // (Amazon used @stringId internal names in EU reports Oct–Dec 2025)
     QStringList otherColNames{
+        // Digital Services Tax on FBA fees
         "Digital Services Fee (FBA Fulfilment fees) total"
-        ,"Digital Services Fee (Selling on Amazon fees) total"
+        , "Digital Services Fee (FBA Fulfillment fees) total"   // US spelling
+        , "DigitalServicesFeeFBA@stringId:SC_FBA_SER_total:X"
+        // Digital Services Tax on selling fees
+        , "Digital Services Fee (Selling on Amazon fees) total"
+        , "DigitalServicesFeeSOA@stringId:SC_FBA_SER_total:X"
+        // Disposal / removal
         , "FBA disposal order fee total"
+        , "DisposalFee@stringId:SC_FBA_SER_total:X"
         , "FBA removal order fee total"
+        , "RemovalFee@stringId:SC_FBA_SER_total:X"
+        // Inbound transportation
         , "Inbound Transportation Fee total"
+        , "FbaInboundTransportationFee@stringId:SC_FBA_SER_total:X"
         , "Inbound Transportation Program Fee total"
+        , "FbaInboundTransportationProgramFee@stringId:SC_FBA_SER_total:X"
+        , "FBA inbound placement service fee total"
+        // Liquidation
         , "Liquidation processing fee total"
+        , "LiquidationProcessingFee@stringId:SC_FBA_SER_total:X"
         , "Liquidation referral fee total"
-        // , "Refund administration fee total" -> REMOVED to avoid double counting (included in colReferralRefund2)
+        , "LiquidationReferralFee@stringId:SC_FBA_SER_total:X"
+        // Low-inventory-level fee
+        , "Low-inventory-level fee total"
+        , "LowInventoryLevelFee@stringId:SC_FBA_SER_total:X"
+        // Customer return fees
         , "FbaCustomerReturnPerUnitFee total"
+        , "FbaCustomerReturnPerUnitFee@stringId:SC_FBA_SER_total:X"
+        , "CustomerReturnHRRUnitFee@stringId:SC_FBA_SER_total:X"
         , "Returns Processing Fee for Non-Apparel and Non-Shoes total"
         , "Returns processing fee for Apparel and Shoes total"
-        , "total" // It is for return fees total
-
-        , "FbaCustomerReturnPerUnitFee@stringId:SC_FBA_SER_total:X"
+        , "Returns processing fee for Clothing and Shoes total"
+        // PanEU oversize surcharge
+        , "PanEU-Oversize surcharge total"
+        , "PanEUOversizeFee@stringId:SC_FBA_SER_total:X"
+        // Catch-all: blank-named column (e.g. fuel/logistics surcharge in some EU exports)
+        // and legacy "Other fee"
+        , "total"
         , "Other fee"
     };
     for (const auto &otherColName : otherColNames)
@@ -607,7 +644,8 @@ void ProfitTree::processEconomicsFile(const QString &filePath,
         }
     }
 
-    int colReimb = header.pos("FBA Inventory Reimbursement total");
+    int colReimb = posOpt({"FBA Inventory Reimbursement total",
+                           "FBAInventoryReimbursement@stringId:SC_FBA_SER_total:X"});
 
     int colRefunded = header.pos("Units returned");
     
@@ -710,6 +748,7 @@ void ProfitTree::processEconomicsFile(const QString &filePath,
         agg.fbaFees += fba;
         agg.referralFees += referral;
         agg.otherFees += other;
+        agg.agedInventorySurcharge += valCvt(getVal(colAgedSurchargeTotal));
         
         // Track Country Sales (Net Units)
         // Track Country Sales (Net Units)
@@ -770,7 +809,7 @@ ProfitTreeItem* ProfitTree::createItemFromAgg(
     // Profit = Revenue - Fees - COGS
     double profit = agg.revenue - totalFees - cogs;
     
-    QVector<QVariant> data(27);
+    QVector<QVariant> data(29);
     data[COL_PARENT_ASIN] = ""; 
     data[COL_MSKU] = msku;
     data[COL_TITLE] = pData.title;
@@ -824,7 +863,7 @@ ProfitTreeItem* ProfitTree::createItemFromAgg(
     
     item->setAdsCost(agg.adsCost);
     item->setStorageCost(agg.storageCost);
-
+    item->setAgedInventorySurcharge(agg.agedInventorySurcharge);
     item->setFbaFees(agg.fbaFees);
     item->setReferralFees(agg.referralFees);
     item->setOtherFees(agg.otherFees);
