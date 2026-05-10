@@ -165,8 +165,15 @@ QVariant ProfitTree::data(const QModelIndex &index, int role) const
 
         return val;
     } else if (role == Qt::BackgroundRole) {
-        if (index.column() == COL_UNIT_PRICE && item->isPinkBackground()) {
+        const int col = index.column();
+        if (col == COL_UNIT_PRICE && item->isPinkBackground()) {
             return QColor(Qt::magenta).darker(180);
+        }
+        if (col == COL_AGED_SURCHARGE_PER_UNIT && item->data(col).toDouble() > 0.0) {
+            return QColor(Qt::darkYellow);
+        }
+        if (col == COL_PROFIT_PER_CAPITAL && item->data(col).toDouble() < 0.11) {
+            return QColor(Qt::red).darker(160);
         }
     }
 
