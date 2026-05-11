@@ -8,6 +8,7 @@
 
 #include <QColor>
 #include <QHash>
+#include <QSet>
 
 class CompanyInfosTable;
 class ProfitTreeItem;
@@ -90,6 +91,7 @@ private:
 
     // Inner helper types
     struct AggregatedData {
+        QString asin; // Child ASIN from the economics report
         // LOGIC NOTE: We do NOT store "unitsSold" (Net) here to avoid synchronization issues.
         // Net Units = unitsGross - unitsReturned.
         // Always calculate Net Units dynamically.
@@ -121,8 +123,10 @@ private:
     };
     
     // Helpers
-    void processEconomicsFile(const QString &filePath, 
-                              QHash<QString, QHash<QString, AggregatedData>> &hierarchy, 
+    void processEconomicsFile(const QString &filePath,
+                              QHash<QString, AggregatedData> &mskulAggMap,
+                              QHash<QString, QSet<QString>> &parentMskusMap,
+                              QHash<QString, QHash<QString, int>> &mskulParentUnits,
                               QHash<QString, PurchaseData> &purchaseDataMap);
                               
     ProfitTreeItem* createItemFromAgg(const AggregatedData &agg, const QString &msku, const PurchaseData &pData, ProfitTreeItem *parent);

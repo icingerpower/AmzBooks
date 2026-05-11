@@ -239,32 +239,98 @@ void ProfitTree::setupTreeData()
     QHash<QString, PurchaseData> purchaseDataMap;
     loadPurchaseData(purchaseDataMap);
 
-    // 2. Aggregate Data from Economics CSVs
-    QHash<QString, QHash<QString, AggregatedData>> parentMap;
-    
+    // 2. Aggregate Data: keyed by MSKU (merged across all parent ASINs/marketplaces)
+    QHash<QString, AggregatedData> mskulAggMap;
+    QHash<QString, QSet<QString>> parentMskusMap;  // parentAsin → set of MSKUs that appear under it
+    QHash<QString, QHash<QString, int>> mskulParentUnits; // msku → parentAsin → total grossUnits
+
     QStringList filters;
     filters << "*.csv" << "*.CSV";
     QDirIterator it(m_economicsDir.absolutePath(), filters, QDir::Files | QDir::NoSymLinks, QDirIterator::Subdirectories);
-    
+
     bool filesFound = false;
     while (it.hasNext()) {
         filesFound = true;
-        processEconomicsFile(it.next(), parentMap, purchaseDataMap);
+        processEconomicsFile(it.next(), mskulAggMap, parentMskusMap, mskulParentUnits, purchaseDataMap);
     }
-    
+
     if (!filesFound) {
-        ExceptionWithTitleText exception(tr("No Economics Files"), 
+        ExceptionWithTitleText exception(tr("No Economics Files"),
                                  tr("No economics CSV files found recursively in: %1").arg(m_economicsDir.absolutePath()));
         exception.raise();
     }
-    
-    if (parentMap.isEmpty()) {
-        ExceptionWithTitleText exception(tr("No Valid Economics Data"), 
+
+    if (mskulAggMap.isEmpty()) {
+        ExceptionWithTitleText exception(tr("No Valid Economics Data"),
                                  tr("Economics files were found but no valid data rows could be extracted."));
         exception.raise();
     }
 
-    // 3. Build Tree
+    // 3. Group MSKUs into families via union-find.
+    //    Two MSKUs belong to the same family when they share a Parent ASIN (same product
+    //    variation family, reported with different Parent ASINs per marketplace).
+    QHash<QString, QString> ufParent;
+    for (const QString &msku : mskulAggMap.keys()) {
+        ufParent[msku] = msku;
+    }
+    // Iterative path-halving find (no recursion needed)
+    auto ufFind = [&ufParent](QString x) -> QString {
+        while (ufParent[x] != x) {
+            ufParent[x] = ufParent[ufParent[x]];
+            x = ufParent[x];
+        }
+        return x;
+    };
+    for (auto itP = parentMskusMap.constBegin(); itP != parentMskusMap.constEnd(); ++itP) {
+        const QSet<QString> &mskus = itP.value();
+        if (mskus.size() < 2) {
+            continue;
+        }
+        const QString &first = *mskus.constBegin();
+        for (const QString &m : mskus) {
+            if (m != first) {
+                ufParent[ufFind(m)] = ufFind(first);
+            }
+        }
+    }
+
+    // 4. Collect family members (representative → MSKUs)
+    QHash<QString, QSet<QString>> families;
+    for (const QString &msku : mskulAggMap.keys()) {
+        families[ufFind(msku)].insert(msku);
+    }
+
+    // 5. For each family choose the canonical Parent ASIN (most total gross units)
+    //    and rebuild parentMap with that canonical key.
+    QHash<QString, QHash<QString, AggregatedData>> parentMap;
+    for (auto itFam = families.constBegin(); itFam != families.constEnd(); ++itFam) {
+        const QSet<QString> &mskus = itFam.value();
+
+        QHash<QString, int> parentTotalUnits;
+        for (const QString &msku : mskus) {
+            for (auto itU = mskulParentUnits[msku].constBegin(); itU != mskulParentUnits[msku].constEnd(); ++itU) {
+                parentTotalUnits[itU.key()] += itU.value();
+            }
+        }
+
+        QString canonicalParent;
+        int maxUnits = -1;
+        for (auto itU = parentTotalUnits.constBegin(); itU != parentTotalUnits.constEnd(); ++itU) {
+            if (itU.value() > maxUnits) {
+                maxUnits = itU.value();
+                canonicalParent = itU.key();
+            }
+        }
+        if (canonicalParent.isEmpty()) {
+            canonicalParent = *mskus.constBegin();
+        }
+
+        for (const QString &msku : mskus) {
+            parentMap[canonicalParent][msku] = mskulAggMap[msku];
+        }
+    }
+
+    // 6. Build Tree
     for (auto itParent = parentMap.begin(); itParent != parentMap.end(); ++itParent) {
         QString parentKey = itParent.key();
         QHash<QString, AggregatedData> &childrenData = itParent.value();
@@ -495,8 +561,10 @@ void ProfitTree::loadPurchaseData(QHash<QString, PurchaseData> &purchaseDataMap)
     }
 }
 
-void ProfitTree::processEconomicsFile(const QString &filePath, 
-                                      QHash<QString, QHash<QString, AggregatedData>> &parentMap, 
+void ProfitTree::processEconomicsFile(const QString &filePath,
+                                      QHash<QString, AggregatedData> &mskulAggMap,
+                                      QHash<QString, QSet<QString>> &parentMskusMap,
+                                      QHash<QString, QHash<QString, int>> &mskulParentUnits,
                                       QHash<QString, PurchaseData> &purchaseDataMap)
 {
     // Check if Economics file
@@ -538,12 +606,13 @@ void ProfitTree::processEconomicsFile(const QString &filePath,
     // Required (Strict)
     int colParent = header.pos({"Parent ASIN", "ParentASIN"});
     int colMsku = header.pos({"MSKU", "SKU"});
-    
+    int colAsin = posOpt({"ASIN"});
+
     // Optional (for now? No, user said strict fee columns. What about these?)
     // User said "ProfitTree can't catch".
     // If these are missing, we CANNOT proceed.
     // So strict check matches rule.
-    
+
     int colCountry = header.pos({"Amazon store", "Marketplace"});
     
     int colCurrency = header.pos({"Currency code", "Currency"});
@@ -740,7 +809,12 @@ void ProfitTree::processEconomicsFile(const QString &filePath,
         other -= reimb; 
         
         // Populate AggregatedData
-        AggregatedData &agg = parentMap[parentAsin][msku];
+        AggregatedData &agg = mskulAggMap[msku];
+        if (colAsin != -1 && agg.asin.isEmpty()) {
+            agg.asin = line.value(colAsin).trimmed();
+        }
+        parentMskusMap[parentAsin].insert(msku);
+        mskulParentUnits[msku][parentAsin] += static_cast<int>(grossUnits);
         agg.unitsGross += (int)grossUnits;
         agg.unitsReturned += (int)refundedUnits;
         agg.revenue += sales;
@@ -822,8 +896,6 @@ ProfitTreeItem* ProfitTree::createItemFromAgg(
     data[COL_TITLE] = pData.title;
     data[COL_UNITS_SOLD] = unitsSoldNet;
     
-    data[COL_ASIN] = msku; // ASIN/MSKU placeholder
-    
     ProfitTreeItem *item = new ProfitTreeItem(data, parent);
     item->setUnitsSoldPerMonth(agg.unitsSoldPerMonth);
     // Median is calculated in setUnitsSoldPerMonth
@@ -878,9 +950,10 @@ ProfitTreeItem* ProfitTree::createItemFromAgg(
     item->setAvgImportPrice(avgImportPrice);
     
     item->setMsku(msku);
+    item->setAsin(agg.asin.isEmpty() ? msku : agg.asin);
     item->setTitle(pData.title);
     item->setIsPinkBackground(isPink);
-    
+
     return item;
 }
 

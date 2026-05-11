@@ -139,6 +139,34 @@
           </widget>
          </item>
          <item>
+          <widget class="Line" name="line_6">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLineEdit" name="lineEditAsinFilter">
+           <property name="placeholderText">
+            <string>ASIN / Parent ASIN / MSKU</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="buttonAsinFilter">
+           <property name="text">
+            <string>Filter</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="buttonAsinFilterReset">
+           <property name="text">
+            <string>Filter reset</string>
+           </property>
+          </widget>
+         </item>
+         <item>
           <spacer name="horizontalSpacer">
            <property name="orientation">
             <enum>Qt::Horizontal</enum>

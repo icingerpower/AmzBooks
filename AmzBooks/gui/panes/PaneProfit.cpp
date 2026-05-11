@@ -226,7 +226,64 @@ void PaneProfit::filter()
 
 void PaneProfit::filterReset()
 {
-    if (!m_profitTree) return;
+    if (!m_profitTree) {
+        return;
+    }
+    for (int i = 0; i < m_profitTree->rowCount(); ++i) {
+        ui->treeViewProfit->setRowHidden(i, QModelIndex(), false);
+    }
+}
+
+void PaneProfit::filterByAsin()
+{
+    if (!m_profitTree) {
+        return;
+    }
+
+    const QString text = ui->lineEditAsinFilter->text().trimmed();
+    if (text.isEmpty()) {
+        filterByAsinReset();
+        return;
+    }
+
+    for (int i = 0; i < m_profitTree->rowCount(); ++i) {
+        bool match = false;
+        const QModelIndex parentIndex = m_profitTree->index(i, 0);
+
+        const QString parentAsin = m_profitTree->data(m_profitTree->index(i, ProfitTree::COL_PARENT_ASIN)).toString();
+        const QString parentMsku = m_profitTree->data(m_profitTree->index(i, ProfitTree::COL_MSKU)).toString();
+        const QString parentAsinCol = m_profitTree->data(m_profitTree->index(i, ProfitTree::COL_ASIN)).toString();
+
+        if (parentAsin.contains(text, Qt::CaseInsensitive) ||
+            parentMsku.contains(text, Qt::CaseInsensitive) ||
+            parentAsinCol.contains(text, Qt::CaseInsensitive)) {
+            match = true;
+        }
+
+        if (!match) {
+            const int childCount = m_profitTree->rowCount(parentIndex);
+            for (int j = 0; j < childCount && !match; ++j) {
+                const QString childAsin = m_profitTree->data(m_profitTree->index(j, ProfitTree::COL_ASIN, parentIndex)).toString();
+                const QString childMsku = m_profitTree->data(m_profitTree->index(j, ProfitTree::COL_MSKU, parentIndex)).toString();
+                const QString childParentAsin = m_profitTree->data(m_profitTree->index(j, ProfitTree::COL_PARENT_ASIN, parentIndex)).toString();
+
+                if (childAsin.contains(text, Qt::CaseInsensitive) ||
+                    childMsku.contains(text, Qt::CaseInsensitive) ||
+                    childParentAsin.contains(text, Qt::CaseInsensitive)) {
+                    match = true;
+                }
+            }
+        }
+
+        ui->treeViewProfit->setRowHidden(i, QModelIndex(), !match);
+    }
+}
+
+void PaneProfit::filterByAsinReset()
+{
+    if (!m_profitTree) {
+        return;
+    }
     for (int i = 0; i < m_profitTree->rowCount(); ++i) {
         ui->treeViewProfit->setRowHidden(i, QModelIndex(), false);
     }
@@ -255,6 +312,19 @@ void PaneProfit::_connectSlots()
             this,
             &PaneProfit::computeProfit);
             
+    connect(ui->buttonAsinFilter,
+            &QPushButton::clicked,
+            this,
+            &PaneProfit::filterByAsin);
+    connect(ui->buttonAsinFilterReset,
+            &QPushButton::clicked,
+            this,
+            &PaneProfit::filterByAsinReset);
+    connect(ui->lineEditAsinFilter,
+            &QLineEdit::returnPressed,
+            this,
+            &PaneProfit::filterByAsin);
+
     connect(ui->dateEditSartDate, &QDateEdit::dateChanged, this, &PaneProfit::saveSettings);
     connect(ui->spinBoxMinUnits, QOverload<int>::of(&QSpinBox::valueChanged), this, &PaneProfit::saveSettings);
 }
@@ -264,4 +334,7 @@ void PaneProfit::_setFilterButtonsEnabled(bool enable)
     ui->buttonEditFilters->setEnabled(enable);
     ui->buttonFilter->setEnabled(enable);
     ui->buttonFilterReset->setEnabled(enable);
+    ui->lineEditAsinFilter->setEnabled(enable);
+    ui->buttonAsinFilter->setEnabled(enable);
+    ui->buttonAsinFilterReset->setEnabled(enable);
 }

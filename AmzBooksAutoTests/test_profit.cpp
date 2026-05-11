@@ -48,6 +48,7 @@ private slots:
     void testMissingFbaColumns();
     void testMonthlyUnitsSold();
     void testAgedInventorySurcharge();
+    void testMultiMarketplaceParentMerge();
 
 private:
     QDir m_testDir;
@@ -2500,4 +2501,128 @@ void TestProfit::testAgedInventorySurcharge()
     QCOMPARE(pt.columnCount(), 29);
 }
 
+void TestProfit::testMultiMarketplaceParentMerge()
+{
+    // Scenario: Amazon reports the same MSKU under different Parent ASINs per marketplace.
+    // This test verifies that:
+    //   (a) Each MSKU appears exactly once in the tree (no duplication).
+    //   (b) For a variation family (multiple MSKUs under the same "logical" parent),
+    //       the displayed Parent ASIN is the one with the most total gross units.
+    //   (c) A standalone MSKU that appears under multiple marketplace-specific parents
+    //       is also deduplicated and shown once.
 
+    QDir dir = setupTestDir("test_multi_marketplace");
+    CompanyInfosTable companyInfos(dir);
+    CurrencyRateManager currencyRateManager(dir, "dummy");
+
+    // Two variation MSKUs: MSKU_VAR_A and MSKU_VAR_B.
+    // They co-exist under parent P_DE (DE, 10 units each) and P_FR (FR, 5 units each).
+    // Expected canonical parent: P_DE (10+10=20 > 5+5=10).
+    //
+    // One standalone MSKU: MSKU_SOLO.
+    // It appears under P_SOLO_DE (DE, 8 units) and P_SOLO_FR (FR, 3 units).
+    // Expected canonical parent: P_SOLO_DE (8 > 3).
+
+    writePurchaseCsv(dir, "purchases-COM.csv", {
+        {"MSKU_VAR_A", "Var Product A", "5.00"},
+        {"MSKU_VAR_B", "Var Product B", "6.00"},
+        {"MSKU_SOLO",  "Solo Product",  "7.00"}
+    });
+
+    QDir ecoDir = dir;
+    ecoDir.mkdir("economics");
+    ecoDir.cd("economics");
+
+    const QStringList feeHeaders = {
+        "SponsoredProductFee@stringId:SC_FBA_SER_total:X",
+        "Fulfilment by Amazon fulfilment fees total",
+        "Referral fee total",
+        "Monthly storage fee total"
+    };
+
+    // DE store: family under P_DE, standalone under P_SOLO_DE
+    writeEconomicsCsv(ecoDir, "economics_DE.csv", feeHeaders, {
+        {"DE", "01/01/2026", "01/31/2026", "P_DE",      "ASIN_A", "", "MSKU_VAR_A", "EUR", "10", "100.0", "2.0", "5.0", "4.0", "1.0"},
+        {"DE", "01/01/2026", "01/31/2026", "P_DE",      "ASIN_B", "", "MSKU_VAR_B", "EUR", "10", "100.0", "2.0", "5.0", "4.0", "1.0"},
+        {"DE", "01/01/2026", "01/31/2026", "P_SOLO_DE", "ASIN_S", "", "MSKU_SOLO",  "EUR",  "8",  "80.0", "1.0", "4.0", "3.0", "0.5"}
+    });
+
+    // FR store: same family under P_FR, same standalone under P_SOLO_FR
+    writeEconomicsCsv(ecoDir, "economics_FR.csv", feeHeaders, {
+        {"FR", "01/01/2026", "01/31/2026", "P_FR",      "ASIN_A", "", "MSKU_VAR_A", "EUR", "5", "50.0", "1.0", "2.5", "2.0", "0.5"},
+        {"FR", "01/01/2026", "01/31/2026", "P_FR",      "ASIN_B", "", "MSKU_VAR_B", "EUR", "5", "50.0", "1.0", "2.5", "2.0", "0.5"},
+        {"FR", "01/01/2026", "01/31/2026", "P_SOLO_FR", "ASIN_S", "", "MSKU_SOLO",  "EUR", "3", "30.0", "0.5", "1.5", "1.0", "0.3"}
+    });
+
+    ProfitTree profitTree(dir, ecoDir, dir, QDate(2025, 1, 1), 0, 0.0,
+                          &companyInfos, &currencyRateManager);
+    profitTree.load();
+
+    // (a) Exactly 2 root items: the variation family and the standalone.
+    QCOMPARE(profitTree.rowCount(), 2);
+
+    // Collect root items by their Parent ASIN column
+    QStringList rootParents;
+    int rootWithChildren = 0;
+    for (int i = 0; i < profitTree.rowCount(); ++i) {
+        const QString parentAsin = profitTree.data(profitTree.index(i, ProfitTree::COL_PARENT_ASIN)).toString();
+        rootParents << parentAsin;
+        if (profitTree.rowCount(profitTree.index(i, 0)) > 0) {
+            ++rootWithChildren;
+        }
+    }
+
+    // (b) Canonical parent for the variation family must be P_DE (most units).
+    QVERIFY2(rootParents.contains("P_DE"),
+             qPrintable("Expected P_DE as canonical parent, got: " + rootParents.join(", ")));
+
+    // (c) Canonical parent for the standalone must be P_SOLO_DE (most units).
+    QVERIFY2(rootParents.contains("P_SOLO_DE"),
+             qPrintable("Expected P_SOLO_DE as canonical parent, got: " + rootParents.join(", ")));
+
+    // (d) The variation family root must have exactly 2 children (MSKU_VAR_A, MSKU_VAR_B).
+    QModelIndex familyIdx;
+    for (int i = 0; i < profitTree.rowCount(); ++i) {
+        if (profitTree.data(profitTree.index(i, ProfitTree::COL_PARENT_ASIN)).toString() == "P_DE") {
+            familyIdx = profitTree.index(i, 0);
+            break;
+        }
+    }
+    QVERIFY(familyIdx.isValid());
+    QCOMPARE(profitTree.rowCount(familyIdx), 2);
+
+    QStringList childMskus;
+    for (int j = 0; j < profitTree.rowCount(familyIdx); ++j) {
+        childMskus << profitTree.data(profitTree.index(j, ProfitTree::COL_MSKU, familyIdx)).toString();
+    }
+    childMskus.sort();
+    QCOMPARE(childMskus, QStringList({"MSKU_VAR_A", "MSKU_VAR_B"}));
+
+    // (e) Each child's units are the sum of DE + FR contributions (no duplication).
+    //     MSKU_VAR_A: 10 (DE) + 5 (FR) = 15 net units.
+    for (int j = 0; j < profitTree.rowCount(familyIdx); ++j) {
+        const QString msku = profitTree.data(profitTree.index(j, ProfitTree::COL_MSKU, familyIdx)).toString();
+        const int units = profitTree.data(profitTree.index(j, ProfitTree::COL_UNITS_SOLD, familyIdx)).toInt();
+        if (msku == "MSKU_VAR_A" || msku == "MSKU_VAR_B") {
+            QCOMPARE(units, 15); // 10 + 5, no duplicates
+        }
+    }
+
+    // (f) The standalone MSKU_SOLO has 8 + 3 = 11 net units.
+    QModelIndex soloIdx;
+    for (int i = 0; i < profitTree.rowCount(); ++i) {
+        if (profitTree.data(profitTree.index(i, ProfitTree::COL_PARENT_ASIN)).toString() == "P_SOLO_DE") {
+            soloIdx = profitTree.index(i, 0);
+            break;
+        }
+    }
+    QVERIFY(soloIdx.isValid());
+    QCOMPARE(profitTree.data(soloIdx.siblingAtColumn(ProfitTree::COL_UNITS_SOLD)).toInt(), 11);
+
+    // (g) ASIN column must show the actual ASIN, not the MSKU.
+    for (int j = 0; j < profitTree.rowCount(familyIdx); ++j) {
+        const QString asin = profitTree.data(profitTree.index(j, ProfitTree::COL_ASIN, familyIdx)).toString();
+        QVERIFY2(asin == "ASIN_A" || asin == "ASIN_B",
+                 qPrintable("Unexpected ASIN value: " + asin));
+    }
+}

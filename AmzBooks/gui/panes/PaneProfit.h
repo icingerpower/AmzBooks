@@ -26,6 +26,8 @@ public slots:
     void editFilters();
     void filter();
     void filterReset();
+    void filterByAsin();
+    void filterByAsinReset();
 
 private:
     Ui::PaneProfit *ui;
