@@ -172,11 +172,13 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
     int idxInvoice   = csvData->header.pos("ID DE FACTURE");
 
     // Optional columns
-    static const QString COL_SHIP_SUBSIDY = "MONTANT DE LA SUBVENTION POUR L'EXPÉDITION (TVA non incluse)";
-    static const QString COL_SUBSIDY_INV  = "ID DE FACTURE DE SUBVENTION";
-    int idxShipSubsidy    = csvData->header.contains(COL_SHIP_SUBSIDY) ? csvData->header.pos(COL_SHIP_SUBSIDY) : -1;
-    int idxSubsidyInvoice = csvData->header.contains(COL_SUBSIDY_INV)  ? csvData->header.pos(COL_SUBSIDY_INV)  : -1;
-    int idxMarketplace    = csvData->header.contains("MARKETPLACE")     ? csvData->header.pos("MARKETPLACE")     : -1;
+    static const QString COL_SHIP_SUBSIDY     = "MONTANT DE LA SUBVENTION POUR L'EXPÉDITION (TVA non incluse)";
+    static const QString COL_SHIP_SUBSIDY_VAT = "MONTANT DE LA TVA SUR LA SUBVENTION POUR L'EXPÉDITION";
+    static const QString COL_SUBSIDY_INV      = "ID DE FACTURE DE SUBVENTION";
+    int idxShipSubsidy    = csvData->header.contains(COL_SHIP_SUBSIDY)     ? csvData->header.pos(COL_SHIP_SUBSIDY)     : -1;
+    int idxShipSubsidyVat = csvData->header.contains(COL_SHIP_SUBSIDY_VAT) ? csvData->header.pos(COL_SHIP_SUBSIDY_VAT) : -1;
+    int idxSubsidyInvoice = csvData->header.contains(COL_SUBSIDY_INV)      ? csvData->header.pos(COL_SUBSIDY_INV)      : -1;
+    int idxMarketplace    = csvData->header.contains("MARKETPLACE")         ? csvData->header.pos("MARKETPLACE")         : -1;
 
     // --- Temporary aggregation by (orderId, transactionType) ---------------------
     // Multiple CSV rows with the same orderId and type represent individual SKUs of
@@ -243,12 +245,16 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
         );
 
         // --- Amounts -------------------------------------------------------------
-        double itemExcl    = parseEuropeanAmount(line.value(idxItemExcl));
-        double subsidyExcl = parseEuropeanAmount(line.value(idxSubsidy));
-        double shipSubsidy = (idxShipSubsidy >= 0)
-                             ? parseEuropeanAmount(line.value(idxShipSubsidy)) : 0.0;
+        double itemExcl     = parseEuropeanAmount(line.value(idxItemExcl));
+        double subsidyExcl  = parseEuropeanAmount(line.value(idxSubsidy));
+        double shipSubsidy  = (idxShipSubsidy >= 0)
+                              ? parseEuropeanAmount(line.value(idxShipSubsidy)) : 0.0;
+        double shipSubsidyVat = (idxShipSubsidyVat >= 0)
+                                ? parseEuropeanAmount(line.value(idxShipSubsidyVat)) : 0.0;
         double shippingExcl = parseEuropeanAmount(line.value(idxShipping));
-        double totalTax    = parseEuropeanAmount(line.value(idxTotalTax));
+        // TAXE TOTALE covers article + regular-shipping VAT but not shipping-subsidy VAT
+        // (which appears in a separate column when Temu subsidises free shipping).
+        double totalTax     = parseEuropeanAmount(line.value(idxTotalTax)) + shipSubsidyVat;
 
         double totalExcl = itemExcl + subsidyExcl + shipSubsidy + shippingExcl;
         double totalIncl = totalExcl + totalTax;
