@@ -515,7 +515,13 @@ PurchaseInformation PurchaseInvoiceManager::decode(const QString &fileName
                 }
                 double rate = itRate.key().toDouble();
                 // This validates the configuration and throws ExceptionWithTitleText if it doesn't exist
-                purchaseTable->getAccountsDebit6(info.countryCodeTo, rate);
+                try {
+                    purchaseTable->getAccountsDebit6(info.countryCodeTo, rate);
+                } catch (ExceptionWithTitleText &ex) {
+                    ExceptionWithTitleText enriched(ex.errorTitle(),
+                        ex.errorText() + "\n\n" + QObject::tr("Invoice: %1").arg(fileName));
+                    enriched.raise();
+                }
             }
         }
     }

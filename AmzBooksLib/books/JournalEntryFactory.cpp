@@ -260,8 +260,14 @@ QSharedPointer<JournalEntry> JournalEntryFactory::createEntry(
                     effectiveVatCurrencyRate = debit6Result.matchedRate * untaxedNormInCompany / vatAmount;
                 }
             } else {
-                vatDebit6  = m_purchaseBookAccounts->getAccountsDebit6(purchaseInformation.vatCountry, vatRate);
-                vatCredit4 = m_purchaseBookAccounts->getAccountsCredit4(purchaseInformation.vatCountry, vatRate);
+                try {
+                    vatDebit6  = m_purchaseBookAccounts->getAccountsDebit6(purchaseInformation.vatCountry, vatRate);
+                    vatCredit4 = m_purchaseBookAccounts->getAccountsCredit4(purchaseInformation.vatCountry, vatRate);
+                } catch (ExceptionWithTitleText &ex) {
+                    ExceptionWithTitleText enriched(ex.errorTitle(),
+                        ex.errorText() + "\n\n" + QObject::tr("Invoice: %1").arg(purchaseInformation.filePath));
+                    enriched.raise();
+                }
             }
             
             // Normal purchase VAT — use vatCurrency (may differ from total currency).
