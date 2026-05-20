@@ -103,6 +103,16 @@ QCoro::Task<BooksAccountsSalesTable::Accounts> BooksAccountsSalesTable::getAccou
             return res;
         }
 
+        // Fallback: Try with empty Declaring only (keep From) — matches entries stored
+        // by addAccount which records countryCodeFrom but _rebuildCache sets Declaring="".
+        if (!orgVc.countryCodeDeclaring.isEmpty()) {
+            VatCountries withoutDeclaring = orgVc;
+            withoutDeclaring.countryCodeDeclaring = "";
+            if (auto res = tryMatch(withoutDeclaring)) {
+                return res;
+            }
+        }
+
         // Fallback: Try with empty From (Generic)
         if (!orgVc.countryCodeFrom.isEmpty()) {
             VatCountries genericFrom = orgVc;
@@ -192,6 +202,14 @@ BooksAccountsSalesTable::Accounts BooksAccountsSalesTable::getAccountsIfPresent(
 
     if (auto res = tryMatch(vatCountries)) {
         return *res;
+    }
+
+    if (!vatCountries.countryCodeDeclaring.isEmpty()) {
+        VatCountries withoutDeclaring = vatCountries;
+        withoutDeclaring.countryCodeDeclaring = "";
+        if (auto res = tryMatch(withoutDeclaring)) {
+            return *res;
+        }
     }
 
     if (!vatCountries.countryCodeFrom.isEmpty()) {

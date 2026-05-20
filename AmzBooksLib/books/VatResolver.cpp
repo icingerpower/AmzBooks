@@ -198,8 +198,9 @@ void VatResolver::_fillIfEmpty()
     // DK Standard 25%
     addRow(QDate(2021, 1, 1), QDate(), SaleType::Products, "DK", "", "", 0.25);
     
-    // EE Standard: 20% until 2023-12-31, 22% from 2024-01-01
-    addRow(QDate(2024, 1, 1), QDate(), SaleType::Products, "EE", "", "", 0.22);
+    // EE Standard: 20% until 2023-12-31, 22% from 2024-01-01, 24% from 2025-07-01
+    addRow(QDate(2025, 7, 1), QDate(), SaleType::Products, "EE", "", "", 0.24);
+    addRow(QDate(2024, 1, 1), QDate(2025, 6, 30), SaleType::Products, "EE", "", "", 0.22);
     addRow(QDate(), QDate(2023, 12, 31), SaleType::Products, "EE", "", "", 0.20);
 
     // HR Standard 25%
