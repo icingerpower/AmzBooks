@@ -39,7 +39,7 @@ public:
     int     getPaymentDays() const;
     bool    getVatOnPayment() const;
 
-    // Returns one entry per article row with non-empty title and positive price/qty
+    // Returns one entry per article row with non-empty title, positive price, and non-zero qty (negative qty = refund)
     QList<ServiceSalesBooksTable::SaleLineItemInput> getLineItems() const;
 
 private slots:

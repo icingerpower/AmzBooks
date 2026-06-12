@@ -73,12 +73,12 @@ void DialogAddSaleService::_addArticleRow(const QString &title, double unitPrice
             this, &DialogAddSaleService::_onTableDataChanged);
     t->setCellWidget(row, COL_UNIT_PRICE, priceBox);
 
-    // Quantity spin box — 1 decimal, minimum 0.1
+    // Quantity spin box — 1 decimal, negative allowed for refunds
     auto *qtyBox = new QDoubleSpinBox;
-    qtyBox->setRange(0.1, 9999.9);
+    qtyBox->setRange(-9999.9, 9999.9);
     qtyBox->setDecimals(1);
     qtyBox->setSingleStep(0.1);
-    qtyBox->setValue(qty > 0.0 ? qty : 1.0);
+    qtyBox->setValue(qty != 0.0 ? qty : 1.0);
     connect(qtyBox, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
             this, &DialogAddSaleService::_onTableDataChanged);
     t->setCellWidget(row, COL_QUANTITY, qtyBox);
@@ -301,7 +301,7 @@ QList<ServiceSalesBooksTable::SaleLineItemInput> DialogAddSaleService::getLineIt
         const auto *qtyBox   = qobject_cast<QDoubleSpinBox *>(t->cellWidget(row, COL_QUANTITY));
         if (!descItem || !priceBox || !qtyBox) continue;
         const QString title = descItem->text().trimmed();
-        if (title.isEmpty() || priceBox->value() <= 0.0 || qtyBox->value() <= 0.0) continue;
+        if (title.isEmpty() || priceBox->value() <= 0.0 || qtyBox->value() == 0.0) continue;
         result.append({title, priceBox->value(), qtyBox->value()});
     }
     return result;

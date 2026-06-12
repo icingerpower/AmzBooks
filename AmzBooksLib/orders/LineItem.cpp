@@ -14,8 +14,8 @@ Result<LineItem> LineItem::create(QString sku,
     if (taxedAmount == 0.0) {
         result.errors.append(ValidationError{QObject::tr("taxedAmount"), QObject::tr("Taxed amount must not be 0")});
     }
-    if (quantity <= 0) {
-        result.errors.append(ValidationError{QObject::tr("quantity"), QObject::tr("Quantity must be greater than 0")});
+    if (quantity == 0) {
+        result.errors.append(ValidationError{QObject::tr("quantity"), QObject::tr("Quantity must not be 0")});
     }
 
     if (result.errors.isEmpty()) {

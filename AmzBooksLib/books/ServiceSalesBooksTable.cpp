@@ -307,36 +307,8 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     const QString clientAccount = clientManager->getAccount(clientRow);
     Shipment shipment(activities, clientAccount, false); // Service sales are not grouped
 
-    // 5. Record in OrderManager
-    ActivitySource source;
-    // Use API type as fallback for external/manual creation
-    source.type = ActivitySourceType::API;
-    source.channel = CHANNEL_SALE;
-    source.subchannel = "";
-    source.reportOrMethode = ActivitySource::METHOD_USER_ENTRY;
-
-    m_orderManager->recordShipmentFromSource(orderId, &source, &shipment, date, false);
-    m_orderManager->recordOrders({{orderId, OrderManager::OrderInfo{QString(), false, clientAccount}}});
-
-    // Record client address so the invoice can display the destination
-    Address clientAddress(
-        clientManager->getClientName(clientRow),    // fullName
-        clientManager->getStreet1(clientRow),        // addressLine1
-        clientManager->getStreet2(clientRow),        // addressLine2
-        QString(),                                   // addressLine3
-        clientManager->getCity(clientRow),           // city
-        clientManager->getPostalCode(clientRow),     // postalCode
-        country,                                     // countryCode (already fetched above)
-        QString(),                                   // stateOrRegion
-        QString(),                                   // email
-        QString(),                                   // phone
-        clientManager->getClientName(clientRow),    // companyName
-        clientManager->getVatNumber(clientRow)       // taxId
-    );
-    m_orderManager->recordAddressesTo({{orderId, clientAddress}});
-
-    // 6. Create and record InvoicingInfo with payment date
-    // Use paymentDate only if it differs from orderDate (non-instant payment)
+    // 5. Build and validate InvoicingInfo BEFORE any DB writes, so a validation
+    //    failure leaves the database untouched (no orphaned shipment records).
     std::optional<QDate> optPaymentDate = (paymentDate != date) ? std::optional<QDate>(paymentDate) : std::nullopt;
 
     QList<LineItem> invoiceLineItems;
@@ -355,6 +327,32 @@ void ServiceSalesBooksTable::createSale(const ServiceClientManager *clientManage
     }
     resInfo.value->setVatOnPayment(vatOnPayment);
     resInfo.value->setReference(orderId);
+
+    // 6. All validation passed — now write to the database.
+    ActivitySource source;
+    source.type = ActivitySourceType::API;
+    source.channel = CHANNEL_SALE;
+    source.subchannel = "";
+    source.reportOrMethode = ActivitySource::METHOD_USER_ENTRY;
+
+    m_orderManager->recordShipmentFromSource(orderId, &source, &shipment, date, false);
+    m_orderManager->recordOrders({{orderId, OrderManager::OrderInfo{QString(), false, clientAccount}}});
+
+    Address clientAddress(
+        clientManager->getClientName(clientRow),    // fullName
+        clientManager->getStreet1(clientRow),        // addressLine1
+        clientManager->getStreet2(clientRow),        // addressLine2
+        QString(),                                   // addressLine3
+        clientManager->getCity(clientRow),           // city
+        clientManager->getPostalCode(clientRow),     // postalCode
+        country,                                     // countryCode (already fetched above)
+        QString(),                                   // stateOrRegion
+        QString(),                                   // email
+        QString(),                                   // phone
+        clientManager->getClientName(clientRow),    // companyName
+        clientManager->getVatNumber(clientRow)       // taxId
+    );
+    m_orderManager->recordAddressesTo({{orderId, clientAddress}});
     m_orderManager->recordInvoicingInfo(activityId, &resInfo.value.value());
 
     // 7. Add to AbstractBooksTable (gross amount = net + vat)
