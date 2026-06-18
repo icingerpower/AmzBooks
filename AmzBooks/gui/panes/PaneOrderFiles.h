@@ -14,6 +14,8 @@ namespace Ui {
 class PaneOrderFiles;
 }
 
+class AbstractImporterFile;
+
 class PaneOrderFiles : public QWidget
 {
     Q_OBJECT
@@ -34,6 +36,7 @@ private:
     QMap<QString, class ActivityTable*> m_activityModels;
 
     void _connectSlots();
+    void _refreshImportedFilesList(AbstractImporterFile *importer);
     void onImporterSelected(const QModelIndex &current, const QModelIndex &previous);
     void updateChart();
 

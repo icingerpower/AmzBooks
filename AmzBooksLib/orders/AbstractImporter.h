@@ -96,6 +96,9 @@ public:
     // m_workingDirectory for those tables so the GUI and importer see the same data.
     void setSharedConfigDirectory(const QDir &dir);
 
+    void setWorkingDirectory(const QDir &dir);
+    QStringList getImportedIds() const;
+
 protected:
     AbstractImporter() : m_workingDirectory(QDir::current()) {}
     QDir m_workingDirectory;

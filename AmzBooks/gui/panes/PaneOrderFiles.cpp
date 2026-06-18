@@ -7,6 +7,7 @@
 #include <QFile>
 #include <QTextStream>
 #include <QDateTime>
+#include <QSet>
 
 #include "../../../../common/workingdirectory/WorkingDirectoryManager.h"
 
@@ -79,6 +80,66 @@ void PaneOrderFiles::_connectSlots()
             &PaneOrderFiles::onImporterSelected);
 }
 
+void PaneOrderFiles::_refreshImportedFilesList(AbstractImporterFile *importer)
+{
+    ui->listImportedFiles->clear();
+    if (!importer) {
+        return;
+    }
+
+    QSet<QString> seen;
+
+    // Part 1 — QSettings: Reports/ImportedIds stores filenames, oldest first (append order).
+    // Reverse for newest-first display.
+    {
+        const QStringList ids = importer->getImportedIds();
+        for (int i = ids.size() - 1; i >= 0; --i) {
+            const QString &fname = ids.at(i);
+            if (seen.contains(fname)) {
+                continue;
+            }
+            seen.insert(fname);
+            ui->listImportedFiles->addItem(fname);
+        }
+    }
+
+    // Part 2 — import_log.csv: backward-compat for entries that pre-date the QSettings fix.
+    // Filter by importer label, skip filenames already added from QSettings.
+    {
+        const QDir workingDir(WorkingDirectoryManager::instance()->workingDir());
+        const QString logPath = workingDir.absoluteFilePath("import_log.csv");
+        QFile logFile(logPath);
+        if (logFile.open(QIODevice::ReadOnly | QIODevice::Text)) {
+            QTextStream in(&logFile);
+            in.setEncoding(QStringConverter::Utf8);
+            if (!in.atEnd()) {
+                in.readLine(); // skip header
+            }
+            const QString importerLabel = importer->getLabel();
+            QList<QPair<QDateTime, QString>> logEntries;
+            while (!in.atEnd()) {
+                const QString line = in.readLine();
+                const QStringList parts = line.split(';');
+                if (parts.size() < 3 || parts.at(1) != importerLabel) {
+                    continue;
+                }
+                const QString fname = parts.at(2);
+                if (seen.contains(fname)) {
+                    continue;
+                }
+                seen.insert(fname);
+                logEntries.append(qMakePair(QDateTime::fromString(parts.at(0), Qt::ISODate), fname));
+            }
+            std::sort(logEntries.begin(), logEntries.end(), [](const auto &a, const auto &b) {
+                return a.first > b.first;
+            });
+            for (const auto &entry : std::as_const(logEntries)) {
+                ui->listImportedFiles->addItem(entry.second);
+            }
+        }
+    }
+}
+
 void PaneOrderFiles::onImporterSelected(const QModelIndex &current, const QModelIndex &previous)
 {
     Q_UNUSED(previous);
@@ -86,6 +147,7 @@ void PaneOrderFiles::onImporterSelected(const QModelIndex &current, const QModel
     if (!current.isValid()) {
         ui->tableParams->setModel(nullptr);
         ui->treeViewFiles->setModel(nullptr);
+        ui->listImportedFiles->clear();
         if (m_paramsModel) {
             delete m_paramsModel;
             m_paramsModel = nullptr;
@@ -97,8 +159,12 @@ void PaneOrderFiles::onImporterSelected(const QModelIndex &current, const QModel
     if (!importer) {
         ui->tableParams->setModel(nullptr);
         ui->treeViewFiles->setModel(nullptr);
+        ui->listImportedFiles->clear();
         return;
     }
+
+    importer->setWorkingDirectory(QDir(AbstractImporterFile::GET_WORKING_DIR(
+        WorkingDirectoryManager::instance()->workingDir(), importer->getId())));
 
     // Ensure params are loaded/initialized if not already
     // importer->load(); // Assuming load() is cheap or idempotent. 
@@ -154,6 +220,8 @@ void PaneOrderFiles::onImporterSelected(const QModelIndex &current, const QModel
     } else {
         ui->dateEditMax->setDate(QDate::currentDate());
     }
+
+    _refreshImportedFilesList(importer);
 }
 
 void PaneOrderFiles::importFile()
@@ -202,6 +270,8 @@ void PaneOrderFiles::importFile()
             // settings pane (WorkingDirectoryManager's root dir), so centers added via
             // DialogVatParams are visible to the importer on retry.
             importer->setSharedConfigDirectory(WorkingDirectoryManager::instance()->workingDir());
+            importer->setWorkingDirectory(QDir(AbstractImporterFile::GET_WORKING_DIR(
+                WorkingDirectoryManager::instance()->workingDir(), importer->getId())));
 
             AbstractImporter::ReturnOrderInfos aggregatedResult;
             aggregatedResult.orderInfos = QSharedPointer<AbstractImporter::OrderInfos>::create();
@@ -409,6 +479,12 @@ void PaneOrderFiles::importFile()
                         }
                     }
                 }
+
+                QMetaObject::invokeMethod(self, [self, successfulPaths]() {
+                    for (int i = successfulPaths.size() - 1; i >= 0; --i) {
+                        self->ui->listImportedFiles->insertItem(0, QFileInfo(successfulPaths[i]).fileName());
+                    }
+                }, Qt::QueuedConnection);
 
                 // Update Chart Data
                 if (importedCount > 0) {

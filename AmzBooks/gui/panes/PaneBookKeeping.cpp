@@ -1163,12 +1163,12 @@ void PaneBookKeeping::generateReports()
 {
     // 1. Ask for the output folder
     QSettings settings;
-    QString lastDir = settings.value("lastReportsDir", QDir::homePath()).toString();
+    QString lastDir = settings.value("lastBookKeepingReportsDir", QDir::homePath()).toString();
     QString dir = QFileDialog::getExistingDirectory(this, tr("Select Reports Output Folder"), lastDir);
     if (dir.isEmpty()) {
         return;
     }
-    settings.setValue("lastReportsDir", dir);
+    settings.setValue("lastBookKeepingReportsDir", dir);
     QDir outDir(dir);
 
     generateSaleReports(outDir);
