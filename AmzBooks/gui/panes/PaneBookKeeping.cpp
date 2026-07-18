@@ -1,6 +1,8 @@
 #include <QDateTime>
 #include <QDebug>
 
+#include <cmath>
+
 #include "../../common/workingdirectory/WorkingDirectoryManager.h"
 
 #include "books/AbstractBooksTableBank.h"
@@ -2657,6 +2659,29 @@ QCoro::Task<> PaneBookKeeping::saleAddRefundAsync()
 
         totalLabel = new QLabel(&dlg);
 
+        // Line items carry the pre-discount list prices, so their sum can exceed
+        // the amount actually paid (e.g. an order-level discount). Scale the
+        // suggested refund amounts down proportionally so they sum to the real
+        // order total, then dump any rounding remainder on the last item.
+        const auto roundCents = [](double v) { return std::round(v * 100.0) / 100.0; };
+        double sumItemsFull = 0.0;
+        for (const auto &item : std::as_const(items)) {
+            sumItemsFull += item.getTotalTaxed();
+        }
+        const double scale = (sumItemsFull > 0.001) ? (amount / sumItemsFull) : 1.0;
+
+        QList<double> suggested;
+        suggested.reserve(items.size());
+        double suggestedSum = 0.0;
+        for (const auto &item : std::as_const(items)) {
+            const double v = roundCents(item.getTotalTaxed() * scale);
+            suggested.append(v);
+            suggestedSum += v;
+        }
+        if (!suggested.isEmpty()) {
+            suggested.last() = roundCents(suggested.last() + (amount - suggestedSum));
+        }
+
         for (int i = 0; i < items.size(); ++i) {
             const auto &item = items[i];
 
@@ -2673,10 +2698,12 @@ QCoro::Task<> PaneBookKeeping::saleAddRefundAsync()
             table->setItem(i, 2, itemAmount);
 
             auto *spin = new QDoubleSpinBox(&dlg);
-            spin->setRange(0.0, item.getTotalTaxed());
+            // Allow up to the full (undiscounted) line amount, default to the
+            // discounted suggestion.
+            spin->setRange(0.0, std::max(item.getTotalTaxed(), suggested.at(i)));
             spin->setDecimals(2);
             spin->setSingleStep(0.01);
-            spin->setValue(item.getTotalTaxed());
+            spin->setValue(suggested.at(i));
             table->setCellWidget(i, 3, spin);
             itemSpinBoxes.append(spin);
         }
@@ -2753,6 +2780,51 @@ QCoro::Task<> PaneBookKeeping::saleAddRefundAsync()
 
     loadYearSelected();
 }
+
+void PaneBookKeeping::saleDeleteRefund()
+{
+    QCoro::connect(saleDeleteRefundAsync(), this, []() {});
+}
+
+QCoro::Task<> PaneBookKeeping::saleDeleteRefundAsync()
+{
+    auto *ecomTable = qobject_cast<UngroupedOrderTable *>(ui->tableEcomSales->model());
+    if (!ecomTable) {
+        co_return;
+    }
+
+    const QModelIndexList selection = ui->tableEcomSales->selectionModel()->selectedRows();
+    if (selection.size() != 1) {
+        QMessageBox::warning(this, tr("Selection Error"),
+                             tr("Please select exactly one refund to delete."));
+        co_return;
+    }
+
+    const int row = selection.first().row();
+    const QString refundId = ecomTable->getRowId(ecomTable->index(row, 0));
+    const double amount = ecomTable->data(ecomTable->index(row, AbstractBooksTable::IND_AMOUNT)).toDouble();
+
+    // Only refunds (negative amount) can be deleted here, never sales.
+    if (amount >= 0.0) {
+        QMessageBox::warning(this, tr("Invalid Selection"),
+                             tr("The selected entry is a sale, not a refund. "
+                                "Only refunds can be deleted."));
+        co_return;
+    }
+
+    const auto answer = QMessageBox::question(
+        this, tr("Delete Refund"),
+        tr("Delete refund \"%1\"? This cannot be undone.").arg(refundId),
+        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (answer != QMessageBox::Yes) {
+        co_return;
+    }
+
+    m_orderManager->removeShipmentOrRefund(refundId);
+
+    loadYearSelected();
+}
+
 void PaneBookKeeping::amzPaymentAdd()
 {
     QSettings settings;
@@ -3126,6 +3198,10 @@ void PaneBookKeeping::_connectSlots()
             &QPushButton::clicked,
             this,
             &PaneBookKeeping::saleAddRefund);
+    connect(ui->buttonEcomDeleteRefund,
+            &QPushButton::clicked,
+            this,
+            &PaneBookKeeping::saleDeleteRefund);
 }
 
 void PaneBookKeeping::_updateServiceButtonsEnabled()

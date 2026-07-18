@@ -75,6 +75,7 @@ public slots:
     void serviceCreateFromSelection();
 
     void saleAddRefund();
+    void saleDeleteRefund();
 
     void amzPaymentAdd();
     void amzPaymentAddMany();
@@ -90,6 +91,7 @@ private:
     bool m_splitterInitialized = false;
     QCoro::Task<> generateBookKeepingAsync();
     QCoro::Task<> saleAddRefundAsync();
+    QCoro::Task<> saleDeleteRefundAsync();
 };
 
 #endif // PANEBOOKKEEPING_H

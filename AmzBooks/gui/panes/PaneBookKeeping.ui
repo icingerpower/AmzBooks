@@ -422,6 +422,13 @@
             </widget>
            </item>
            <item>
+            <widget class="QPushButton" name="buttonEcomDeleteRefund">
+             <property name="text">
+              <string>Delete refund</string>
+             </property>
+            </widget>
+           </item>
+           <item>
             <spacer name="horizontalSpacer_6">
              <property name="orientation">
               <enum>Qt::Orientation::Horizontal</enum>

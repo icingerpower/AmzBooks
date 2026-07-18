@@ -5,6 +5,7 @@
 #include "CountriesEu.h"
 #include "orders/OrderManager.h"
 #include "orders/Shipment.h"
+#include "orders/Refund.h"
 #include "orders/ActivitySource.h"
 
 UngroupedOrderTable::UngroupedOrderTable(
@@ -84,8 +85,17 @@ void UngroupedOrderTable::load(int year)
                                 : QStringLiteral("CLIENTDOM");
             }
 
-            add(act.getEventId(),
-                act.getEventId(),
+            // Refunds share the same eventId (order id) as the original sale.
+            // Keying the row on eventId would make a refund inherit the sale's
+            // bank-account connection colour. Use the refund's own id instead so
+            // sale and refund rows are coloured independently. For sales,
+            // shipment->getId() equals the eventId (order id), preserving existing
+            // bank connections.
+            const bool isRefund = dynamic_cast<const Refund *>(shipment.data()) != nullptr;
+            const QString rowId = isRefund ? shipment->getId() : act.getEventId();
+
+            add(rowId,
+                rowId,
                 orderDate,
                 act.getAmountTaxed(),
                 act.getCurrency(),
