@@ -65,9 +65,13 @@ const QString CREATE_TABLE_INVENTORY_MOVES = R"(
         units        INTEGER NOT NULL,
         -- Composite PK: the same event ID can legitimately appear for different
         -- (country_from, country_to) pairs (Amazon batches multiple warehouse
-        -- directions under one event) and for different SKUs within the same
-        -- direction.  (id, country_from, country_to, sku) is the minimal unique key.
-        PRIMARY KEY (id, country_from, country_to, sku)
+        -- directions under one event), for different SKUs within the same
+        -- direction, AND Amazon sometimes re-lists the same transfer in an
+        -- adjacent month's report near a period boundary — so year/month must
+        -- be part of the key too. Without it, a legitimate later-month row
+        -- collides with an already-imported earlier-month row and silently
+        -- fails the whole insert batch it belongs to (see recordInventoryMove).
+        PRIMARY KEY (year, month, id, country_from, country_to, sku)
     )
 )";
 

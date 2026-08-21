@@ -102,24 +102,43 @@ void OrderManager::initDb()
     //   v1 — PRIMARY KEY (id)          → too strict: same eventId can appear for different
     //                                     (country_from, country_to) pairs.
     //   v2 — no primary key            → too loose: no DB-level uniqueness guarantee.
-    //   v3 — PRIMARY KEY (id, country_from, country_to, sku)  ← current.
-    //         Same event can appear for different directions AND carry multiple SKUs,
-    //         but (id, from, to, sku) must be unique.
+    //   v3 — PRIMARY KEY (id, country_from, country_to, sku) → same event can appear for
+    //         different directions and carry multiple SKUs, but collides when Amazon
+    //         re-lists the same (id, from, to, sku) transfer in a later month's report
+    //         (happens near month boundaries), silently dropping that month's insert batch.
+    //   v4 — PRIMARY KEY (year, month, id, country_from, country_to, sku)  ← current.
     // Trigger: table exists but DDL does not contain the current PK signature.
+    // Existing rows are migrated (not dropped): this table holds historical data for
+    // periods whose VAT return may already have been filed, so it must survive the
+    // schema change intact — only the constraint changes, not the data.
     {
         QSqlQuery qMig(m_db);
         if (qMig.exec(QStringLiteral(
                 "SELECT sql FROM sqlite_master WHERE type='table' AND name='inventory_moves'"))
                 && qMig.next()) {
             const QString tableSql = qMig.value(0).toString();
-            if (!tableSql.contains(QStringLiteral("PRIMARY KEY (id, country_from, country_to, sku)"))) {
-                QSqlQuery qDrop(m_db);
-                if (!qDrop.exec(QStringLiteral("DROP TABLE inventory_moves"))) {
-                    qWarning() << "Failed to drop old inventory_moves table:" << qDrop.lastError();
+            if (!tableSql.contains(QStringLiteral(
+                    "PRIMARY KEY (year, month, id, country_from, country_to, sku)"))) {
+                QSqlQuery qRename(m_db);
+                if (!qRename.exec(QStringLiteral(
+                        "ALTER TABLE inventory_moves RENAME TO inventory_moves_old_v3"))) {
+                    qWarning() << "Failed to rename old inventory_moves table:" << qRename.lastError();
                 } else {
                     QSqlQuery qCreate(m_db);
                     if (!qCreate.exec(OrderManagerSql::CREATE_TABLE_INVENTORY_MOVES)) {
                         qWarning() << "Failed to recreate inventory_moves table:" << qCreate.lastError();
+                    } else {
+                        QSqlQuery qCopy(m_db);
+                        if (!qCopy.exec(QStringLiteral(
+                                "INSERT INTO inventory_moves (id, year, month, country_from, country_to, sku, units) "
+                                "SELECT id, year, month, country_from, country_to, sku, units FROM inventory_moves_old_v3"))) {
+                            qWarning() << "Failed to copy inventory_moves data during migration:" << qCopy.lastError();
+                        } else {
+                            QSqlQuery qDrop(m_db);
+                            if (!qDrop.exec(QStringLiteral("DROP TABLE inventory_moves_old_v3"))) {
+                                qWarning() << "Failed to drop old inventory_moves table after migration:" << qDrop.lastError();
+                            }
+                        }
                     }
                 }
             }
@@ -1070,7 +1089,10 @@ void OrderManager::recordInventoryMove(
             m_db.commit();
         } else {
             m_db.rollback();
-            return;
+            ExceptionWithTitleText ex(QObject::tr("Inventory Move Import Failed"),
+                                      QObject::tr("Failed to clear previous inventory move rows before re-import. "
+                                                   "No inventory move data was changed."));
+            ex.raise();
         }
     }
 
@@ -1104,8 +1126,14 @@ void OrderManager::recordInventoryMove(
         q.addBindValue(skus);
         q.addBindValue(unitsList);
         if (!q.execBatch()) {
-            qWarning() << "OrderManager::recordInventoryMove batch insert failed:" << q.lastError();
+            const QString err = q.lastError().text();
+            qWarning() << "OrderManager::recordInventoryMove batch insert failed:" << err;
             m_db.rollback();
+            ExceptionWithTitleText ex(QObject::tr("Inventory Move Import Failed"),
+                                      QObject::tr("Failed to insert inventory move rows %1-%2 into the database: %3. "
+                                                   "The matching periods were cleared but not repopulated — re-import to fix.")
+                                              .arg(QString::number(batchStart), QString::number(batchEnd), err));
+            ex.raise();
         } else {
             m_db.commit();
         }

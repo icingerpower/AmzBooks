@@ -58,6 +58,8 @@ private slots:
     void test_inventoryMove();
     void test_inventoryMove_reimport();
     void test_inventoryMove_fcTransfer_pipeline();
+    void test_inventoryMove_sameEventAcrossMonths();
+    void test_inventoryMove_schemaMigration_preservesData();
     void test_fixTaxDate();
     void test_recordShipmentsFromSource_performance();
     void test_groupedUngrouped();
@@ -2912,6 +2914,114 @@ void TestOrderManager::test_inventoryMove_fcTransfer_pipeline()
     QCOMPARE(manager.getInventoryImported(2026, 2, "FR")["CJZP121890101AZ"], 7);  // 10
     QCOMPARE(manager.getInventoryExported(2026, 2, "FR")["CJZP121890101AZ"], 2);  // 11
     QCOMPARE(manager.getInventoryImported(2026, 2, "ES")["CJZP121890101AZ"], 2);  // 12
+}
+
+// ---------------------------------------------------------------------------
+// test_inventoryMove_sameEventAcrossMonths
+// Reproduces the production bug found on the July 2026 EU VAT report: Amazon
+// occasionally re-lists the exact same FC_TRANSFER (same TRANSACTION_EVENT_ID,
+// same SKU, same direction) in an adjacent month's report near a period
+// boundary. Because the old PRIMARY KEY (id, country_from, country_to, sku)
+// had no year/month component, importing month N+1 after month N collided
+// with the already-committed month-N row and silently dropped the entire
+// insert batch it belonged to — including unrelated rows for other country
+// pairs bundled in the same 500-row batch. The fix adds (year, month) to the
+// key so the same event can legitimately be recorded once per period.
+// ---------------------------------------------------------------------------
+void TestOrderManager::test_inventoryMove_sameEventAcrossMonths()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    OrderManager manager(tempDir.path());
+
+    using InvData = QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, QHash<QString, int>>>>>>;
+
+    // ── June: the shared event is recorded first ────────────────────────────
+    {
+        InvData data;
+        data[2026][6]["FR"]["IT"]["shared_event_id"]["fr-sku-1"] = 2;
+        // Bundled in the same call as many other June rows/pairs, mirroring a
+        // real monthly report batch.
+        data[2026][6]["DE"]["PL"]["june_txn_1"]["CJNS254650910JQ"] = 10;
+        manager.recordInventoryMove(data);
+    }
+    QCOMPARE(manager.getInventoryImported(2026, 6, "IT")["fr-sku-1"], 2);         // 1
+    QCOMPARE(manager.getInventoryImported(2026, 6, "PL")["CJNS254650910JQ"], 10); // 2
+
+    // ── July: the SAME event/sku/direction reappears, bundled with unrelated
+    // rows for other country pairs (as in a real monthly report). Before the
+    // fix, this whole call would silently insert nothing beyond the DELETE.
+    {
+        InvData data;
+        data[2026][7]["FR"]["IT"]["shared_event_id"]["fr-sku-1"] = 2;       // same as June
+        data[2026][7]["DE"]["PL"]["july_txn_1"]["CJNS254650910JQ"] = 15;    // unrelated, must survive
+        data[2026][7]["DE"]["FR"]["july_txn_2"]["CJYD210338411KP"] = 1;     // unrelated, must survive
+        manager.recordInventoryMove(data);
+    }
+
+    // June's data must be untouched.
+    QCOMPARE(manager.getInventoryImported(2026, 6, "IT")["fr-sku-1"], 2);         // 3
+    QCOMPARE(manager.getInventoryImported(2026, 6, "PL")["CJNS254650910JQ"], 10); // 4
+
+    // July's data — including the rows bundled alongside the colliding one —
+    // must all have been inserted.
+    QCOMPARE(manager.getInventoryImported(2026, 7, "IT")["fr-sku-1"], 2);          // 5
+    QCOMPARE(manager.getInventoryImported(2026, 7, "PL")["CJNS254650910JQ"], 15);  // 6
+    QCOMPARE(manager.getInventoryImported(2026, 7, "FR")["CJYD210338411KP"], 1);   // 7
+}
+
+// ---------------------------------------------------------------------------
+// test_inventoryMove_schemaMigration_preservesData
+// The inventory_moves table has been migrated across several PK schemas.
+// This test seeds a database with the OLD (v3) schema/PK directly via raw
+// SQL, re-opens it with OrderManager (which triggers the v3→v4 migration),
+// and verifies the pre-existing historical rows survive intact — this table
+// holds data for periods whose VAT return may already be filed, so a
+// migration must never silently drop rows.
+// ---------------------------------------------------------------------------
+void TestOrderManager::test_inventoryMove_schemaMigration_preservesData()
+{
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+    const QString dbPath = QDir(tempDir.path()).absoluteFilePath("Orders.db");
+
+    // ── Seed a v3-schema inventory_moves table directly, bypassing OrderManager ──
+    {
+        QSqlDatabase db = QSqlDatabase::addDatabase("QSQLITE", "migration_seed_conn");
+        db.setDatabaseName(dbPath);
+        QVERIFY(db.open());
+        QSqlQuery q(db);
+        QVERIFY(q.exec(QStringLiteral(
+            "CREATE TABLE inventory_moves ("
+            "id TEXT NOT NULL, year INTEGER NOT NULL, month INTEGER NOT NULL, "
+            "country_from TEXT NOT NULL, country_to TEXT NOT NULL, sku TEXT NOT NULL, "
+            "units INTEGER NOT NULL, "
+            "PRIMARY KEY (id, country_from, country_to, sku))")));
+        QVERIFY(q.exec(QStringLiteral(
+            "INSERT INTO inventory_moves VALUES "
+            "('old_event_1', 2026, 5, 'DE', 'FR', 'SKU-OLD-1', 3), "
+            "('old_event_2', 2026, 6, 'FR', 'IT', 'SKU-OLD-2', 4)")));
+        db.close();
+        QSqlDatabase::removeDatabase("migration_seed_conn");
+    }
+
+    // ── Opening OrderManager triggers the v3 → v4 migration ─────────────────
+    OrderManager manager(tempDir.path());
+
+    // Pre-existing historical rows must have survived the migration.
+    QCOMPARE(manager.getInventoryExported(2026, 5, "DE")["SKU-OLD-1"], 3);   // 1
+    QCOMPARE(manager.getInventoryImported(2026, 5, "FR")["SKU-OLD-1"], 3);   // 2
+    QCOMPARE(manager.getInventoryExported(2026, 6, "FR")["SKU-OLD-2"], 4);   // 3
+    QCOMPARE(manager.getInventoryImported(2026, 6, "IT")["SKU-OLD-2"], 4);   // 4
+
+    // And the new schema must now accept the previously-colliding cross-month
+    // case: same id/sku/direction as an already-migrated row, different month.
+    using InvData = QHash<int, QHash<int, QHash<QString, QHash<QString, QHash<QString, QHash<QString, int>>>>>>;
+    InvData data;
+    data[2026][7]["FR"]["IT"]["old_event_2"]["SKU-OLD-2"] = 4;
+    manager.recordInventoryMove(data);
+    QCOMPARE(manager.getInventoryExported(2026, 6, "FR")["SKU-OLD-2"], 4);   // 5 (untouched)
+    QCOMPARE(manager.getInventoryExported(2026, 7, "FR")["SKU-OLD-2"], 4);   // 6 (new)
 }
 
 // ---------------------------------------------------------------------------
