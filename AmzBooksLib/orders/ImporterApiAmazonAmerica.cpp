@@ -22,12 +22,6 @@ QString ImporterApiAmazonAmerica::getId() const
     return "AmazonSpApiNa";
 }
 
-QString ImporterApiAmazonAmerica::getRegion() const
-{
-    // NA region includes US, CA, MX, BR. Endpoint is usually us-east-1 for NA.
-    return "us-east-1"; 
-}
-
 QString ImporterApiAmazonAmerica::getMarketplaceId() const
 {
     // Default to US
@@ -48,7 +42,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonAmerica::_fetch
     try {
         bool hasMore = true;
         while (hasMore) {
-            QByteArray response = co_await sendSignedRequest("GET", path, query);
+            QByteArray response = co_await sendApiRequest("GET", path, query);
             const QJsonObject root = QJsonDocument::fromJson(response).object();
 
             if (!root.contains("payload")) {
@@ -95,7 +89,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonAmerica::_fetch
     query.addQueryItem("PostedAfter", dateFrom.toUTC().toString(Qt::ISODate));
 
     try {
-        QByteArray response = co_await sendSignedRequest("GET", path, query);
+        QByteArray response = co_await sendApiRequest("GET", path, query);
         const QJsonObject root = QJsonDocument::fromJson(response).object();
 
         if (root.contains("payload")) {

@@ -3,6 +3,7 @@
 
 #include <QWidget>
 #include <QMap>
+#include <QList>
 #include <QDate>
 
 #include <QtCharts/QChartView>
@@ -30,9 +31,12 @@ private:
     class ApiImportersTable *m_importersTable;
     class ParamsTable *m_paramsModel = nullptr;
     QMap<QString, class ActivityTable*> m_activityModels;
+    // Dynamically created editors for RecordList params; rebuilt on selection.
+    QList<class RecordListEditor*> m_recordEditors;
 
     void _connectSlots();
     void onImporterSelected(const QModelIndex &current, const QModelIndex &previous);
+    void _clearRecordEditors();
     void updateChart();
 
     QMap<QString, QMap<QDate, int>> m_ordersData;

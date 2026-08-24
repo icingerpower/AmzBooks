@@ -2,12 +2,11 @@
 #include "ExceptionWithTitleText.h"
 #include <QJsonDocument>
 #include <QJsonObject>
-#include <QCryptographicHash>
-#include <QMessageAuthenticationCode>
 #include <QDateTime>
+#include <QTimer>
 #include <QCoroNetworkReply>
+#include <QCoroSignal>
 #include <QUrlQuery>
-#include <algorithm>
 
 ActivitySource ImporterApiAmazon::getActivitySource() const
 {
@@ -27,19 +26,20 @@ QString ImporterApiAmazon::getLabel() const
 QMap<QString, AbstractImporter::ParamInfo> ImporterApiAmazon::getRequiredParams() const
 {
     QMap<QString, ParamInfo> params;
-    
+
     params["refreshToken"] = ParamInfo {
         .key = "refreshToken",
         .label = "Refresh Token",
         .description = "Amazon SP-API Refresh Token for LWA authentication",
         .defaultValue = QVariant(),
         .value = QVariant(),
+        .secret = true,
         .validator = [](const QVariant& v) -> std::pair<bool, QString> {
             if (v.toString().isEmpty()) return {false, "Refresh token cannot be empty"};
             return {true, ""};
         }
     };
-    
+
     params["clientId"] = ParamInfo {
         .key = "clientId",
         .label = "LWA Client ID",
@@ -51,43 +51,24 @@ QMap<QString, AbstractImporter::ParamInfo> ImporterApiAmazon::getRequiredParams(
             return {true, ""};
         }
     };
-    
+
     params["clientSecret"] = ParamInfo {
         .key = "clientSecret",
         .label = "LWA Client Secret",
         .description = "Login with Amazon (LWA) Client Secret",
         .defaultValue = QVariant(),
         .value = QVariant(),
+        .secret = true,
         .validator = [](const QVariant& v) -> std::pair<bool, QString> {
             if (v.toString().isEmpty()) return {false, "Client Secret cannot be empty"};
             return {true, ""};
         }
     };
 
-    params["awsAccessKey"] = ParamInfo {
-        .key = "awsAccessKey",
-        .label = "AWS Access Key ID",
-        .description = "IAM User Access Key ID",
-        .defaultValue = QVariant(),
-        .value = QVariant(),
-        .validator = [](const QVariant& v) -> std::pair<bool, QString> {
-            if (v.toString().isEmpty()) return {false, "AWS Access Key cannot be empty"};
-            return {true, ""};
-        }
-    };
+    // Note: SP-API no longer requires AWS IAM keys (awsAccessKey/awsSecretKey).
+    // Amazon removed the AWS SigV4 signing requirement in October 2023 —
+    // the LWA access token is the only credential sent with each request.
 
-    params["awsSecretKey"] = ParamInfo {
-        .key = "awsSecretKey",
-        .label = "AWS Secret Access Key",
-        .description = "IAM User Secret Access Key",
-        .defaultValue = QVariant(),
-        .value = QVariant(),
-        .validator = [](const QVariant& v) -> std::pair<bool, QString> {
-            if (v.toString().isEmpty()) return {false, "AWS Secret Key cannot be empty"};
-            return {true, ""};
-        }
-    };
-    
     return params;
 }
 
@@ -113,10 +94,10 @@ bool ImporterApiAmazon::isGroupedOrders() const
 
 QCoro::Task<QString> ImporterApiAmazon::getAccessToken()
 {
-    if (!m_tokenCache.accessToken.isEmpty() && m_tokenCache.expiration > QDateTime::currentDateTime().addSecs(300)) {
+    if (!m_tokenCache.accessToken.isEmpty() && m_tokenCache.expiration > QDateTime::currentDateTimeUtc()) {
         co_return m_tokenCache.accessToken;
     }
-    
+
     co_await refreshAccessToken();
     co_return m_tokenCache.accessToken;
 }
@@ -126,161 +107,103 @@ QCoro::Task<void> ImporterApiAmazon::refreshAccessToken()
     QUrl url("https://api.amazon.com/auth/o2/token");
     QNetworkRequest request(url);
     request.setHeader(QNetworkRequest::ContentTypeHeader, "application/x-www-form-urlencoded");
-    
+
     QUrlQuery query;
     query.addQueryItem("grant_type", "refresh_token");
     query.addQueryItem("refresh_token", getParam("refreshToken").toString());
     query.addQueryItem("client_id", getParam("clientId").toString());
     query.addQueryItem("client_secret", getParam("clientSecret").toString());
-    
+
     QNetworkReply *reply = nam()->post(request, query.toString(QUrl::FullyEncoded).toUtf8());
     co_await reply;
-    
-    if (reply->error() != QNetworkReply::NoError) {
-        ExceptionWithTitleText exception("Token Refresh Failed", "Failed to refresh access token: " + reply->errorString());
+
+    const QByteArray data = reply->readAll();
+    const QNetworkReply::NetworkError netError = reply->error();
+    const QString netErrorString = reply->errorString();
+    reply->deleteLater();
+
+    if (netError != QNetworkReply::NoError) {
+        ExceptionWithTitleText exception("Token Refresh Failed", "Failed to refresh access token: " + netErrorString);
         exception.raise();
     }
-    
-    QByteArray data = reply->readAll();
-    QJsonDocument doc = QJsonDocument::fromJson(data);
-    QJsonObject root = doc.object();
-    
+
+    const QJsonDocument doc = QJsonDocument::fromJson(data);
+    const QJsonObject root = doc.object();
+
     if (root.contains("access_token")) {
         m_tokenCache.accessToken = root["access_token"].toString();
-        int expiresIn = root["expires_in"].toInt(3600);
-        m_tokenCache.expiration = QDateTime::currentDateTime().addSecs(expiresIn);
+        const int expiresIn = root["expires_in"].toInt(3600);
+        // Refresh 5 min before expiry, and never trust a token beyond 55 min
+        const int cacheSecs = qMax(qMin(expiresIn - 300, 55 * 60), 60);
+        m_tokenCache.expiration = QDateTime::currentDateTimeUtc().addSecs(cacheSecs);
     } else {
         ExceptionWithTitleText exception("Invalid Token Response", "Invalid token response: " + QString::fromUtf8(data));
         exception.raise();
     }
 }
 
-QByteArray ImporterApiAmazon::calculateSignatureKey(const QString& secret, 
-                                                    const QString& date, 
-                                                    const QString& region, 
-                                                    const QString& service) const
+QCoro::Task<QByteArray> ImporterApiAmazon::sendApiRequest(const QString& method,
+                                                          const QString& path,
+                                                          const QUrlQuery& query,
+                                                          const QByteArray& payload)
 {
-    QByteArray kSecret = "AWS4" + secret.toUtf8();
-    QByteArray kDate = QMessageAuthenticationCode::hash(date.toUtf8(), kSecret, QCryptographicHash::Sha256);
-    QByteArray kRegion = QMessageAuthenticationCode::hash(region.toUtf8(), kDate, QCryptographicHash::Sha256);
-    QByteArray kService = QMessageAuthenticationCode::hash(service.toUtf8(), kRegion, QCryptographicHash::Sha256);
-    QByteArray kSigning = QMessageAuthenticationCode::hash("aws4_request", kService, QCryptographicHash::Sha256);
-    return kSigning;
-}
-
-void ImporterApiAmazon::signRequest(QNetworkRequest& request, 
-                                    const QString& method, 
-                                    const QString& path, 
-                                    const QUrlQuery& query, 
-                                    const QByteArray& payload) const
-{
-    QString accessKey = getParam("awsAccessKey").toString();
-    QString secretKey = getParam("awsSecretKey").toString();
-    QString region = getRegion();
-    QString service = "execute-api";     
-    
-    QDateTime now = QDateTime::currentDateTimeUtc();
-    QString amzDate = now.toString("yyyyMMdd'T'HHmmss'Z'");
-    QString dateStamp = now.toString("yyyyMMdd");
-    
-    request.setRawHeader("x-amz-date", amzDate.toUtf8());
-    QByteArray host = request.url().host().toUtf8();
-    request.setRawHeader("host", host);
-    
-    // Canonical Request
-    QString canonicalUri = path;
-    // Canonical Query must be sorted
-    QList<QPair<QString, QString>> queryItems = query.queryItems(QUrl::FullyDecoded);
-    std::sort(queryItems.begin(), queryItems.end(), [](const auto& a, const auto& b) {
-        return a.first < b.first || (a.first == b.first && a.second < b.second);
-    });
-    
-    QString canonicalQueryString;
-    for (const auto& item : queryItems) {
-        if (!canonicalQueryString.isEmpty()) canonicalQueryString += "&";
-        canonicalQueryString += QUrl::toPercentEncoding(item.first) + "=" + QUrl::toPercentEncoding(item.second);
-    }
-    
-    QString canonicalHeaders = "host:" + host + "\n" + "x-amz-date:" + amzDate + "\n";
-    if (request.hasRawHeader("x-amz-access-token")) {
-        canonicalHeaders += "x-amz-access-token:" + request.rawHeader("x-amz-access-token") + "\n";
-    }
-    
-    QString signedHeaders = "host;x-amz-date";
-    if (request.hasRawHeader("x-amz-access-token")) {
-        signedHeaders += ";x-amz-access-token";
-    }
-    
-    QByteArray payloadHash = QCryptographicHash::hash(payload, QCryptographicHash::Sha256).toHex();
-    
-    QString canonicalRequest = method + "\n" +
-                               canonicalUri + "\n" +
-                               canonicalQueryString + "\n" +
-                               canonicalHeaders + "\n" +
-                               signedHeaders + "\n" +
-                               payloadHash;
-                               
-    // String to Sign
-    QString algorithm = "AWS4-HMAC-SHA256";
-    QString credentialScope = dateStamp + "/" + region + "/" + service + "/aws4_request";
-    QString stringToSign = algorithm + "\n" +
-                           amzDate + "\n" +
-                           credentialScope + "\n" +
-                           QCryptographicHash::hash(canonicalRequest.toUtf8(), QCryptographicHash::Sha256).toHex();
-                           
-    // Signature
-    QByteArray signingKey = calculateSignatureKey(secretKey, dateStamp, region, service);
-    QByteArray signature = QMessageAuthenticationCode::hash(stringToSign.toUtf8(), signingKey, QCryptographicHash::Sha256).toHex();
-    
-    // Authorization Header
-    QString authorization = algorithm + " Credential=" + accessKey + "/" + credentialScope + 
-                            ", SignedHeaders=" + signedHeaders + ", Signature=" + signature;
-                            
-    request.setRawHeader("Authorization", authorization.toUtf8());
-}
-
-QCoro::Task<QByteArray> ImporterApiAmazon::sendSignedRequest(const QString& method, 
-                                                             const QString& path, 
-                                                             const QUrlQuery& query, 
-                                                             const QByteArray& payload)
-{
-    QString accessToken = co_await getAccessToken();
-    
     QUrl url(getEndpoint() + path);
     url.setQuery(query);
-    
-    QNetworkRequest request(url);
-    request.setRawHeader("x-amz-access-token", accessToken.toUtf8());
-    request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
-    
-    signRequest(request, method, path, query, payload);
-    
-    QNetworkReply* reply = nullptr;
-    if (method == "GET") {
-        reply = nam()->get(request);
-    } else if (method == "POST") {
-        reply = nam()->post(request, payload);
-    } else {
-        ExceptionWithTitleText exception("Unsupported Method", "Unsupported method: " + method);
-        exception.raise();
+
+    // Retry on 429 throttling (SP-API rate limits are low on the orders endpoints)
+    const int maxAttempts = 3;
+    for (int attempt = 0; attempt < maxAttempts; ++attempt) {
+        const QString accessToken = co_await getAccessToken();
+
+        QNetworkRequest request(url);
+        request.setRawHeader("x-amz-access-token", accessToken.toUtf8());
+        request.setRawHeader("Accept", "application/json");
+        request.setHeader(QNetworkRequest::ContentTypeHeader, "application/json");
+
+        QNetworkReply* reply = nullptr;
+        if (method == "GET") {
+            reply = nam()->get(request);
+        } else if (method == "POST") {
+            reply = nam()->post(request, payload);
+        } else {
+            ExceptionWithTitleText exception("Unsupported Method", "Unsupported method: " + method);
+            exception.raise();
+        }
+
+        co_await reply;
+
+        const int status = reply->attribute(QNetworkRequest::HttpStatusCodeAttribute).toInt();
+        const QByteArray data = reply->readAll();
+        const QNetworkReply::NetworkError netError = reply->error();
+        const QString netErrorString = reply->errorString();
+        reply->deleteLater();
+
+        if (status == 429 && attempt < maxAttempts - 1) {
+            QTimer retryTimer;
+            retryTimer.setSingleShot(true);
+            retryTimer.start(2000);
+            co_await qCoro(&retryTimer, &QTimer::timeout);
+            continue;
+        }
+
+        if (netError != QNetworkReply::NoError) {
+            ExceptionWithTitleText exception("API Request Failed",
+                "API Request failed (" + netErrorString + "): " + QString::fromUtf8(data));
+            exception.raise();
+        }
+
+        co_return data;
     }
-    
-    auto response = co_await reply;
-    
-    if (reply->error() != QNetworkReply::NoError) {
-        QByteArray errorBody = reply->readAll();
-        ExceptionWithTitleText exception("API Request Failed", 
-            "API Request failed (" + reply->errorString() + "): " + QString::fromUtf8(errorBody));
-        exception.raise();
-    }
-    
-    co_return reply->readAll();
+
+    // Unreachable: the last attempt either returns or throws
+    co_return QByteArray();
 }
 
 QNetworkAccessManager *ImporterApiAmazon::nam()
 {
     if (!m_nam) {
         m_nam = new QNetworkAccessManager(nullptr);
+        m_nam->setTransferTimeout(30'000); // 30 s — aborts silently-hanging requests
     }
     return m_nam;
 }

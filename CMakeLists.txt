@@ -7,6 +7,7 @@ enable_testing()
 add_subdirectory(AmzBooksLib)
 add_subdirectory(AmzBooks)
 add_subdirectory(AmzBooksAutoTests)
+add_subdirectory(AmzBooksCli)
 
 
 add_dependencies(AmzBooks

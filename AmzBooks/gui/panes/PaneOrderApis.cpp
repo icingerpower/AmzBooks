@@ -11,6 +11,7 @@
 
 #include "orders/ApiImportersTable.h"
 #include "orders/ParamsTable.h"
+#include "RecordListEditor.h"
 #include "orders/AbstractImporterApi.h"
 #include "orders/OrderManager.h"
 #include "books/ActivityTable.h"
@@ -71,6 +72,7 @@ void PaneOrderApis::onImporterSelected(const QModelIndex &current, const QModelI
 
     if (!current.isValid()) {
         ui->tableParams->setModel(nullptr);
+        _clearRecordEditors();
         if (m_paramsModel) {
             delete m_paramsModel;
             m_paramsModel = nullptr;
@@ -81,8 +83,14 @@ void PaneOrderApis::onImporterSelected(const QModelIndex &current, const QModelI
     AbstractImporterApi *importer = m_importersTable->getImporter(current);
     if (!importer) {
         ui->tableParams->setModel(nullptr);
+        _clearRecordEditors();
         return;
     }
+
+    // Persist API params in <workingDir>/importer.ini (default would be the
+    // process CWD, which loses the credentials between runs)
+    importer->setWorkingDirectory(WorkingDirectoryManager::instance()->workingDir());
+    importer->load();
 
     // Create new ParamsTable
     auto *oldModel = m_paramsModel;
@@ -92,6 +100,22 @@ void PaneOrderApis::onImporterSelected(const QModelIndex &current, const QModelI
     });
     ui->tableParams->setModel(m_paramsModel);
     ui->tableParams->setVisible(m_paramsModel->rowCount() > 0);
+
+    // Build one RecordListEditor per RecordList param below the params table.
+    _clearRecordEditors();
+    const auto &params = importer->getLoadedParamValues();
+    for (auto it = params.constBegin(); it != params.constEnd(); ++it) {
+        if (it.value().type != AbstractImporter::ParamType::RecordList) {
+            continue;
+        }
+        auto *editor = new RecordListEditor(importer, it.key(), ui->widgetRecordEditors);
+        connect(editor, &RecordListEditor::exceptionOccurred, this,
+                [this](const QString &title, const QString &message) {
+                    QMessageBox::warning(this, title, message);
+                });
+        ui->layoutRecordEditors->addWidget(editor);
+        m_recordEditors.append(editor);
+    }
 
     // Setup Activity Table for Importer
     if (!m_activityModels.contains(importer->getId())) {
@@ -110,6 +134,14 @@ void PaneOrderApis::onImporterSelected(const QModelIndex &current, const QModelI
     // We can just default to today or something appropriate.
     ui->dateEditMin->setDate(QDate::currentDate().addMonths(-1));
     ui->dateEditMax->setDate(QDate::currentDate());
+}
+
+void PaneOrderApis::_clearRecordEditors()
+{
+    for (auto *editor : std::as_const(m_recordEditors)) {
+        editor->deleteLater();
+    }
+    m_recordEditors.clear();
 }
 
 void PaneOrderApis::import()

@@ -38,6 +38,10 @@ SET(PANES_FILES
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrderApis.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrderApis.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneOrderApis.ui
+    ${CMAKE_CURRENT_LIST_DIR}/RecordListTable.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/RecordListTable.h
+    ${CMAKE_CURRENT_LIST_DIR}/RecordListEditor.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/RecordListEditor.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneBookKeeping.cpp
     ${CMAKE_CURRENT_LIST_DIR}/PaneBookKeeping.h
     ${CMAKE_CURRENT_LIST_DIR}/PaneBookKeeping.ui

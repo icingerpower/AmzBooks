@@ -5,7 +5,6 @@
 #include <QNetworkAccessManager>
 #include <QNetworkReply>
 #include <QUrlQuery>
-#include <QMessageAuthenticationCode>
 
 // Unit Testing Strategy for Amazon SP-API Importers:
 // ==================================================
@@ -19,7 +18,7 @@
 //    - The tests should simulate Amazon's responses (JSON payloads) for:
 //      - Token Exchange (Success/Failure)
 //      - Orders Response (Empty, Single Page, Multi-Page with NextToken)
-//      - Throttling (429 Too Many Requests) - verify retry logic (if implemented) or error handling.
+//      - Throttling (429 Too Many Requests) - verify retry logic and error handling.
 //
 // 2. **Dependency Injection**:
 //    - Although `m_nam` is private, we could add a protected `setNetworkAccessManager` for testing purposes.
@@ -29,17 +28,16 @@
 //    - The mock network layer reads these files and returns them as `QNetworkReply`.
 //    - This ensures parsing logic covers real-world data structures without hitting the API.
 //
-// 4. **Date & SigV4 Verification**:
-//    - Unit tests should verify that `signRequest` produces the correct canonical string and signature for a known set of inputs (fixed date, keys, and params).
-//    - This ensures authentication logic doesn't break.
-//
 // This approach allows running thousands of tests in seconds with zero API cost.
 
+// Authentication: SP-API only requires the LWA access token
+// (header x-amz-access-token). AWS SigV4 signing and IAM keys were
+// retired by Amazon in October 2023 and must NOT be sent anymore.
 class ImporterApiAmazon : public AbstractImporterApi
 {
 public:
     using AbstractImporterApi::AbstractImporterApi; // Inherit constructor
-    
+
     ActivitySource getActivitySource() const override;
     QString getLabel() const override;
     QMap<QString, ParamInfo> getRequiredParams() const override;
@@ -51,17 +49,16 @@ public:
 protected:
     // Common helper methods for Amazon SP-API
     virtual QString getEndpoint() const = 0; // e.g., https://sellingpartnerapi-eu.amazon.com
-    virtual QString getRegion() const = 0;   // e.g., eu-west-1 for EU
     virtual QString getMarketplaceId() const = 0; // e.g., A1PA6795UKMFR9 for DE
 
-    // Auth & Signing
+    // Auth (LWA)
     QCoro::Task<QString> getAccessToken();
-    
-    // Generic Request
-    QCoro::Task<QByteArray> sendSignedRequest(const QString& method, 
-                                              const QString& path, 
-                                              const QUrlQuery& query, 
-                                              const QByteArray& payload = QByteArray());
+
+    // Generic Request — LWA-authenticated, retries on 429 throttling
+    QCoro::Task<QByteArray> sendApiRequest(const QString& method,
+                                           const QString& path,
+                                           const QUrlQuery& query,
+                                           const QByteArray& payload = QByteArray());
 
 private:
     struct TokenInfo {
@@ -69,21 +66,9 @@ private:
         QDateTime expiration;
     };
     TokenInfo m_tokenCache;
-    
+
     // LWA
     QCoro::Task<void> refreshAccessToken();
-    
-    // SigV4
-    void signRequest(QNetworkRequest& request, 
-                     const QString& method, 
-                     const QString& path, 
-                     const QUrlQuery& query, 
-                     const QByteArray& payload) const;
-                     
-    QByteArray calculateSignatureKey(const QString& secret, 
-                                     const QString& date, 
-                                     const QString& region, 
-                                     const QString& service) const;
 
     QNetworkAccessManager *m_nam = nullptr;
     QNetworkAccessManager *nam();

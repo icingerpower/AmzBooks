@@ -67,14 +67,34 @@ public:
 
 
     AbstractImporter(const QDir &workingDirectory);
+
+    // Scalar  → a single value edited in the 2-column params form.
+    // RecordList → a table of rows (one map per row); edited by the dedicated
+    // record-list widget, persisted via QSettings begin/endWriteArray.
+    enum class ParamType { Scalar, RecordList };
+
+    // Column definition for one field of a RecordList row.
+    struct FieldInfo {
+        QString key;          // stable key used in the per-row QVariantMap
+        QString label;        // human column header for UI
+        bool secret = false;  // stored in the OS keychain, masked in the UI
+    };
+
     struct ParamInfo {
         QString key;                  // stable key used in code
         QString label;                // human label for UI
         QString description;          // tooltip/help
         QVariant defaultValue;        // optional default
         QVariant value;               // current value
+        // When true, the value is a credential: stored in the OS keychain
+        // (Secret Service) rather than in plaintext importer.ini.
+        bool secret = false;
         // return {ok, errorMessage}
         std::function<std::pair<bool, QString>(const QVariant&)> validator;
+        // Scalar by default. When RecordList, `value` holds a QVariantList of
+        // QVariantMap rows (fieldKey → QString) and `fields` describes columns.
+        ParamType type = ParamType::Scalar;
+        QList<FieldInfo> fields; // used only when type == RecordList
     };
     virtual ActivitySource getActivitySource() const = 0;
     virtual QString getId() const = 0; // Won't be translated while getLabel will
@@ -90,6 +110,15 @@ public:
     void load(); // init m_params and load from settings if values were saved
     void setParam(const QString& key, const QVariant& value);
     QVariant getParam(const QString& key) const;
+
+    // Record-list accessors. A RecordList param stores a QVariantList of
+    // QVariantMap rows in ParamInfo::value.
+    // getParamRecords: returns {} when the key is missing or not a RecordList.
+    QList<QVariantMap> getParamRecords(const QString &key) const;
+    // setParamRecords: validates the key exists and is a RecordList (else
+    // ExceptionWithTitleText), persists rows (secret fields to the keychain),
+    // then updates m_params[key].value.
+    void setParamRecords(const QString &key, const QList<QVariantMap> &records);
 
     // Shared config directory for tables that must be shared across importers
     // (e.g. fbacenters.csv). When set, importers should prefer this over

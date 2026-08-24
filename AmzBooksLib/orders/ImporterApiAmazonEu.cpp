@@ -29,11 +29,6 @@ QString ImporterApiAmazonEu::getId() const
     return "AmazonSpApiEu";
 }
 
-QString ImporterApiAmazonEu::getRegion() const
-{
-    return "eu-west-1";
-}
-
 QString ImporterApiAmazonEu::getMarketplaceId() const
 {
     // Default to DE marketplace, likely should be configurable or iterated?
@@ -51,7 +46,7 @@ QCoro::Task<void> ImporterApiAmazonEu::_populateMovedUnits(const QDateTime &date
     bodyObj["marketplaceIds"] = QJsonArray{getMarketplaceId()};
     bodyObj["dataStartTime"] = dateFrom.toUTC().toString(Qt::ISODate);
 
-    QByteArray createResp = co_await sendSignedRequest(
+    QByteArray createResp = co_await sendApiRequest(
         "POST", "/reports/2021-06-30/reports", {},
         QJsonDocument(bodyObj).toJson(QJsonDocument::Compact));
 
@@ -66,7 +61,7 @@ QCoro::Task<void> ImporterApiAmazonEu::_populateMovedUnits(const QDateTime &date
         pollTimer.start(5000);
         co_await qCoro(&pollTimer, &QTimer::timeout);
 
-        QByteArray statusResp = co_await sendSignedRequest(
+        QByteArray statusResp = co_await sendApiRequest(
             "GET", "/reports/2021-06-30/reports/" + reportId, {});
         QJsonObject statusObj = QJsonDocument::fromJson(statusResp).object();
         QString status = statusObj["processingStatus"].toString();
@@ -80,7 +75,7 @@ QCoro::Task<void> ImporterApiAmazonEu::_populateMovedUnits(const QDateTime &date
     if (reportDocumentId.isEmpty()) co_return;
 
     // 3. Retrieve the pre-signed S3 download URL
-    QByteArray docResp = co_await sendSignedRequest(
+    QByteArray docResp = co_await sendApiRequest(
         "GET", "/reports/2021-06-30/documents/" + reportDocumentId, {});
     QString downloadUrl = QJsonDocument::fromJson(docResp).object()["url"].toString();
     if (downloadUrl.isEmpty()) co_return;
@@ -151,7 +146,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonEu::_fetchShipm
     try {
         bool hasMore = true;
         while (hasMore) {
-            QByteArray response = co_await sendSignedRequest("GET", path, query);
+            QByteArray response = co_await sendApiRequest("GET", path, query);
             const QJsonObject root = QJsonDocument::fromJson(response).object();
 
             if (!root.contains("payload")) {
@@ -205,7 +200,7 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterApiAmazonEu::_fetchRefun
     query.addQueryItem("PostedAfter", dateFrom.toUTC().toString(Qt::ISODate));
 
     try {
-        QByteArray response = co_await sendSignedRequest("GET", path, query);
+        QByteArray response = co_await sendApiRequest("GET", path, query);
         const QJsonObject root = QJsonDocument::fromJson(response).object();
 
         if (root.contains("payload")) {

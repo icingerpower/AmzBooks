@@ -266,6 +266,21 @@ void PaneOrderFiles::importFile()
                 co_return (result == QDialog::Accepted);
             };
 
+            // Asked when a file's unique ID was already recorded as imported. Lets the user
+            // deliberately re-import it (e.g. an updated report with the same filename) — the
+            // new data will replace/complement previously imported data via OrderManager's own
+            // conflict handling.
+            auto callbackConfirmReimport = [self](const QString &fileName, const QDateTime &previousImportDate) -> QCoro::Task<bool> {
+                const QString when = previousImportDate.isValid()
+                        ? QLocale().toString(previousImportDate, QLocale::ShortFormat)
+                        : self->tr("an earlier session");
+                int result = QMessageBox::question(self, self->tr("File Already Imported"),
+                        self->tr("\"%1\" was already imported (on %2).\n\n"
+                                 "Re-import it now and replace any different data?").arg(fileName, when),
+                        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+                co_return (result == QMessageBox::Yes);
+            };
+
             // Ensure the importer reads fbacenters.csv from the same location as the
             // settings pane (WorkingDirectoryManager's root dir), so centers added via
             // DialogVatParams are visible to the importer on retry.
@@ -277,10 +292,13 @@ void PaneOrderFiles::importFile()
             aggregatedResult.orderInfos = QSharedPointer<AbstractImporter::OrderInfos>::create();
             QStringList errors;
             QStringList successfulPaths; // tracks files that loaded without error
+            // Per-file (path, dateMin, dateMax), used to mark files as imported only once
+            // the aggregated import is actually confirmed and committed (see markReportImported()).
+            QList<std::tuple<QString, QDate, QDate>> pendingMarkAsImported;
 
             for (const QString &path : paths) {
                 // Load Report with callback
-                auto result = co_await importer->loadReport(path, callbackAddIfMissing);
+                auto result = co_await importer->loadReport(path, callbackAddIfMissing, callbackConfirmReimport);
 
                 if (!result.errorReturned.isEmpty()) {
                     errors.append(QString("File: %1\nError: %2").arg(QFileInfo(path).fileName(), result.errorReturned));
@@ -289,6 +307,7 @@ void PaneOrderFiles::importFile()
                 successfulPaths.append(path);
 
                 if (result.orderInfos) {
+                    pendingMarkAsImported.append({path, result.orderInfos->dateMin, result.orderInfos->dateMax});
                    aggregatedResult.orderInfos->shipments.append(result.orderInfos->shipments);
                    aggregatedResult.orderInfos->refunds.append(result.orderInfos->refunds);
                    aggregatedResult.orderInfos->orderAddresses.append(result.orderInfos->orderAddresses);
@@ -451,6 +470,13 @@ void PaneOrderFiles::importFile()
                     QMessageBox::warning(self, tr("Refund Errors"), refundErrors.join("\n\n"));
                 }
 
+                // Only now that everything above has actually been committed to OrderManager
+                // do we record the files as imported — a cancelled dialog or an exception
+                // thrown during the commit above must NOT mark a file as imported.
+                for (const auto &[markPath, markDateMin, markDateMax] : std::as_const(pendingMarkAsImported)) {
+                    importer->markReportImported(markPath, markDateMin, markDateMax);
+                }
+
                 importedCount = aggregatedResult.orderInfos->countAll();
 
                 // Append one CSV row per imported file to the audit log.
@@ -547,6 +573,11 @@ void PaneOrderFiles::importFile()
                 QMessageBox::information(self, tr("Import Successful"),
                                          tr("Successfully imported %1 items.").arg(importedCount));
             } else if (errors.isEmpty()) {
+                 // Nothing to commit, so nothing to cancel/fail — safe to mark the parsed
+                 // files as imported right away, so they aren't needlessly re-parsed later.
+                 for (const auto &[markPath, markDateMin, markDateMax] : std::as_const(pendingMarkAsImported)) {
+                     importer->markReportImported(markPath, markDateMin, markDateMax);
+                 }
                  QMessageBox::information(self, tr("Import"), tr("No data found to import."));
             }
             

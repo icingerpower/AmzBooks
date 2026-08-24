@@ -10,7 +10,14 @@ ParamsTable::ParamsTable(AbstractImporter *importer, QObject *parent)
         // We use getLoadedParamValues() as the source of truth for current values
         // Note: AbstractImporter::getLoadedParamValues() returns a const reference to m_params
         // which contains both required params (initialized) and loaded values.
-        m_keys = m_importer->getLoadedParamValues().keys();
+        // Only scalar params belong in this 2-column form; RecordList params are
+        // edited by the dedicated RecordListEditor widget.
+        const auto &params = m_importer->getLoadedParamValues();
+        for (auto it = params.constBegin(); it != params.constEnd(); ++it) {
+            if (it.value().type == AbstractImporter::ParamType::Scalar) {
+                m_keys.append(it.key());
+            }
+        }
     }
 }
 

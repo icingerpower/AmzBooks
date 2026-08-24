@@ -10,8 +10,6 @@ public:
 
 protected:
     QString getEndpoint() const override;
-    QString getRegion() const override;
-
     QString getMarketplaceId() const override;
     QString getLabel() const override;
     QString getId() const override;

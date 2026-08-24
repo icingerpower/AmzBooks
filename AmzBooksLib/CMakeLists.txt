@@ -9,8 +9,9 @@ set(CMAKE_AUTORCC ON)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Gui Sql)
-find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Gui Sql)
+find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core Gui Sql DBus)
+find_package(Qt${QT_VERSION_MAJOR} REQUIRED COMPONENTS Core Gui Sql DBus)
+find_package(OpenSSL REQUIRED)
 
 # Compile and install QCoro
 # cd /home/cedric/code
@@ -42,6 +43,7 @@ find_package(QCoro6 REQUIRED COMPONENTS Network
 )
 
 include(../../common/utils/utils.cmake)
+include(../../common/secrets/secrets.cmake)
 
 include(orders/orders.cmake)
 include(books/books.cmake)
@@ -67,6 +69,7 @@ add_library(AmzBooksLib STATIC
   ${INVENTORY_FILES}
   ${VATFIXER_FILES}
   ${UTILS_FILES}
+  ${SECRETS_FILES}
 )
 
 
@@ -76,7 +79,9 @@ target_link_libraries(AmzBooksLib
     Qt${QT_VERSION_MAJOR}::Gui
     Qt${QT_VERSION_MAJOR}::Sql
     Qt${QT_VERSION_MAJOR}::Network
+    Qt${QT_VERSION_MAJOR}::DBus
     QCoro::Network
+    OpenSSL::Crypto
 )
 
 target_include_directories(AmzBooksLib PUBLIC ../../common ${CMAKE_CURRENT_SOURCE_DIR})

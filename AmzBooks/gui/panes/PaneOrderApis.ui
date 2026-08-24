@@ -72,6 +72,22 @@
            <bool>true</bool>
           </attribute>
          </widget>
+         <widget class="QWidget" name="widgetRecordEditors" native="true">
+          <layout class="QVBoxLayout" name="layoutRecordEditors">
+           <property name="leftMargin">
+            <number>0</number>
+           </property>
+           <property name="topMargin">
+            <number>0</number>
+           </property>
+           <property name="rightMargin">
+            <number>0</number>
+           </property>
+           <property name="bottomMargin">
+            <number>0</number>
+           </property>
+          </layout>
+         </widget>
          <widget class="QChartView" name="chartOrders"/>
          <widget class="QTableView" name="tableOrders">
           <property name="sortingEnabled">
