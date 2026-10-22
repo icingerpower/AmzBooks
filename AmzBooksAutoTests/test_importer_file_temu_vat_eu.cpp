@@ -7,6 +7,7 @@
 #include <QTemporaryDir>
 
 #include "orders/ImporterFileTemuVatEu.h"
+#include "orders/OrderManager.h"
 #include "utils/CsvReader.h"
 #include "utils/CsvHeader.h"
 
@@ -86,6 +87,10 @@ private slots:
     // MARKETPLACE → orderId_infos
     void test_marketplace_populatesOrderIdStore();
     void test_marketplace_columnAbsent();
+
+    // Multi-language & multi-store monthly files
+    void test_germanHeaderAndDateFormats();
+    void test_multipleFilesSameMonthMultiStore();
 
     // Per-line invoice filter
     void test_linesWithoutInvoiceSkipped();
@@ -278,7 +283,7 @@ void TestImporterFileTemuVatEu::test_simpleReturn()
     QCOMPARE(refund.getActivities().size(), 1);
 
     const auto &act = refund.getActivities().first();
-    QCOMPARE(act.getActivityId(),    QString("PO-069-00000000000000002__FR")); // orderId__departure
+    QCOMPARE(act.getActivityId(),    QString("PO-069-00000000000000002__FR__return")); // orderId__departure__return
     QCOMPARE(act.getSubActivityId(), QString("SKU002"));
     QVERIFY(qAbs(act.getAmountTaxed() - (-16.30)) < 0.01);
     QVERIFY(qAbs(act.getAmountTaxes()  - (- 2.72)) < 0.01);
@@ -331,11 +336,13 @@ void TestImporterFileTemuVatEu::test_shippingSubsidyAmounts()
     QVERIFY(tempDir.isValid());
 
     QString content = CSV_HEADER;
+    // In real Temu reports, TAXE TOTALE covers article + regular shipping VAT (2,00 + 0,40 = 2,40),
+    // while shipping-subsidy VAT (0,20) is reported in its own column and added by the importer.
     content += CSV_ROW("PO-069-00000000000000010","FR","TestShop","2025-11-20",
                        "sales","SKU010","20%","1","FR","FR",
                        "10,00","0,00","1,00","2,00","0,00","0,00",
                        "2,00","0,00","0,20","0,40",
-                       "2,60","EUR","INV-FR-TEST-010","");
+                       "2,40","EUR","INV-FR-TEST-010","");
 
     QString file = createTempCsv(content, tempDir);
 
@@ -440,6 +447,13 @@ void TestImporterFileTemuVatEu::test_orderWithSaleAndReturn()
     QVERIFY(saleAct.getAmountTaxed()   > 0);
     QVERIFY(refundAct.getAmountTaxed() < 0);
     QVERIFY(qAbs(saleAct.getAmountTaxed() + refundAct.getAmountTaxed()) < 0.01);
+
+    // Shipment ID and Refund ID must be distinct so they do not overwrite each other
+    // in OrderManager (shipments.id and invoicing_infos.shipment_root_id).
+    QCOMPARE(result.orderInfos->shipments.first().getId(), QString("PO-069-00000000000000005__FR"));
+    QCOMPARE(result.orderInfos->refunds.first().getId(),   QString("PO-069-00000000000000005__FR__return"));
+    QVERIFY(result.orderInfos->shipments.first().getId() != result.orderInfos->refunds.first().getId());
+    QCOMPARE(result.orderInfos->invoicingInfos.size(), 2);
 }
 
 // ===========================================================================
@@ -1110,6 +1124,209 @@ void TestImporterFileTemuVatEu::test_marketplace_columnAbsent()
     QCOMPARE(result.orderInfos->shipments.size(), 1);
     QVERIFY2(result.orderInfos->orderId_infos.isEmpty(),
              "orderId_infos must be empty when MARKETPLACE column is absent");
+}
+
+// ===========================================================================
+// test_germanHeaderAndDateFormats
+// Verify that German CSV headers and German date strings ("21. Sept. 2026",
+// "15. März 2026", etc.) parse cleanly and populate shipments/refunds/store.
+// ===========================================================================
+void TestImporterFileTemuVatEu::test_germanHeaderAndDateFormats()
+{
+    static const QString DE_HEADER =
+        "BESTELLNUMMER,MARKTPLATZ,NAME DES EINKAUFSZENTRUMS,ZAHLUNGSDATUM DER BESTELLUNG,"
+        "VERKAUFSART,VERKÄUFER-SKU,UMSATZSTEUERSATZ DER ARTIKEL,MENGE,"
+        "\"HERKUNFTSLAND DER TRANSAKTION \",ANKUNFTSLAND DER TRANSAKTION,"
+        "PREIS DER ARTIKEL (OHNE UST.),ZUSCHUSSPREIS (OHNE UST.),"
+        "VERSANDZUSCHUSSPREIS (OHNE MWST.),PREIS DER SENDUNG (OHNE UST.),"
+        "\"Versandetikett für die von der Plattform abgedeckte Rücksendung von gekauften Artikeln (inkl. Steuern, falls vorhanden)\","
+        "\"Versandetikett für die Anpassung der von der Plattform abgedeckten Rücksendung von gekauften Artikeln (inkl. Steuern, falls vorhanden)\","
+        "UMSATZSTEUERBETRAG DER ARTIKEL,UMSATZSTEUERBETRAG DES ZUSCHUSSES,"
+        "MEHRWERTSTEUERBETRAG DES VERSANDZUSCHUSSES,UMSATZSTEUERBETRAG DER SENDUNG,"
+        "STEUERN INSGESAMT,WÄHRUNG,RECHNUNGSNUMMER,SUBVENTIONSRECHNUNGSNUMMER,Rechnungsdatum\n";
+
+    struct DateCase { QString dateStr; QDate expected; };
+    const QList<DateCase> cases = {
+        {"15. Jan. 2026",  QDate(2026,  1, 15)},
+        {"28. Feb. 2026",  QDate(2026,  2, 28)},
+        {"15. März 2026",  QDate(2026,  3, 15)},
+        {"10. Apr. 2026",  QDate(2026,  4, 10)},
+        {"5. Mai 2026",    QDate(2026,  5,  5)},
+        {"20. Juni 2026",  QDate(2026,  6, 20)},
+        {"12. Juli 2026",  QDate(2026,  7, 12)},
+        {"8. Aug. 2026",   QDate(2026,  8,  8)},
+        {"4. Sept. 2026",  QDate(2026,  9,  4)},
+        {"21. Sept. 2026", QDate(2026,  9, 21)},
+        {"3. Okt. 2026",   QDate(2026, 10,  3)},
+        {"19. Nov. 2026",  QDate(2026, 11, 19)},
+        {"24. Dez. 2026",  QDate(2026, 12, 24)},
+    };
+
+    for (const auto &c : cases)
+    {
+        QTemporaryDir tempDir;
+        QVERIFY(tempDir.isValid());
+
+        QString content = DE_HEADER;
+        content += QString("PO-076-12963288284790589,DE,Musuly,%1,sales,6903-2,19%,1,FR,DE,"
+                           "\"28,58\",\"0,00\",\"0,00\",\"2,50\",\"0,00\",\"0,00\","
+                           "\"5,43\",\"0,00\",\"0,00\",\"0,47\",\"5,90\",EUR,"
+                           "INV-DE-OSS-6620677-2026-1,,26. Sept. 2026\n").arg(c.dateStr);
+
+        QString safeName = c.dateStr;
+        safeName.replace(' ', '_').replace('.', '_');
+        QString file = createTempCsv(content, tempDir, "de_" + safeName + ".csv");
+
+        QTemporaryDir workDir;
+        ImporterFileTemuVatEu importer(workDir.path());
+        auto result = QCoro::waitFor(importer.loadReport(file));
+
+        QVERIFY2(result.errorReturned.isEmpty(),
+                 qPrintable("DE date '" + c.dateStr + "': " + result.errorReturned));
+        QCOMPARE(result.orderInfos->shipments.size(), 1);
+        QCOMPARE(result.orderInfos->dateMin, c.expected);
+        QCOMPARE(result.orderInfos->orderId_infos.value("PO-076-12963288284790589").store,
+                 QString("temu.de"));
+    }
+}
+
+// ===========================================================================
+// test_multipleFilesSameMonthMultiStore
+// Verify importing multiple Temu VAT files for the same month (FR + DE Musuly +
+// DE Pradize + header-only DE August files) into OrderManager:
+//  - Each file is tracked independently by filename via markReportImported.
+//  - Orders from different stores/languages populate orderId_infos with temu.fr / temu.de.
+//  - Order PO-076-02119327273591734 (which has both a sales row and a return row
+//    in temu-vat-eu-de-pradize-2026-09.csv) preserves both the Shipment and the
+//    Refund (with tax date inherited from the sale) and both InvoicingInfos in OrderManager.
+// ===========================================================================
+void TestImporterFileTemuVatEu::test_multipleFilesSameMonthMultiStore()
+{
+    static const QString DE_HEADER =
+        "BESTELLNUMMER,MARKTPLATZ,NAME DES EINKAUFSZENTRUMS,ZAHLUNGSDATUM DER BESTELLUNG,"
+        "VERKAUFSART,VERKÄUFER-SKU,UMSATZSTEUERSATZ DER ARTIKEL,MENGE,"
+        "\"HERKUNFTSLAND DER TRANSAKTION \",ANKUNFTSLAND DER TRANSAKTION,"
+        "PREIS DER ARTIKEL (OHNE UST.),ZUSCHUSSPREIS (OHNE UST.),"
+        "VERSANDZUSCHUSSPREIS (OHNE MWST.),PREIS DER SENDUNG (OHNE UST.),"
+        "\"Versandetikett für die von der Plattform abgedeckte Rücksendung von gekauften Artikeln (inkl. Steuern, falls vorhanden)\","
+        "\"Versandetikett für die Anpassung der von der Plattform abgedeckten Rücksendung von gekauften Artikeln (inkl. Steuern, falls vorhanden)\","
+        "UMSATZSTEUERBETRAG DER ARTIKEL,UMSATZSTEUERBETRAG DES ZUSCHUSSES,"
+        "MEHRWERTSTEUERBETRAG DES VERSANDZUSCHUSSES,UMSATZSTEUERBETRAG DER SENDUNG,"
+        "STEUERN INSGESAMT,WÄHRUNG,RECHNUNGSNUMMER,SUBVENTIONSRECHNUNGSNUMMER,Rechnungsdatum\n";
+
+    QTemporaryDir tempDir;
+    QVERIFY(tempDir.isValid());
+
+    // 1. Header-only August DE files (one per store)
+    const QString fileAugMusuly  = createTempCsv(DE_HEADER, tempDir, "temu-vat-eu-de-musuly-2026-08.csv");
+    const QString fileAugPradize = createTempCsv(DE_HEADER, tempDir, "temu-vat-eu-de-pradize-2026-08.csv");
+
+    // 2. September FR file (Icinger Power)
+    QString frSeptContent = CSV_HEADER;
+    frSeptContent += CSV_ROW("PO-069-09369169696631643","FR","Icinger Power","1 sept. 2026",
+                             "sales","A3K-6XL-Noir","20%","1","FR","FR",
+                             "10,23","0,00","0,00","2,49","0,00","0,00",
+                             "2,05","0,00","0,00","0,50",
+                             "2,55","EUR","INV-FR-2437569-2026-143","");
+    const QString fileSeptFr = createTempCsv(frSeptContent, tempDir, "temu-vat-eu-2026-09.csv");
+
+    // 3. September DE Musuly file (1 invoiced sale + 1 uninvoiced sale)
+    QString deMusulySeptContent = DE_HEADER
+        + "PO-076-12963288284790589,DE,Musuly,21. Sept. 2026,sales,6903-2,19%,1,FR,DE,"
+          "\"28,58\",\"0,00\",\"0,00\",\"2,50\",\"0,00\",\"0,00\","
+          "\"5,43\",\"0,00\",\"0,00\",\"0,47\",\"5,90\",EUR,INV-DE-OSS-6620677-2026-1,,26. Sept. 2026\n"
+        + "PO-076-14469755884153960,DE,Musuly,28. Sept. 2026,sales,8819-3XL-38,19%,1,FR,DE,"
+          "\"29,40\",\"0,00\",\"0,00\",\"2,50\",\"0,00\",\"0,00\","
+          "\"5,59\",\"0,00\",\"0,00\",\"0,47\",\"6,06\",EUR,,,\n";
+    const QString fileSeptMusuly = createTempCsv(deMusulySeptContent, tempDir, "temu-vat-eu-de-musuly-2026-09.csv");
+
+    // 4. September DE Pradize file (return + sales for the SAME order PO-076-02119327273591734)
+    QString dePradizeSeptContent = DE_HEADER
+        + "PO-076-02119327273591734,DE,Pradize,29. Sept. 2026,return,M2667-S-Noir,19%,0,FR,DE,"
+          "\"-26,36\",\"0,00\",\"0,00\",\"-2,50\",\"0,00\",\"0,00\","
+          "\"-5,01\",\"0,00\",\"0,00\",\"-0,47\",\"-5,48\",EUR,CN-DE-OSS-8883286-2026-1,,29. Sept. 2026\n"
+        + "PO-076-02119327273591734,DE,Pradize,4. Sept. 2026,sales,M2667-S-Noir,19%,1,FR,DE,"
+          "\"26,36\",\"0,00\",\"0,00\",\"2,50\",\"0,00\",\"0,00\","
+          "\"5,01\",\"0,00\",\"0,00\",\"0,47\",\"5,48\",EUR,INV-DE-OSS-8883286-2026-1,,9. Sept. 2026\n";
+    const QString fileSeptPradize = createTempCsv(dePradizeSeptContent, tempDir, "temu-vat-eu-de-pradize-2026-09.csv");
+
+    QTemporaryDir workDir;
+    QVERIFY(workDir.isValid());
+    ImporterFileTemuVatEu importer(workDir.path());
+    OrderManager orderManager(workDir.path());
+    const ActivitySource source = importer.getActivitySource();
+
+    const QStringList files = {
+        fileAugMusuly,
+        fileAugPradize,
+        fileSeptFr,
+        fileSeptMusuly,
+        fileSeptPradize
+    };
+
+    for (const QString &fp : files)
+    {
+        auto res = QCoro::waitFor(importer.loadReport(fp));
+        QVERIFY2(res.errorReturned.isEmpty(), qPrintable(fp + ": " + res.errorReturned));
+        QVERIFY(res.orderInfos);
+
+        QList<OrderManager::ShipmentFromSourceEntry> entries;
+        for (const auto &s : std::as_const(res.orderInfos->shipments))
+        {
+            entries.append({s.getActivities().first().getEventId(), &s, QDate(),
+                            importer.isWrongIfConflict(), false});
+        }
+        for (const auto &r : std::as_const(res.orderInfos->refunds))
+        {
+            entries.append({r.getActivities().first().getEventId(), &r, QDate(),
+                            importer.isWrongIfConflict(), importer.fixRefundDate()});
+        }
+        if (!entries.isEmpty())
+            orderManager.recordShipmentsFromSource(&source, entries);
+
+        for (const auto &inv : std::as_const(res.orderInfos->invoicingInfos))
+            orderManager.recordInvoicingInfo(inv.shipmentOrRefundId, &inv.invoicingInfo);
+
+        if (!res.orderInfos->orderId_infos.isEmpty())
+            orderManager.recordOrders(res.orderInfos->orderId_infos);
+
+        importer.markReportImported(fp, res.orderInfos->dateMin, res.orderInfos->dateMax);
+    }
+
+    // All 5 filenames must be recorded in getImportedIds() without collision
+    const QStringList importedIds = importer.getImportedIds();
+    QCOMPARE(importedIds.size(), 5);
+    QVERIFY(importedIds.contains("temu-vat-eu-de-musuly-2026-08.csv"));
+    QVERIFY(importedIds.contains("temu-vat-eu-de-pradize-2026-08.csv"));
+    QVERIFY(importedIds.contains("temu-vat-eu-2026-09.csv"));
+    QVERIFY(importedIds.contains("temu-vat-eu-de-musuly-2026-09.csv"));
+    QVERIFY(importedIds.contains("temu-vat-eu-de-pradize-2026-09.csv"));
+
+    // Verify both the Shipment and the Refund for PO-076-02119327273591734 exist in OrderManager
+    QVERIFY(orderManager.containsShipmentOrRefund("PO-076-02119327273591734__FR"));
+    QVERIFY(orderManager.containsShipmentOrRefund("PO-076-02119327273591734__FR__return"));
+    QVERIFY(orderManager.containsShipmentOrRefund("PO-076-12963288284790589__FR"));
+    QVERIFY(orderManager.containsShipmentOrRefund("PO-069-09369169696631643__FR"));
+
+    // Verify InvoicingInfo for both the sale and the credit note of PO-076-02119327273591734
+    auto saleInv = orderManager.getInvoicingInfo("PO-076-02119327273591734__FR");
+    auto retInv  = orderManager.getInvoicingInfo("PO-076-02119327273591734__FR__return");
+    QVERIFY(saleInv != nullptr);
+    QVERIFY(retInv  != nullptr);
+    QCOMPARE(saleInv->getInvoiceNumber().value_or(QString()), QString("INV-DE-OSS-8883286-2026-1"));
+    QCOMPARE(retInv->getInvoiceNumber().value_or(QString()),  QString("CN-DE-OSS-8883286-2026-1"));
+
+    // Verify total shipments & refunds in September 2026 (3 shipments + 1 refund = 4 items)
+    auto sepItems = orderManager.getShipmentAndRefunds(
+        QDate(2026, 9, 1), QDate(2026, 9, 30),
+        [](const ActivitySource *, const Shipment *) { return true; });
+    QCOMPARE(sepItems.size(), 4);
+
+    // Verify stores (temu.fr vs temu.de)
+    const auto stores = orderManager.getStores(sepItems.values());
+    QCOMPARE(stores.value("PO-069-09369169696631643"), QString("temu.fr"));
+    QCOMPARE(stores.value("PO-076-12963288284790589"), QString("temu.de"));
+    QCOMPARE(stores.value("PO-076-02119327273591734"), QString("temu.de"));
 }
 
 // ===========================================================================

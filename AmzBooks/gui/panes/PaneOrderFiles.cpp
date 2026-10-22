@@ -578,6 +578,11 @@ void PaneOrderFiles::importFile()
                  for (const auto &[markPath, markDateMin, markDateMax] : std::as_const(pendingMarkAsImported)) {
                      importer->markReportImported(markPath, markDateMin, markDateMax);
                  }
+                 QMetaObject::invokeMethod(self, [self, successfulPaths]() {
+                     for (int i = successfulPaths.size() - 1; i >= 0; --i) {
+                         self->ui->listImportedFiles->insertItem(0, QFileInfo(successfulPaths[i]).fileName());
+                     }
+                 }, Qt::QueuedConnection);
                  QMessageBox::information(self, tr("Import"), tr("No data found to import."));
             }
             

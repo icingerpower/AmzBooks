@@ -10,11 +10,6 @@
 
 DECLARE_IMPORTER_FILE(ImporterFileTemuVatEu)
 
-// Column name for departure country.
-// The raw CSV has "PAYS DE DÉPART DE LA TRANSACTION " (quoted, trailing space), but
-// CsvHeader stores trimmed keys, so the lookup must use the trimmed form.
-static const QString COL_DEPART = "PAYS DE DÉPART DE LA TRANSACTION";
-
 QString ImporterFileTemuVatEu::getLabel() const
 {
     return QObject::tr("Temu EU VAT Report");
@@ -87,28 +82,97 @@ QDate ImporterFileTemuVatEu::parseTemuVatDate(const QString &dateStr)
     if (s.isEmpty())
         return QDate();
 
-    // Try ISO format: "yyyy-MM-dd" (used in some report files, e.g. 2025-11-29)
-    QDate date = QDate::fromString(s, "yyyy-MM-dd");
-    if (date.isValid())
-        return date;
+    // Try ISO / numeric formats: "yyyy-MM-dd", "dd.MM.yyyy", "dd/MM/yyyy"
+    for (const QString &fmt : {QStringLiteral("yyyy-MM-dd"),
+                               QStringLiteral("dd.MM.yyyy"),
+                               QStringLiteral("dd/MM/yyyy")})
+    {
+        QDate date = QDate::fromString(s, fmt);
+        if (date.isValid())
+            return date;
+    }
 
-    // Try French abbreviated format: "d déc. 2025" or "26 janv. 2026"
-    static const QMap<QString, int> frMonths = {
-        {"janv.", 1}, {"févr.", 2}, {"mars", 3},  {"avr.", 4},
-        {"mai",   5}, {"juin",  6}, {"juil.", 7}, {"août", 8},
-        {"sept.", 9}, {"oct.", 10}, {"nov.", 11}, {"déc.", 12}
+    // Localized abbreviated / full month names (lowercase, without trailing dot)
+    // across FR, DE, EN, IT, ES:
+    //   FR: "26 janv. 2026", "1 déc. 2025", "19 août 2026"
+    //   DE: "21. Sept. 2026", "4. Sept. 2026", "15. März 2026"
+    //   EN: "21 Sep 2026", "Sep 21, 2026"
+    static const QHash<QString, int> monthMap = {
+        // 1 - January
+        {"janv", 1}, {"janvier", 1}, {"jan", 1}, {"januar", 1}, {"jän", 1}, {"jänner", 1},
+        {"january", 1}, {"gen", 1}, {"gennaio", 1}, {"ene", 1}, {"enero", 1},
+        // 2 - February
+        {"févr", 2}, {"fevr", 2}, {"fév", 2}, {"fev", 2}, {"février", 2}, {"fevrier", 2},
+        {"feb", 2}, {"februar", 2}, {"february", 2}, {"febbraio", 2}, {"febrero", 2},
+        // 3 - March
+        {"mars", 3}, {"märz", 3}, {"maerz", 3}, {"mär", 3}, {"mrz", 3},
+        {"mar", 3}, {"march", 3}, {"marzo", 3},
+        // 4 - April
+        {"avr", 4}, {"avril", 4}, {"apr", 4}, {"april", 4}, {"aprile", 4}, {"abr", 4}, {"abril", 4},
+        // 5 - May
+        {"mai", 5}, {"may", 5}, {"mag", 5}, {"maggio", 5}, {"mayo", 5},
+        // 6 - June
+        {"juin", 6}, {"juni", 6}, {"jun", 6}, {"june", 6}, {"giu", 6}, {"giugno", 6}, {"junio", 6},
+        // 7 - July
+        {"juil", 7}, {"juillet", 7}, {"juli", 7}, {"jul", 7}, {"july", 7},
+        {"lug", 7}, {"luglio", 7}, {"julio", 7},
+        // 8 - August
+        {"août", 8}, {"aout", 8}, {"aug", 8}, {"august", 8}, {"ago", 8}, {"agosto", 8},
+        // 9 - September
+        {"sept", 9}, {"sep", 9}, {"septembre", 9}, {"september", 9},
+        {"set", 9}, {"settembre", 9}, {"septiembre", 9}, {"setiembre", 9},
+        // 10 - October
+        {"oct", 10}, {"octobre", 10}, {"okt", 10}, {"oktober", 10}, {"october", 10},
+        {"ott", 10}, {"ottobre", 10}, {"octubre", 10},
+        // 11 - November
+        {"nov", 11}, {"novembre", 11}, {"november", 11}, {"noviembre", 11},
+        // 12 - December
+        {"déc", 12}, {"dec", 12}, {"décembre", 12}, {"decembre", 12},
+        {"dez", 12}, {"dezember", 12}, {"december", 12}, {"dic", 12}, {"dicembre", 12}, {"diciembre", 12}
+    };
+
+    auto lookupMonth = [](QString token) -> int {
+        token = token.trimmed().toLower();
+        while (token.endsWith('.') || token.endsWith(','))
+            token.chop(1);
+        return monthMap.value(token, 0);
+    };
+
+    auto parseDayToken = [](QString token, bool *ok) -> int {
+        token = token.trimmed();
+        while (token.endsWith('.') || token.endsWith(','))
+            token.chop(1);
+        return token.toInt(ok);
     };
 
     QStringList parts = s.split(' ', Qt::SkipEmptyParts);
     if (parts.size() == 3)
     {
-        bool dayOk = false;
-        int day   = parts[0].toInt(&dayOk);
-        int month = frMonths.value(parts[1], 0);
         bool yearOk = false;
-        int year  = parts[2].toInt(&yearOk);
-        if (dayOk && month > 0 && yearOk)
-            return QDate(year, month, day);
+        int year = parts[2].toInt(&yearOk);
+        if (yearOk)
+        {
+            // Format 1: "<day>[.] <month>[.] <year>" (FR/DE/IT/ES/EN, e.g. "21. Sept. 2026", "26 janv. 2026")
+            bool dayOk = false;
+            int day = parseDayToken(parts[0], &dayOk);
+            int month = lookupMonth(parts[1]);
+            if (dayOk && month > 0)
+            {
+                QDate d(year, month, day);
+                if (d.isValid())
+                    return d;
+            }
+
+            // Format 2: "<month>[.] <day>[,] <year>" (EN, e.g. "Sep 21, 2026")
+            month = lookupMonth(parts[0]);
+            day = parseDayToken(parts[1], &dayOk);
+            if (dayOk && month > 0)
+            {
+                QDate d(year, month, day);
+                if (d.isValid())
+                    return d;
+            }
+        }
     }
 
     qWarning() << "ImporterFileTemuVatEu: failed to parse date:" << dateStr;
@@ -133,52 +197,57 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
 
     const auto *csvData = reader.dataRode();
 
-    // --- Validate required columns -----------------------------------------------
-    const QStringList requiredCols = {
-        "N° DE COMMANDE",
-        "DATE DE PAIEMENT DE LA COMMANDE",
-        "TYPE DE VENTE",
-        "SKU DU VENDEUR",
-        COL_DEPART,                          // "PAYS DE DÉPART DE LA TRANSACTION " (trailing space)
-        "PAYS D'ARRIVÉE DE LA TRANSACTION",
-        "PRIX DES ARTICLES (HORS TVA)",
-        "PRIX DE LA SUBVENTION (HORS TVA)",
-        "PRIX D'EXPÉDITION (HORS TVA)",
-        "TAXE TOTALE",
-        "DEVISE",
-        "ID DE FACTURE"
-    };
-    for (const QString &col : requiredCols)
+    // --- Validate required columns & resolve indices -----------------------------
+    // Raw CSV headers for departure country have a trailing space inside quotes,
+    // which CsvHeader stores trimmed.
+    int idxOrderId  = -1;
+    int idxDate     = -1;
+    int idxType     = -1;
+    int idxSku      = -1;
+    int idxDepart   = -1;
+    int idxArrival  = -1;
+    int idxItemExcl = -1;
+    int idxSubsidy  = -1;
+    int idxShipping = -1;
+    int idxTotalTax = -1;
+    int idxCurrency = -1;
+    int idxInvoice  = -1;
+    try
     {
-        if (!csvData->header.contains(col))
-        {
-            result.errorReturned = "Missing column: " + col;
-            co_return result;
-        }
+        idxOrderId  = csvData->header.pos({"N° DE COMMANDE", "BESTELLNUMMER", "ORDER ID", "NUMERO D'ORDINE", "N.º DE PEDIDO"});
+        idxDate     = csvData->header.pos({"DATE DE PAIEMENT DE LA COMMANDE", "ZAHLUNGSDATUM DER BESTELLUNG", "ORDER PAYMENT DATE", "DATA DI PAGAMENTO DELL'ORDINE", "FECHA DE PAGO DEL PEDIDO"});
+        idxType     = csvData->header.pos({"TYPE DE VENTE", "VERKAUFSART", "SALES TYPE", "TIPO DI VENDITA", "TIPO DE VENTA"});
+        idxSku      = csvData->header.pos({"SKU DU VENDEUR", "VERKÄUFER-SKU", "SELLER SKU", "SKU DEL VENDITORE", "SKU DEL VENDEDOR"});
+        idxDepart   = csvData->header.pos({"PAYS DE DÉPART DE LA TRANSACTION", "HERKUNFTSLAND DER TRANSAKTION", "TRANSACTION DEPARTURE COUNTRY", "PAESE DI PARTENZA DELLA TRANSAZIONE", "PAÍS DE SALIDA DE LA TRANSACCIÓN"});
+        idxArrival  = csvData->header.pos({"PAYS D'ARRIVÉE DE LA TRANSACTION", "ANKUNFTSLAND DER TRANSAKTION", "TRANSACTION ARRIVAL COUNTRY", "PAESE DI ARRIVO DELLA TRANSAZIONE", "PAÍS DE LLEGADA DE LA TRANSACCIÓN"});
+        idxItemExcl = csvData->header.pos({"PRIX DES ARTICLES (HORS TVA)", "PREIS DER ARTIKEL (OHNE UST.)", "ITEM PRICE (EXCL. VAT)", "PREZZO DEGLI ARTICOLI (IVA ESCLUSA)", "PRECIO DE LOS ARTÍCULOS (IVA EXCLUIDO)"});
+        idxSubsidy  = csvData->header.pos({"PRIX DE LA SUBVENTION (HORS TVA)", "ZUSCHUSSPREIS (OHNE UST.)", "SUBSIDY PRICE (EXCL. VAT)", "PREZZO DEL SUSSIDIO (IVA ESCLUSA)", "PRECIO DE LA SUBVENCIÓN (IVA EXCLUIDO)"});
+        idxShipping = csvData->header.pos({"PRIX D'EXPÉDITION (HORS TVA)", "PREIS DER SENDUNG (OHNE UST.)", "SHIPPING PRICE (EXCL. VAT)", "PREZZO DI SPEDIZIONE (IVA ESCLUSA)", "PRECIO DE ENVÍO (IVA EXCLUIDO)"});
+        idxTotalTax = csvData->header.pos({"TAXE TOTALE", "STEUERN INSGESAMT", "TOTAL TAX", "TOTALE IMPOSTE", "IMPUESTO TOTAL"});
+        idxCurrency = csvData->header.pos({"DEVISE", "WÄHRUNG", "CURRENCY", "VALUTA", "MONEDA"});
+        idxInvoice  = csvData->header.pos({"ID DE FACTURE", "RECHNUNGSNUMMER", "INVOICE NUMBER", "NUMERO FATTURA", "NÚMERO DE FACTURA"});
+    }
+    catch (const CsvHeaderException &e)
+    {
+        result.errorReturned = e.getErrorColumns("Missing column:");
+        co_return result;
     }
 
-    // --- Column indices -----------------------------------------------------------
-    int idxOrderId   = csvData->header.pos("N° DE COMMANDE");
-    int idxDate      = csvData->header.pos("DATE DE PAIEMENT DE LA COMMANDE");
-    int idxType      = csvData->header.pos("TYPE DE VENTE");
-    int idxSku       = csvData->header.pos("SKU DU VENDEUR");
-    int idxDepart    = csvData->header.pos(COL_DEPART);
-    int idxArrival   = csvData->header.pos("PAYS D'ARRIVÉE DE LA TRANSACTION");
-    int idxItemExcl  = csvData->header.pos("PRIX DES ARTICLES (HORS TVA)");
-    int idxSubsidy   = csvData->header.pos("PRIX DE LA SUBVENTION (HORS TVA)");
-    int idxShipping  = csvData->header.pos("PRIX D'EXPÉDITION (HORS TVA)");
-    int idxTotalTax  = csvData->header.pos("TAXE TOTALE");
-    int idxCurrency  = csvData->header.pos("DEVISE");
-    int idxInvoice   = csvData->header.pos("ID DE FACTURE");
-
     // Optional columns
-    static const QString COL_SHIP_SUBSIDY     = "MONTANT DE LA SUBVENTION POUR L'EXPÉDITION (TVA non incluse)";
-    static const QString COL_SHIP_SUBSIDY_VAT = "MONTANT DE LA TVA SUR LA SUBVENTION POUR L'EXPÉDITION";
-    static const QString COL_SUBSIDY_INV      = "ID DE FACTURE DE SUBVENTION";
-    int idxShipSubsidy    = csvData->header.contains(COL_SHIP_SUBSIDY)     ? csvData->header.pos(COL_SHIP_SUBSIDY)     : -1;
-    int idxShipSubsidyVat = csvData->header.contains(COL_SHIP_SUBSIDY_VAT) ? csvData->header.pos(COL_SHIP_SUBSIDY_VAT) : -1;
-    int idxSubsidyInvoice = csvData->header.contains(COL_SUBSIDY_INV)      ? csvData->header.pos(COL_SUBSIDY_INV)      : -1;
-    int idxMarketplace    = csvData->header.contains("MARKETPLACE")         ? csvData->header.pos("MARKETPLACE")         : -1;
+    auto optionalPos = [&](const QStringList &names) -> int {
+        try
+        {
+            return csvData->header.pos(names);
+        }
+        catch (const CsvHeaderException &)
+        {
+            return -1;
+        }
+    };
+    int idxShipSubsidy    = optionalPos({"MONTANT DE LA SUBVENTION POUR L'EXPÉDITION (TVA non incluse)", "VERSANDZUSCHUSSPREIS (OHNE MWST.)", "SHIPPING SUBSIDY PRICE (EXCL. VAT)", "PREZZO DEL SUSSIDIO DI SPEDIZIONE (IVA ESCLUSA)", "PRECIO DE SUBVENCIÓN DE ENVÍO (IVA EXCLUIDO)"});
+    int idxShipSubsidyVat = optionalPos({"MONTANT DE LA TVA SUR LA SUBVENTION POUR L'EXPÉDITION", "MEHRWERTSTEUERBETRAG DES VERSANDZUSCHUSSES", "SHIPPING SUBSIDY VAT AMOUNT", "IMPORTO IVA DEL SUSSIDIO DI SPEDIZIONE", "IMPORTE DE IVA DE LA SUBVENCIÓN DE ENVÍO"});
+    int idxSubsidyInvoice = optionalPos({"ID DE FACTURE DE SUBVENTION", "SUBVENTIONSRECHNUNGSNUMMER", "SUBSIDY INVOICE NUMBER", "ID FATTURA SUSSIDIO", "ID DE FACTURA DE SUBVENCIÓN"});
+    int idxMarketplace    = optionalPos({"MARKETPLACE", "MARKTPLATZ", "MERCATO", "MERCADO"});
 
     // --- Temporary aggregation by (orderId, transactionType) ---------------------
     // Multiple CSV rows with the same orderId and type represent individual SKUs of
@@ -271,10 +340,14 @@ QCoro::Task<AbstractImporter::ReturnOrderInfos> ImporterFileTemuVatEu::_loadRepo
         ::Amount amount(totalIncl, totalTax);
         Q_ASSERT(qAbs(totalIncl) < 0.001 || qAbs(totalTax) > 0.001 ); // It could be business customer to handle
 
+        const QString activityId = (type == "return")
+                                   ? (orderId + "__" + departure + "__return")
+                                   : (orderId + "__" + departure);
+
         auto actResult = Activity::create(
             orderId,                  // eventId (order number)
-            orderId + "__" + departure,      // One activity per order as we don't know how to differenciate double shipment
-            sku,                       // subId
+            activityId,               // One activity per order/type as we don't know how to differentiate double shipment
+            sku,                      // subId
             date.startOfDay(),        // dateTime
             date.startOfDay(),        // dateTimeTax (VAT date = payment date)
             currency,
