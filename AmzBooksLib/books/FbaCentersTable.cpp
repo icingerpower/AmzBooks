@@ -19,8 +19,10 @@ FbaCentersTable::FbaCentersTable(const QDir &workingDir, QObject *parent)
 QCoro::Task<QString> FbaCentersTable::getCountryCode(
     const QString &fbaCenterId,
     std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing,
-    const QString &marketplaceHint) const
+    const QString &marketplaceHint)
 {
+    const QString trimmedId = fbaCenterId.trimmed();
+
     // Helper lambda to lookup in cache
     auto lookup = [&](const QString &id) -> QString {
         if (m_cache.contains(id)) {
@@ -30,7 +32,7 @@ QCoro::Task<QString> FbaCentersTable::getCountryCode(
     };
 
     while (true) {
-        QString country = lookup(fbaCenterId);
+        QString country = lookup(trimmedId);
         if (!country.isEmpty()) {
             co_return country;
         }
@@ -42,33 +44,41 @@ QCoro::Task<QString> FbaCentersTable::getCountryCode(
         // Prepare error text
         QString errorTitle = tr("Missing FBA Center");
         QString errorText = marketplaceHint.isEmpty()
-            ? tr("The FBA Center %1 is missing. Please add the Country Code, Postal Code, and City locally.").arg(fbaCenterId)
-            : tr("The FBA Center %1 (%2) is missing. Please add the Country Code, Postal Code, and City locally.").arg(fbaCenterId, marketplaceHint);
-        // Note: The user requested "indicate the amazon (amazon.de for instance) and fulfillement center id missing"
-        // But we only get fbaCenterId here. Usually FBA center IDs like "ORY1" don't strictly imply a marketplace, 
-        // but often context is known. The prompt implies just showing the ID is key.
-        // User said: "indicate the amazon (amazon.de for instance) and fulfillement center id missing".
-        // If I don't have the marketplace context passed in, I can only clearly state the Center ID is unknown.
-        // I will stick to Center ID for now as per signature.
+            ? tr("The FBA Center %1 is missing. Please add the Country Code, Postal Code, and City locally.").arg(trimmedId)
+            : tr("The FBA Center %1 (%2) is missing. Please add the Country Code, Postal Code, and City locally.").arg(trimmedId, marketplaceHint);
         
         bool retry = co_await callbackAddIfMissing(errorTitle, errorText);
+
+        // Reload from disk in case the callback edited fbacenters.csv through
+        // a separate FbaCentersTable instance (e.g. DialogVatParams).
+        reload();
         
         // Check again
-        country = lookup(fbaCenterId);
+        country = lookup(trimmedId);
         if (!country.isEmpty()) {
             co_return country;
         }
         
         if (!retry) {
-            QString detail = marketplaceHint.isEmpty() ? fbaCenterId : tr("%1 (%2)").arg(fbaCenterId, marketplaceHint);
+            QString detail = marketplaceHint.isEmpty() ? trimmedId : tr("%1 (%2)").arg(trimmedId, marketplaceHint);
             ExceptionWithTitleText exception(tr("FBA Center Not Found"), tr("FBA Center %1 not found").arg(detail));
             exception.raise();
         }
     }
 
-    QString detail = marketplaceHint.isEmpty() ? fbaCenterId : tr("%1 (%2)").arg(fbaCenterId, marketplaceHint);
+    QString detail = marketplaceHint.isEmpty() ? trimmedId : tr("%1 (%2)").arg(trimmedId, marketplaceHint);
     ExceptionWithTitleText exception(tr("FBA Center Not Found"), tr("FBA Center %1 not found").arg(detail));
     exception.raise();
+}
+
+void FbaCentersTable::reload()
+{
+    if (m_filePath.isEmpty() || !QFile::exists(m_filePath)) {
+        return;
+    }
+    beginResetModel();
+    _load();
+    endResetModel();
 }
 
 bool FbaCentersTable::_addCenterBatch(const FbaCenter &center)
@@ -87,12 +97,16 @@ bool FbaCentersTable::_addCenterBatch(const FbaCenter &center)
 
 void FbaCentersTable::addCenter(const FbaCenter &center)
 {
-    if (m_cache.contains(center.centerId)) {
-        return; // Already exists
+    const QString centerId = center.centerId.trimmed();
+    if (centerId.isEmpty() || m_cache.contains(centerId)) {
+        return; // Empty or already exists
     }
 
     QStringList row;
-    row << center.centerId << center.countryCode << center.postalCode << center.city;
+    row << centerId
+        << center.countryCode.trimmed()
+        << center.postalCode.trimmed()
+        << center.city.trimmed();
 
     beginInsertRows(QModelIndex(), m_listOfStringList.size(), m_listOfStringList.size());
     m_listOfStringList.append(row);
@@ -201,6 +215,7 @@ void FbaCentersTable::_fillIfMissing()
         // Canada
     add({"YHM1", "CA", "", ""});
     add({"YOW3", "CA", "", ""});
+    add({"YVR2", "CA", "V3M 5Y9", "Delta"});
     add({"YVR4", "CA", "", ""});
     add({"YXU1", "CA", "", ""});
     add({"YXX2", "CA", "", ""});
@@ -266,6 +281,7 @@ void FbaCentersTable::_fillIfMissing()
     add({"HOU2", "US", "", ""});
     add({"HOU6", "US", "", ""});
     add({"IGQ1", "US", "", ""});
+    add({"ILM1", "US", "28401", "Wilmington NC"});
     add({"IND1", "US", "", ""});
     add({"IND4", "US", "", ""});
     add({"JAN1", "US", "", ""});
@@ -284,6 +300,7 @@ void FbaCentersTable::_fillIfMissing()
     add({"MDW7", "US", "", ""});
     add({"MEM4", "US", "", ""});
     add({"MGE1", "US", "", ""});
+    add({"MGE3", "US", "30549", "Jefferson"});
     add({"MKC6", "US", "", ""});
     add({"MKE1", "US", "", ""});
     add({"MKE2", "US", "", ""});
@@ -514,13 +531,15 @@ void FbaCentersTable::_rebuildCache()
     // Safety check: if columns reordered in file vs code, we should map them eventually.
     // Ideally _load would handle column mapping.
     
-    for (const auto &row : m_listOfStringList) {
-        if (row.size() < 4) continue;
+    for (const auto &row : std::as_const(m_listOfStringList)) {
+        if (row.size() < 4) {
+            continue;
+        }
         FbaCenter c;
-        c.centerId = row[0];
-        c.countryCode = row[1];
-        c.postalCode = row[2];
-        c.city = row[3];
+        c.centerId = row[0].trimmed();
+        c.countryCode = row[1].trimmed();
+        c.postalCode = row[2].trimmed();
+        c.city = row[3].trimmed();
         m_cache[c.centerId] = c;
     }
 }

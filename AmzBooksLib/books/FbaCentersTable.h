@@ -22,12 +22,15 @@ public:
     explicit FbaCentersTable(const QDir &workingDir, QObject *parent = nullptr);
 
     // QCoro-based retrieval with user interaction callback.
+    // Reloads from disk after callbackAddIfMissing returns so centers added via a
+    // separate model instance (e.g. DialogVatParams -> PaneSettingsFbaCenters) become visible.
     // marketplaceHint (e.g. "amazon.com") is optional and used only to improve the error message.
     QCoro::Task<QString> getCountryCode(
         const QString &fbaCenterId,
         std::function<QCoro::Task<bool>(const QString &errorTitle, const QString &errorText)> callbackAddIfMissing = nullptr,
-        const QString &marketplaceHint = {}) const;
+        const QString &marketplaceHint = {});
 
+    void reload();
     void addCenter(const FbaCenter &center);
     bool removeRows(int row, int count, const QModelIndex &parent = QModelIndex()) override;
 

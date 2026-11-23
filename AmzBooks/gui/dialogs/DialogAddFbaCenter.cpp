@@ -26,20 +26,20 @@ void DialogAddFbaCenter::_setupCountries()
 
 QString DialogAddFbaCenter::getCenterId() const
 {
-    return ui->editCenterId->text();
+    return ui->editCenterId->text().trimmed();
 }
 
 QString DialogAddFbaCenter::getCountryCode() const
 {
-    return ui->comboCountry->currentText();
+    return ui->comboCountry->currentText().trimmed();
 }
 
 QString DialogAddFbaCenter::getPostalCode() const
 {
-    return ui->editPostalCode->text();
+    return ui->editPostalCode->text().trimmed();
 }
 
 QString DialogAddFbaCenter::getCity() const
 {
-    return ui->editCity->text();
+    return ui->editCity->text().trimmed();
 }

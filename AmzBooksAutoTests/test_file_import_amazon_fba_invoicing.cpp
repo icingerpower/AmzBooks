@@ -32,6 +32,7 @@ private slots:
     void test_invoicingInfo_validation();
     void test_vatEu_missingColumn();
     void test_orderIdConnection();
+    void test_missingFbaCenter_addedExternally();
 
 private:
     QString m_dataDir;
@@ -954,6 +955,64 @@ void TestFileImportAmazonFbaInvoicing::test_orderIdConnection()
     QVERIFY(result.orderInfos->orderId_infos.contains("111-0000001-0000002"));
     QCOMPARE(result.orderInfos->orderId_infos.value("111-0000001-0000001").store, QString("Amazon.fr"));
     QCOMPARE(result.orderInfos->orderId_infos.value("111-0000001-0000002").store, QString("Amazon.de"));
+}
+
+void TestFileImportAmazonFbaInvoicing::test_missingFbaCenter_addedExternally()
+{
+    QTemporaryDir sharedConfigDir;
+    QTemporaryDir importerWorkDir;
+    QVERIFY(sharedConfigDir.isValid());
+    QVERIFY(importerWorkDir.isValid());
+
+    const QString csvPath = importerWorkDir.filePath("missing_fc.csv");
+    QFile f(csvPath);
+    QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream out(&f);
+    out << "\"Amazon Order Id\",\"Shipment ID\",\"Shipment Date\",\"Currency\",\"Item Price\",\"Item Tax\",\"FC\",\"Delivery Country Code\",\"Sales Channel\",\"Recipient Name\",\"Delivery Address 1\",\"Delivery City/Town\",\"Delivery Postcode\"\n";
+    out << "\"111-9999999-0000001\",\"SHIP-ZZZ9\",\"2026-09-15T10:00:00+00:00\",\"USD\",\"25.00\",\"0.00\",\"ZZZ9\",\"US\",\"amazon.com\",\"Jane Doe\",\"1 Main St\",\"Wilmington\",\"28401\"\n";
+    f.close();
+
+    // Simulate DialogVatParams -> PaneSettingsFbaCenters: the callback opens a separate
+    // FbaCentersTable instance pointing at the shared config directory, writes the new
+    // center to fbacenters.csv, and returns true.
+    int callbackCalls = 0;
+    auto callbackAddViaSeparateInstance = [&](const QString &errorTitle, const QString &errorText) -> QCoro::Task<bool> {
+        ++callbackCalls;
+        Q_UNUSED(errorTitle);
+        Q_UNUSED(errorText);
+        if (callbackCalls > 1) {
+            // Guard against infinite retry loop if reload fails
+            co_return false;
+        }
+        FbaCentersTable dialogTable(QDir(sharedConfigDir.path()));
+        dialogTable.addCenter({" ZZZ9 ", "US", "28401", "Wilmington NC"});
+        co_return true;
+    };
+
+    ImporterFileAmazonFbaInvoicing importer(QDir(importerWorkDir.path()));
+    importer.setSharedConfigDirectory(QDir(sharedConfigDir.path()));
+
+    auto task = importer.loadReport(csvPath, callbackAddViaSeparateInstance);
+    auto result = QCoro::waitFor(task);
+
+    QVERIFY2(result.errorReturned.isEmpty(), qPrintable(result.errorReturned));
+    QCOMPARE(callbackCalls, 1);
+    QVERIFY(result.orderInfos);
+    QCOMPARE(result.orderInfos->shipments.size(), 1);
+    QCOMPARE(result.orderInfos->shipments.first().getActivities().first().getCountryCodeFrom(), QString("US"));
+
+    // Verify cancelling the callback raises ExceptionWithTitleText
+    FbaCentersTable directTable(QDir(sharedConfigDir.path()));
+    auto callbackCancel = [](const QString &, const QString &) -> QCoro::Task<bool> {
+        co_return false;
+    };
+    bool threw = false;
+    try {
+        QCoro::waitFor(directTable.getCountryCode("YYYY9", callbackCancel, "amazon.com"));
+    } catch (const ExceptionWithTitleText &) {
+        threw = true;
+    }
+    QVERIFY(threw);
 }
 
 QTEST_GUILESS_MAIN(TestFileImportAmazonFbaInvoicing)
