@@ -1977,6 +1977,44 @@ void TestOrderManager::test_TaxAmountTable()
     QCOMPARE(table2.data(table2.index(1, TaxAmountTable::COL_TAX_DECLARING_COUNTRY)).toString(), QString("Total OSS"));
     QCOMPARE(table2.data(table2.index(2, TaxAmountTable::COL_TAX_DECLARING_COUNTRY)).toString(), QString("Total IOSS"));
     QCOMPARE(table2.data(table2.index(3, TaxAmountTable::COL_TAX_DECLARING_COUNTRY)).toString(), "FR");
+
+    // Unfinished current month: month-end is today or in the future, so TaxAmountTable
+    // must NOT request the month-end rate (which would trigger Q_ASSERT(date < currentDate())).
+    // Instead it falls back to the activity date, clamped to yesterday.
+    {
+        const QDate today = QDate::currentDate();
+        const QDate yesterday = today.addDays(-1);
+        const QDate firstOfMonth(today.year(), today.month(), 1);
+
+        QTemporaryDir curMonthDir;
+        CurrencyRateManager curRateManager(curMonthDir.path(), "fake_key");
+        curRateManager.importRate(yesterday.toString("yyyy-MM-dd"), "USD", "EUR", 0.90);
+        if (firstOfMonth < yesterday) {
+            curRateManager.importRate(firstOfMonth.toString("yyyy-MM-dd"), "USD", "EUR", 0.80);
+        }
+
+        QList<QSharedPointer<Shipment>> curShipments;
+        auto actToday = Activity::create("ordToday", "actToday", "",
+            QDateTime(today, QTime(10, 0)), QDateTime(today, QTime(10, 0)),
+            "USD", "US", "US", false, "US",
+            Amount(100.0, 0.0), TaxSource::MarketplaceProvided, "US",
+            TaxScheme::OutOfScope, TaxJurisdictionLevel::Country, SaleType::Products);
+        curShipments.append(QSharedPointer<Shipment>::create(QList<Activity>{*actToday.value}, "", true));
+
+        double expectedTotal = 100.0 * 0.90;
+        if (firstOfMonth < yesterday) {
+            auto actEarlier = Activity::create("ordEarlier", "actEarlier", "",
+                QDateTime(firstOfMonth, QTime(10, 0)), QDateTime(firstOfMonth, QTime(10, 0)),
+                "USD", "US", "US", false, "US",
+                Amount(100.0, 0.0), TaxSource::MarketplaceProvided, "US",
+                TaxScheme::OutOfScope, TaxJurisdictionLevel::Country, SaleType::Products);
+            curShipments.append(QSharedPointer<Shipment>::create(QList<Activity>{*actEarlier.value}, "", true));
+            expectedTotal += 100.0 * 0.80;
+        }
+
+        TaxAmountTable curTable(curShipments, &curRateManager, "EUR", "FR");
+        QCOMPARE(curTable.data(curTable.index(0, TaxAmountTable::COL_AMOUNT_TOTAL)).toDouble(), expectedTotal);
+    }
 }
 
 void TestOrderManager::test_tryRecordRefund()

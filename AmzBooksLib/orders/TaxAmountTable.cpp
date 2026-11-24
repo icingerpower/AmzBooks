@@ -156,13 +156,21 @@ void TaxAmountTable::aggregate(const TaxResolver::TaxContext &ctx, const Shipmen
         double amountTaxes = act.getAmountTaxes();
 
         // Convert if needed.
-        // Use the last day of the activity's month as the exchange-rate date so
-        // that the displayed totals match what the bookkeeping CSV will contain
-        // (createEntryOssIoss also uses the month-end date for conversions).
+        // For completed months, use the last day of the activity's month as the
+        // exchange-rate date so that displayed totals match what the bookkeeping
+        // CSV will contain (createEntryGrouped / createEntryOssIoss also use the
+        // month-end date). For the current unfinished month (or future dates),
+        // month-end has not passed yet and CurrencyRateManager requires
+        // date < QDate::currentDate(), so fall back to the activity date
+        // (clamped to yesterday).
         if (m_currencyRateManager) {
             if (act.getCurrency() != m_destCurrency) {
+                const QDate today = QDate::currentDate();
                 const QDate actDate = act.getDateTime().date();
-                const QDate rateDate(actDate.year(), actDate.month(), actDate.daysInMonth());
+                const QDate monthEnd(actDate.year(), actDate.month(), actDate.daysInMonth());
+                const QDate rateDate = (monthEnd < today)
+                        ? monthEnd
+                        : qMin(actDate, today.addDays(-1));
                 const double rate = m_currencyRateManager->rate(act.getCurrency(), m_destCurrency, rateDate);
                 amountUntaxed *= rate;
                 amountTaxes *= rate;
